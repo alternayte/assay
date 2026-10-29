@@ -67,6 +67,37 @@ func (q *Queries) CloseResolutions(ctx context.Context, arg CloseResolutionsPara
 	return err
 }
 
+const equivalentTexts = `-- name: EquivalentTexts :many
+SELECT a_norm, b_norm FROM text_equivalence
+WHERE equivalent AND a_norm = ANY($1::text[]) AND b_norm = ANY($1::text[])
+`
+
+type EquivalentTextsRow struct {
+	ANorm string
+	BNorm string
+}
+
+// Cached equivalent pairs among the text values.
+func (q *Queries) EquivalentTexts(ctx context.Context, norms []string) ([]EquivalentTextsRow, error) {
+	rows, err := q.db.Query(ctx, equivalentTexts, norms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EquivalentTextsRow
+	for rows.Next() {
+		var i EquivalentTextsRow
+		if err := rows.Scan(&i.ANorm, &i.BNorm); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertCard = `-- name: InsertCard :one
 INSERT INTO proposals (kind, target, payload, via, connections) VALUES ($1, $2, $3, 'system', $4)
 RETURNING id

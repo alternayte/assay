@@ -495,6 +495,28 @@ func (q *Queries) InsertDecisionCard(ctx context.Context, arg InsertDecisionCard
 	return id, err
 }
 
+const insertEquivalence = `-- name: InsertEquivalence :exec
+INSERT INTO text_equivalence (a_norm, b_norm, equivalent, decision_id) VALUES ($1, $2, $3, $4)
+ON CONFLICT (a_norm, b_norm) DO NOTHING
+`
+
+type InsertEquivalenceParams struct {
+	ANorm      string
+	BNorm      string
+	Equivalent bool
+	DecisionID *int64
+}
+
+func (q *Queries) InsertEquivalence(ctx context.Context, arg InsertEquivalenceParams) error {
+	_, err := q.db.Exec(ctx, insertEquivalence,
+		arg.ANorm,
+		arg.BNorm,
+		arg.Equivalent,
+		arg.DecisionID,
+	)
+	return err
+}
+
 const insertProposedEntity = `-- name: InsertProposedEntity :one
 INSERT INTO entities (type, key, status) VALUES ($1, $2, 'proposed')
 ON CONFLICT (key) DO UPDATE SET updated_at = now()
@@ -981,6 +1003,57 @@ func (q *Queries) SourcesOfKeys(ctx context.Context, keys []string) ([]int64, er
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const textPairs = `-- name: TextPairs :many
+SELECT a.predicate, a.object_text::text AS a_text, a.object_norm AS a_norm, b.object_text::text AS b_text, b.object_norm AS b_norm,
+       ARRAY(SELECT DISTINCT ev.connection_id FROM claim_evidence ev WHERE ev.claim_id IN (a.id, b.id) ORDER BY 1)::bigint[] AS connections
+FROM claims a
+JOIN claims b ON b.subject_id = a.subject_id AND b.predicate = a.predicate AND a.object_norm < b.object_norm
+WHERE a.predicate = ANY($1::text[]) AND a.object_text IS NOT NULL AND b.object_text IS NOT NULL
+  AND a.retracted_at IS NULL AND b.retracted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM text_equivalence t WHERE t.a_norm = a.object_norm AND t.b_norm = b.object_norm)
+ORDER BY a.id, b.id
+LIMIT 500
+`
+
+type TextPairsRow struct {
+	Predicate   string
+	AText       string
+	ANorm       string
+	BText       string
+	BNorm       string
+	Connections []int64
+}
+
+// Differing text values of one subject and single-valued predicate with no
+// cached equivalence.
+// vis:system
+func (q *Queries) TextPairs(ctx context.Context, predicates []string) ([]TextPairsRow, error) {
+	rows, err := q.db.Query(ctx, textPairs, predicates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TextPairsRow
+	for rows.Next() {
+		var i TextPairsRow
+		if err := rows.Scan(
+			&i.Predicate,
+			&i.AText,
+			&i.ANorm,
+			&i.BText,
+			&i.BNorm,
+			&i.Connections,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

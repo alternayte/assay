@@ -72,3 +72,8 @@ RETURNING r.id, r.chosen_claim_id;
 -- name: InsertCard :one
 INSERT INTO proposals (kind, target, payload, via, connections) VALUES (@kind, @target, @payload, 'system', @connections)
 RETURNING id;
+
+-- name: EquivalentTexts :many
+-- Cached equivalent pairs among the text values.
+SELECT a_norm, b_norm FROM text_equivalence
+WHERE equivalent AND a_norm = ANY(@norms::text[]) AND b_norm = ANY(@norms::text[]);

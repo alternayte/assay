@@ -235,7 +235,23 @@ func evaluate(ctx context.Context, db DB, vis visibility.Set, cs []Claim) (map[i
 	for _, id := range sup {
 		superseded[id] = true
 	}
-	return Evaluate(facts, res, superseded, prio), nil
+	var norms []string
+	for _, f := range facts {
+		if f.ObjectID == 0 && f.ObjectNorm != "" && !slices.Contains(norms, f.ObjectNorm) {
+			norms = append(norms, f.ObjectNorm)
+		}
+	}
+	eq := Equivalence{}
+	if len(norms) > 1 {
+		pairs, err := q.EquivalentTexts(ctx, norms)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range pairs {
+			eq[Pair(p.ANorm, p.BNorm)] = true
+		}
+	}
+	return Evaluate(facts, res, superseded, prio, eq), nil
 }
 
 // About loads up to lim claims about the entities, as subject or object,

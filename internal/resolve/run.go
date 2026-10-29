@@ -37,6 +37,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if err := s.Mentions(ctx); err != nil {
 		return err
 	}
+	if err := s.Equivalence(ctx); err != nil {
+		return err
+	}
 	cands, err := s.Candidates(ctx)
 	if err != nil {
 		return err

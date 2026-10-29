@@ -99,9 +99,22 @@ type groupKey struct {
 	scope     string
 }
 
+// Equivalence holds pairs of normalized text values that mean the same
+// (REQ-RES-008). Key a pair with Pair.
+type Equivalence map[[2]string]bool
+
+// Pair is the key of two text values in an Equivalence.
+func Pair(a, b string) [2]string {
+	if a > b {
+		a, b = b, a
+	}
+	return [2]string{a, b}
+}
+
 // Evaluate computes the status of each claim. superseded holds the decision
-// entities that a visible supersedes claim points to.
-func Evaluate(facts []Fact, resolutions []Resolution, superseded map[int64]bool, priority Priority) map[int64]Result {
+// entities that a visible supersedes claim points to. Text values in eq do
+// not conflict.
+func Evaluate(facts []Fact, resolutions []Resolution, superseded map[int64]bool, priority Priority, eq Equivalence) map[int64]Result {
 	out := make(map[int64]Result, len(facts))
 	byID := map[int64]*Fact{}
 	for i := range facts {
@@ -188,7 +201,7 @@ func Evaluate(facts []Fact, resolutions []Resolution, superseded map[int64]bool,
 			if !open[b.ID] || b.Subject != a.Subject || b.Predicate != a.Predicate || !out[b.ID].Current || !overlap(a.Scope, b.Scope) {
 				continue
 			}
-			if a.ObjectID != b.ObjectID || a.ObjectNorm != b.ObjectNorm {
+			if a.ObjectID != b.ObjectID || (a.ObjectNorm != b.ObjectNorm && !eq[Pair(a.ObjectNorm, b.ObjectNorm)]) {
 				edges[a.ID] = append(edges[a.ID], b.ID)
 				edges[b.ID] = append(edges[b.ID], a.ID)
 			}

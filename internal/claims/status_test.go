@@ -99,7 +99,7 @@ func TestSCN_CLM_003_StatusTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := claims.Evaluate(c.facts, c.res, c.superseded, prio)
+			got := claims.Evaluate(c.facts, c.res, c.superseded, prio, nil)
 			for id, want := range c.want {
 				if got[id].Status != want {
 					t.Errorf("claim %d: %s, want %s", id, got[id].Status, want)
@@ -122,7 +122,7 @@ func TestSCN_CLM_003_StatusTable(t *testing.T) {
 		{ID: 1, Subject: 10, Predicate: "owned_by", ObjectID: 20, Evidence: []claims.Ev{ev("catalog", "current")}},
 		{ID: 2, Subject: 10, Predicate: "owned_by", ObjectID: 21, Evidence: []claims.Ev{ev("confluence", "current")}}}
 	prio["owned_by"] = []string{"confluence", "others"}
-	got := claims.Evaluate(facts, nil, nil, prio)
+	got := claims.Evaluate(facts, nil, nil, prio, nil)
 	if got[2].Status != claims.Supported || !got[2].ConflictNoted || got[1].Status != claims.Conflicting {
 		t.Fatalf("with confluence first: %+v", got)
 	}

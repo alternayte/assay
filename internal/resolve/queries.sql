@@ -260,3 +260,21 @@ UPDATE entity_aliases SET alias = @alias, alias_norm = @alias_norm WHERE entity_
 
 -- name: DeleteProposedEntity :exec
 DELETE FROM entities WHERE id = @id AND status = 'proposed';
+
+-- name: TextPairs :many
+-- Differing text values of one subject and single-valued predicate with no
+-- cached equivalence.
+-- vis:system
+SELECT a.predicate, a.object_text::text AS a_text, a.object_norm AS a_norm, b.object_text::text AS b_text, b.object_norm AS b_norm,
+       ARRAY(SELECT DISTINCT ev.connection_id FROM claim_evidence ev WHERE ev.claim_id IN (a.id, b.id) ORDER BY 1)::bigint[] AS connections
+FROM claims a
+JOIN claims b ON b.subject_id = a.subject_id AND b.predicate = a.predicate AND a.object_norm < b.object_norm
+WHERE a.predicate = ANY(@predicates::text[]) AND a.object_text IS NOT NULL AND b.object_text IS NOT NULL
+  AND a.retracted_at IS NULL AND b.retracted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM text_equivalence t WHERE t.a_norm = a.object_norm AND t.b_norm = b.object_norm)
+ORDER BY a.id, b.id
+LIMIT 500;
+
+-- name: InsertEquivalence :exec
+INSERT INTO text_equivalence (a_norm, b_norm, equivalent, decision_id) VALUES (@a_norm, @b_norm, @equivalent, @decision_id)
+ON CONFLICT (a_norm, b_norm) DO NOTHING;

@@ -23,7 +23,7 @@ type goldenIssue struct {
 	Body     []string       `json:"body"`
 }
 
-func TestJiraIssuesMatchGolden(t *testing.T) {
+func TestSCN_CON_002_JiraIssuesMatchGolden(t *testing.T) {
 	_, base := testkit.FakeSources(t)
 	c := testkit.SourceClient(t, base+"/jira")
 	k, err := jira.New(c, []byte(`{"projects":["PAY","REM"]}`), testkit.DefaultRules, connectors.Limits{MaxItemBytes: 512 << 10})

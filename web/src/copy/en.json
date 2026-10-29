@@ -557,7 +557,8 @@
     "clear": "Clear the selection",
     "empty": "No entity matches. Clear a filter, or add a connection and run a sync.",
     "noDomain": "None",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "close": "Close"
   },
   "priority": {
     "title": "Source priority",

@@ -243,7 +243,7 @@ function MergeDialog({ keys, onClose, onDone }: { keys: string[]; onClose: () =>
       <DialogContent
         title={t("explore.mergeTitle", { count: keys.length })}
         description={t("explore.mergeBody")}
-        closeLabel={t("explore.cancel")}
+        closeLabel={t("explore.close")}
       >
         <form onSubmit={submit} className="flex flex-col gap-4">
           {merge.isError && (

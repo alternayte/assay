@@ -112,13 +112,15 @@ func (q *Queries) ListQuestions(ctx context.Context, arg ListQuestionsParams) ([
 }
 
 const mentionedEntities = `-- name: MentionedEntities :many
-SELECT DISTINCT a.entity_id
+SELECT a.entity_id
 FROM entity_aliases a
 JOIN entities e ON e.id = a.entity_id
 WHERE a.connection_id = ANY($1::bigint[])
   AND e.status <> 'merged'
   AND length(a.alias_norm) >= 3
   AND strpos(' ' || $2::text || ' ', ' ' || a.alias_norm || ' ') > 0
+GROUP BY a.entity_id
+ORDER BY max(length(a.alias_norm)) DESC, a.entity_id
 LIMIT 20
 `
 
@@ -127,7 +129,8 @@ type MentionedEntitiesParams struct {
 	QuestionNorm string
 }
 
-// Visible entities with an alias that the question contains as whole words.
+// Visible entities with an alias that the question contains as whole words,
+// the longest match first.
 func (q *Queries) MentionedEntities(ctx context.Context, arg MentionedEntitiesParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, mentionedEntities, arg.Visible, arg.QuestionNorm)
 	if err != nil {

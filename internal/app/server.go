@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -25,6 +26,7 @@ import (
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/pages"
 	"github.com/alternayte/assay/internal/registry"
 	"github.com/alternayte/assay/internal/resolve"
 	"github.com/alternayte/assay/internal/search"
@@ -38,32 +40,34 @@ import (
 
 // Server is one Assay process.
 type Server struct {
-	cfg      Config
-	log      *slog.Logger
-	pool     *pgxpool.Pool
-	auth     *auth.Auth
-	users    *users.Service
-	settings *settings.Service
-	secrets  *secrets.Store
-	mailer   *settings.Mailer
-	models   *models.Gateway
-	doctor   *doctor.Doctor
-	sync     *syncer.Service
-	embedder *content.Embedder
-	search   *search.Service
-	ask      *ask.Service
-	entities *entities.Service
-	extract  *extract.Service
-	resolve  *resolve.Service
-	registry *registry.Service
-	vocab    *vocab.Service
-	river    *river.Client[pgx.Tx]
-	metrics  *metrics
-	tracer   *sdktrace.TracerProvider
-	handler  http.Handler
-	now      func() time.Time
-	opts     Options
-	addr     chan string
+	cfg        Config
+	log        *slog.Logger
+	pool       *pgxpool.Pool
+	auth       *auth.Auth
+	users      *users.Service
+	settings   *settings.Service
+	secrets    *secrets.Store
+	mailer     *settings.Mailer
+	models     *models.Gateway
+	doctor     *doctor.Doctor
+	sync       *syncer.Service
+	embedder   *content.Embedder
+	search     *search.Service
+	ask        *ask.Service
+	entities   *entities.Service
+	extract    *extract.Service
+	resolve    *resolve.Service
+	registry   *registry.Service
+	vocab      *vocab.Service
+	pages      *pages.Service
+	river      *river.Client[pgx.Tx]
+	metrics    *metrics
+	tracer     *sdktrace.TracerProvider
+	handler    http.Handler
+	spaHandler http.Handler
+	now        func() time.Time
+	opts       Options
+	addr       chan string
 }
 
 // Options change defaults for tests.
@@ -125,7 +129,8 @@ func (s *Server) services() error {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
-	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting}}
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting,
+		pages.Setting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
@@ -139,7 +144,9 @@ func (s *Server) services() error {
 	s.entities.Rename = s.registry.Rename
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
 		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm}}
-	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now}
+	s.pages = &pages.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Extract: s.extract, Log: s.log, Now: s.now}
+	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
+		Orientation: s.pages.Orientation}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -162,6 +169,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 	s.vocab.Register(a)
+	s.pages.Register(a, s.cfg.BaseURL)
 }
 
 func (s *Server) build(ctx context.Context) error {
@@ -247,6 +255,11 @@ func (s *Server) routes() (http.Handler, error) {
 	}
 	r.Handle(s.auth.BasePath()+"/*", s.authHandler())
 
+	spa, err := s.spa(web.Dist())
+	if err != nil {
+		return nil, err
+	}
+	s.spaHandler = spa
 	var apiErr error
 	r.Group(func(g chi.Router) {
 		g.Use(s.auth.LoadSession)
@@ -256,15 +269,25 @@ func (s *Server) routes() (http.Handler, error) {
 			return
 		}
 		s.registerAPI(a)
+		// /e/{key}.md is the Markdown form of a page (REQ-PAG-005). The
+		// SPA serves /e/{key}.
+		g.Get("/e/*", func(w http.ResponseWriter, req *http.Request) {
+			p, ok := pages.MarkdownPath(req.URL.EscapedPath())
+			if !ok {
+				s.spaHandler.ServeHTTP(w, req)
+				return
+			}
+			// A new routing context sends the request through the API route.
+			r2 := req.Clone(context.WithValue(req.Context(), chi.RouteCtxKey, nil))
+			r2.URL.RawPath = p
+			r2.URL.Path, _ = url.PathUnescape(p)
+			r.ServeHTTP(w, r2)
+		})
 	})
 	if apiErr != nil {
 		return nil, apiErr
 	}
-	spa, err := s.spa(web.Dist())
-	if err != nil {
-		return nil, err
-	}
-	r.NotFound(spa.ServeHTTP)
+	r.NotFound(s.spaHandler.ServeHTTP)
 	return r, nil
 }
 

@@ -190,10 +190,12 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 var (
 	contextSource = regexp.MustCompile(`(?s)<source id="(S\d+)"[^>]*>\n(.*?)\n</source>`)
 	contextClaim  = regexp.MustCompile(`<claim id="(C\d+)">([^<]*)</claim>`)
+	pageClaim     = regexp.MustCompile(`<claim id="(C\d+)"[^>]*>([^<]*)</claim>`)
 	markdownMark  = regexp.MustCompile("[#*_`>|\\[\\]]+")
 )
 
 // fakeContent is the default chat reply. An extraction request gets no
+// claims. A page compile gets one sentence for each of the first three
 // claims. For an Ask context it cites the first sentence of the first two
 // sources and the first claim. Otherwise it is a fixed text.
 func fakeContent(body map[string]any) string {
@@ -210,6 +212,16 @@ func fakeContent(body map[string]any) string {
 		}
 	}
 	var parts []string
+	if strings.HasPrefix(user, "<entity ") {
+		for _, m := range pageClaim.FindAllStringSubmatch(user, 3) {
+			words := strings.Fields(m[2])
+			if len(words) > 18 {
+				words = words[:18]
+			}
+			parts = append(parts, "Assay records that "+strings.Join(words, " ")+" ["+m[1]+"].")
+		}
+		return strings.Join(parts, " ")
+	}
 	for _, m := range contextSource.FindAllStringSubmatch(user, 2) {
 		text := strings.Join(strings.Fields(markdownMark.ReplaceAllString(m[2], " ")), " ")
 		if i := strings.IndexAny(text, ".!?"); i > 0 {

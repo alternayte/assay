@@ -135,3 +135,10 @@ sql:
         <<: *go
         package: registry
         out: internal/registry
+  - <<: *pkg
+    queries: internal/pages/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: pages
+        out: internal/pages

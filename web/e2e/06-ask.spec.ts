@@ -93,7 +93,10 @@ test("SCN-ASK-006 a citation opens the drawer, how do we know lists claims and s
 
   await source.click();
   const drawer = page.getByRole("dialog");
-  await expect(drawer.getByRole("link", { name: "Open in source" })).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(drawer.getByRole("link", { name: "Open in source" })).toHaveAttribute(
+    "rel",
+    "noopener noreferrer",
+  );
   await expect(drawer.locator("[data-cited]").first()).toBeVisible();
   await drawer.getByRole("button", { name: "Close" }).click();
 

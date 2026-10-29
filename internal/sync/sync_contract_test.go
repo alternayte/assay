@@ -5,6 +5,8 @@ package sync_test
 import (
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +29,34 @@ func itemID(t *testing.T, env *testkit.Env, conn int64, external string) int64 {
 		t.Fatalf("item %s: %v", external, err)
 	}
 	return id
+}
+
+// searchItems returns the item IDs that a search finds.
+func searchItems(t *testing.T, cl *testkit.Client, q string) []int64 {
+	t.Helper()
+	var out struct {
+		Results []struct {
+			ItemID int64 `json:"itemId"`
+		} `json:"results"`
+	}
+	cl.Must(http.StatusOK, http.MethodGet, "/api/v1/search?limit=50&q="+url.QueryEscape(q), nil).JSON(t, &out)
+	ids := make([]int64, len(out.Results))
+	for i, r := range out.Results {
+		ids[i] = r.ItemID
+	}
+	return ids
+}
+
+// fakeEmbed turns the embed function on with the fake model API and fills
+// the space.
+func fakeEmbed(t *testing.T, env *testkit.Env, admin *testkit.Client) {
+	t.Helper()
+	_, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, admin, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, admin, "embed", testkit.Function{Endpoint: ep, Model: "fake-embed-64"})
+	if err := env.Server.Embedder().Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
@@ -108,6 +138,9 @@ func TestSCN_SYN_007_UnauthorizedPausesAndHides(t *testing.T) {
 	env.RunNow(admin, conn, "sync")
 	item := itemID(t, env, conn, "1001")
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
+	if !slices.Contains(searchItems(t, admin, "Payments API overview"), item) {
+		t.Fatal("search does not find the page before the pause")
+	}
 
 	src.RevokeToken()
 	run := env.RunNow(admin, conn, "sync")
@@ -122,6 +155,9 @@ func TestSCN_SYN_007_UnauthorizedPausesAndHides(t *testing.T) {
 		t.Fatalf("status %s", c.Status)
 	}
 	admin.Must(http.StatusNotFound, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
+	if got := searchItems(t, admin, "Payments API overview"); len(got) != 0 {
+		t.Fatalf("search finds %v from the paused connection", got)
+	}
 
 	// After resume the content stays hidden until a reconciliation succeeds.
 	src.AllowToken()
@@ -138,10 +174,16 @@ func TestSCN_SYN_007_UnauthorizedPausesAndHides(t *testing.T) {
 	if runs.Runs[0].Kind != "reconcile" || runs.Runs[0].Status != "queued" {
 		t.Fatalf("resume did not queue a reconciliation: %+v", runs.Runs[0])
 	}
+	if got := searchItems(t, admin, "Payments API overview"); len(got) != 0 {
+		t.Fatalf("search finds %v before the reconciliation", got)
+	}
 	if err := env.Server.Sync().Run(t.Context(), runs.Runs[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
+	if !slices.Contains(searchItems(t, admin, "Payments API overview"), item) {
+		t.Fatal("search does not find the page after the reconciliation")
+	}
 }
 
 func TestSCN_SYN_008_NotFoundTombstones(t *testing.T) {
@@ -151,11 +193,31 @@ func TestSCN_SYN_008_NotFoundTombstones(t *testing.T) {
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-jira", Kind: "jira", BaseURL: base,
 		Scope: map[string]any{"projects": []string{"PAY", "REM"}}})
 	env.RunNow(admin, conn, "sync")
+	fakeEmbed(t, env, admin)
 	item := itemID(t, env, conn, "PAY-2")
 	for _, table := range []string{"passages", "chunks", "claim_evidence"} {
 		if env.Count("SELECT count(*) FROM "+table+" WHERE item_id = $1", item) == 0 {
 			t.Fatalf("no %s before the delete", table)
 		}
+	}
+	var space int64
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT id FROM embedding_spaces WHERE status = 'active'").Scan(&space); err != nil {
+		t.Fatal(err)
+	}
+	vectors := fmt.Sprintf("SELECT count(*) FROM emb_%d v JOIN chunks c ON c.id = v.chunk_id WHERE c.item_id = $1", space)
+	if env.Count(vectors, item) == 0 {
+		t.Fatal("no embeddings before the delete")
+	}
+	var chunkIDs []int64
+	rows, _ := env.Server.Pool().Query(t.Context(), "SELECT id FROM chunks WHERE item_id = $1", item)
+	for rows.Next() {
+		var id int64
+		_ = rows.Scan(&id)
+		chunkIDs = append(chunkIDs, id)
+	}
+	rows.Close()
+	if !slices.Contains(searchItems(t, admin, "retry queue Payments API"), item) {
+		t.Fatal("search does not find the issue before the delete")
 	}
 	var assigned int64
 	if err := env.Server.Pool().QueryRow(t.Context(), `SELECT c.id FROM claims c JOIN claim_evidence e ON e.claim_id = c.id
@@ -180,6 +242,12 @@ func TestSCN_SYN_008_NotFoundTombstones(t *testing.T) {
 	}
 	if n := env.Count("SELECT count(*) FROM claims WHERE id = $1 AND retracted_at IS NOT NULL", assigned); n != 1 {
 		t.Fatal("the claim without evidence is not retracted")
+	}
+	if n := env.Count(fmt.Sprintf("SELECT count(*) FROM emb_%d WHERE chunk_id = ANY($1)", space), chunkIDs); n != 0 {
+		t.Fatalf("%d embeddings after the tombstone", n)
+	}
+	if slices.Contains(searchItems(t, admin, "retry queue Payments API"), item) {
+		t.Fatal("search finds the deleted issue")
 	}
 	admin.Must(http.StatusNotFound, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
 }

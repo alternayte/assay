@@ -13,10 +13,16 @@ type Item struct {
 	Created    time.Time
 	Updated    time.Time
 	Body       string
-	Metadata   map[string]any
+	// Revision is the version of the item in its source, such as the blob
+	// ID of a repository file. Sync skips a file whose revision is stored.
+	Revision string
+	Metadata map[string]any
 	// Entity is the thing that the item is, such as an issue or a
 	// decision. Nil when the item is only a document.
 	Entity *EntityRef
+	// Entities are other things that the item defines, such as the
+	// documents of a catalog file.
+	Entities []EntityRef
 	// Facts are the deterministic claims of the item.
 	Facts []Fact
 }
@@ -38,4 +44,7 @@ type Fact struct {
 	Object    *EntityRef
 	Text      string
 	Quote     string
+	// Source is the evidence source type, such as catalog. Empty means the
+	// type of the connection.
+	Source string `json:",omitempty"`
 }

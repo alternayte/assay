@@ -1,0 +1,15 @@
+{
+  "duplicates": [
+    {"a": "backstage:group:default/payments-team", "b": "github:{host}:team:acme/payments-team"},
+    {"a": "backstage:group:default/reminders-team", "b": "github:{host}:team:acme/reminders-team"},
+    {"a": "backstage:group:default/platform-team", "b": "azdo:{host}:team:acme/platform-team"},
+    {"a": "jira:{host}:user:sam.acme", "b": "github:{host}:user:sam.acme"},
+    {"a": "backstage:component:default/ledger-service", "b": "backstage:component:default/ledger-svc"},
+    {"a": "backstage:component:default/peer-review-service", "b": "backstage:component:default/prs"}
+  ],
+  "different": [
+    {"a": "backstage:group:default/payments-team", "b": "backstage:group:default/platform-team"},
+    {"a": "backstage:api:default/payments-rest", "b": "backstage:api:default/ledger-rest"},
+    {"a": "backstage:component:default/reminder-service", "b": "backstage:component:default/ledger-service"}
+  ]
+}

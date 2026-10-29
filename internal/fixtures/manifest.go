@@ -18,11 +18,12 @@ type ManifestConnection struct {
 	Items  int    `json:"items"`
 }
 
-// Manifest describes the Acme corpus: its connections, their item counts
-// and the canary of restricted content.
+// Manifest describes the Acme corpus: its connections, their item counts,
+// the canary of restricted content and the labels.
 type Manifest struct {
 	Canary      string               `json:"canary"`
 	Connections []ManifestConnection `json:"connections"`
+	Labels      *Labels              `json:"labels,omitempty"`
 }
 
 // Manifest returns the manifest of the current corpus.
@@ -40,8 +41,11 @@ func (s *Sources) Manifest() Manifest {
 	}}
 }
 
-func (s *Sources) serveManifest(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.Manifest())
+func (s *Sources) serveManifest(w http.ResponseWriter, r *http.Request) {
+	m := s.Manifest()
+	l := CorpusLabels(r.Host)
+	m.Labels = &l
+	writeJSON(w, http.StatusOK, m)
 }
 
 // RepoItems is the number of files of a repository that match the default

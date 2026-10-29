@@ -121,3 +121,10 @@ sql:
         <<: *go
         package: extract
         out: internal/extract
+  - <<: *pkg
+    queries: internal/resolve/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: resolve
+        out: internal/resolve

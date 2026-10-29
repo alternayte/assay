@@ -18,3 +18,13 @@ spec:
   type: openapi
   lifecycle: production
   owner: platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: peer-review-service
+  title: Peer Review Service
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team

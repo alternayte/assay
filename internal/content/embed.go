@@ -17,8 +17,8 @@ import (
 // EmbedBatch is the number of chunks in one embed call.
 const EmbedBatch = 64
 
-// Embedder fills the target embedding space with chunk vectors and
-// activates it when it is complete.
+// Embedder fills the target embedding space with chunk and profile vectors
+// and activates it when it is complete.
 type Embedder struct {
 	Pool   *pgxpool.Pool
 	Models *models.Gateway
@@ -95,6 +95,9 @@ ON CONFLICT (ref_kind, ref_id) DO UPDATE SET embedding = EXCLUDED.embedding`, tb
 			break
 		}
 	}
+	if err := e.profiles(ctx, space); err != nil {
+		return e.stop(err)
+	}
 	if space.Status == "building" {
 		if err := e.Models.ActivateSpace(ctx, space.ID); err != nil {
 			return err
@@ -102,6 +105,58 @@ ON CONFLICT (ref_kind, ref_id) DO UPDATE SET embedding = EXCLUDED.embedding`, tb
 		e.Log.Info("embedding space active", "space", space.ID, "model", space.Model)
 	}
 	return nil
+}
+
+// profiles embeds the entity profiles that have no vector in the space. A
+// profile that changes loses its vector, so it is embedded again.
+func (e *Embedder) profiles(ctx context.Context, space *models.Space) error {
+	tbl := space.Table()
+	pending := fmt.Sprintf(`-- vis:system
+SELECT p.entity_id, p.connections[1], p.text FROM entity_profiles p
+WHERE NOT EXISTS (SELECT 1 FROM %s v WHERE v.ref_kind = 'profile' AND v.ref_id = p.entity_id)
+ORDER BY p.entity_id LIMIT %d`, tbl, EmbedBatch)
+	for {
+		rows, err := e.Pool.Query(ctx, pending)
+		if err != nil {
+			return err
+		}
+		type profile struct {
+			id, conn int64
+			text     string
+		}
+		batch, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (profile, error) {
+			var p profile
+			return p, r.Scan(&p.id, &p.conn, &p.text)
+		})
+		if err != nil || len(batch) == 0 {
+			return err
+		}
+		texts := make([]string, len(batch))
+		for i, p := range batch {
+			texts[i] = p.text
+		}
+		res, err := e.Models.Embed(ctx, texts, "profiles")
+		if err != nil {
+			return err
+		}
+		err = pgx.BeginFunc(ctx, e.Pool, func(tx pgx.Tx) error {
+			for i, p := range batch {
+				if len(res.Vectors[i]) != int(space.Dim) {
+					return fmt.Errorf("content: the embed model returned %d dimensions; the space has %d", len(res.Vectors[i]), space.Dim)
+				}
+				if _, err := tx.Exec(ctx, fmt.Sprintf(`-- vis:system
+INSERT INTO %s (ref_kind, ref_id, connection_id, embedding)
+SELECT 'profile', p.entity_id, $2, $3::vector FROM entity_profiles p WHERE p.entity_id = $1
+ON CONFLICT (ref_kind, ref_id) DO UPDATE SET embedding = EXCLUDED.embedding`, tbl), p.id, p.conn, models.Vector(res.Vectors[i])); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil || len(batch) < EmbedBatch {
+			return err
+		}
+	}
 }
 
 // stop ends a run without an error when the function is off or its budget

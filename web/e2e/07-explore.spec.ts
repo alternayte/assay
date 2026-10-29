@@ -32,7 +32,7 @@ test("SCN-ENT-004 explore filters by type, domain and status, searches, sorts an
   await page.getByLabel("Status").selectOption({ label: "All" });
 
   await page.getByLabel("Search names").fill("PAY-1");
-  await expect(rows.filter({ hasText: /:PAY-1$/ })).toHaveCount(1);
+  await expect(rows.filter({ has: page.getByText(/:PAY-1$/) })).toHaveCount(1);
   await page.getByLabel("Search names").fill("");
 
   const boxes = rows.getByRole("checkbox");

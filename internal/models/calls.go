@@ -116,6 +116,10 @@ func (g *Gateway) Embed(ctx context.Context, texts []string, ref string) (*Embed
 	if err != nil {
 		return nil, err
 	}
+	return g.embed(ctx, t, texts, ref)
+}
+
+func (g *Gateway) embed(ctx context.Context, t *target, texts []string, ref string) (*EmbedResult, error) {
 	in := 0
 	for _, s := range texts {
 		in += EstimateTokens(s)

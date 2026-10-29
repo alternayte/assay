@@ -85,16 +85,17 @@ type Extra struct {
 
 // target is the resolved configuration of one function.
 type target struct {
-	function Function
-	kind     string
-	baseURL  string
-	model    string
-	params   map[string]any
-	priceIn  float64
-	priceOut float64
-	budget   float64
-	key      string
-	extra    Extra
+	function   Function
+	endpointID int64
+	kind       string
+	baseURL    string
+	model      string
+	params     map[string]any
+	priceIn    float64
+	priceOut   float64
+	budget     float64
+	key        string
+	extra      Extra
 }
 
 func (g *Gateway) now() time.Time {
@@ -127,7 +128,7 @@ func (g *Gateway) target(ctx context.Context, fn Function) (*target, error) {
 	if !r.Enabled || r.EndpointID == nil || r.Model == "" || r.BaseUrl == nil {
 		return nil, ErrDisabled
 	}
-	t := &target{function: fn, kind: deref(r.EndpointKind), baseURL: strings.TrimRight(*r.BaseUrl, "/"), model: r.Model,
+	t := &target{function: fn, endpointID: *r.EndpointID, kind: deref(r.EndpointKind), baseURL: strings.TrimRight(*r.BaseUrl, "/"), model: r.Model,
 		priceIn: r.PriceIn, priceOut: r.PriceOut, budget: r.Budget}
 	_ = json.Unmarshal(r.Params, &t.params)
 	_ = json.Unmarshal(r.Extra, &t.extra)

@@ -21,6 +21,7 @@ import (
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/search"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
 	syncer "github.com/alternayte/assay/internal/sync"
@@ -42,6 +43,8 @@ type Server struct {
 	models   *models.Gateway
 	doctor   *doctor.Doctor
 	sync     *syncer.Service
+	embedder *content.Embedder
+	search   *search.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -115,6 +118,8 @@ func (s *Server) services() error {
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics()}
+	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
+	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -129,6 +134,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.doctor.Register(a)
 	s.sync.Register(a)
 	content.Register(a, s.pool)
+	s.search.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 
@@ -168,6 +174,9 @@ func (s *Server) Doctor() *doctor.Doctor { return s.doctor }
 
 // Models is the model gateway.
 func (s *Server) Models() *models.Gateway { return s.models }
+
+// Embedder fills the embedding spaces.
+func (s *Server) Embedder() *content.Embedder { return s.embedder }
 
 // Sync runs the connections.
 func (s *Server) Sync() *syncer.Service { return s.sync }

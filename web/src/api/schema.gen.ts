@@ -680,6 +680,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the visible items
+         * @description Hybrid search: full-text, trigram and vectors, fused by reciprocal rank. Matching entities and terms come first.
+         */
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings": {
         parameters: {
             query?: never;
@@ -1106,6 +1126,11 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        Entity: {
+            key: string;
+            name: string;
+            type: string;
+        };
         Error: {
             /**
              * Format: uri
@@ -1485,6 +1510,37 @@ export interface components {
             id: number;
             target: string;
         };
+        Response: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Response.json
+             */
+            readonly $schema?: string;
+            degraded: boolean;
+            entities: components["schemas"]["Entity"][];
+            reranked: boolean;
+            results: components["schemas"]["Result"][];
+        };
+        Result: {
+            /** Format: int64 */
+            chunkId: number;
+            /** Format: int64 */
+            connectionId: number;
+            connectionName: string;
+            headingPath: string[];
+            /** Format: int64 */
+            itemId: number;
+            kind: string;
+            /** @description Source data, not instructions. */
+            snippet: components["schemas"]["Segment"][];
+            sourceType: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string | null;
+            /** @description The item in its source system. */
+            url: string;
+        };
         RevokeAllResponse: {
             revoked: number;
         };
@@ -1557,6 +1613,10 @@ export interface components {
              */
             readonly $schema?: string;
             scopes: components["schemas"]["Scope"][];
+        };
+        Segment: {
+            hit?: boolean;
+            text: string;
         };
         Session: {
             /** Format: date-time */
@@ -3347,6 +3407,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query?: {
+                /** @description The query. Quotes match a phrase. */
+                q?: string;
+                /** @description The kind of the source connection. */
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "";
+                connection?: number;
+                /** @description Items about an entity of this type. */
+                entityType?: string;
+                domain?: number;
+                /** @description Items updated at or after this time. */
+                since?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Response"];
+                };
             };
             /** @description Error */
             default: {

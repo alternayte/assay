@@ -125,10 +125,16 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		return 0, err
 	}
 	in := ingest{q: q, connectionID: connectionID, domainID: domainID, itemID: itemID, log: log, ids: map[string]int64{}}
+	var entityID *int64
 	if it.Entity != nil {
-		if _, err := in.entity(ctx, *it.Entity); err != nil {
+		id, err := in.entity(ctx, *it.Entity)
+		if err != nil {
 			return 0, err
 		}
+		entityID = &id
+	}
+	if err := q.SetItemEntity(ctx, SetItemEntityParams{ID: itemID, EntityID: entityID}); err != nil {
+		return 0, err
 	}
 	for _, e := range it.Entities {
 		if _, err := in.entity(ctx, e); err != nil {

@@ -430,6 +430,21 @@ func (q *Queries) RetractUnsupported(ctx context.Context, arg RetractUnsupported
 	return result.RowsAffected(), nil
 }
 
+const setItemEntity = `-- name: SetItemEntity :exec
+UPDATE source_items SET entity_id = $1 WHERE id = $2
+`
+
+type SetItemEntityParams struct {
+	EntityID *int64
+	ID       int64
+}
+
+// vis:system
+func (q *Queries) SetItemEntity(ctx context.Context, arg SetItemEntityParams) error {
+	_, err := q.db.Exec(ctx, setItemEntity, arg.EntityID, arg.ID)
+	return err
+}
+
 const setRevision = `-- name: SetRevision :exec
 UPDATE source_items SET revision = $1 WHERE id = $2
 `

@@ -19,6 +19,10 @@ SET kind = @kind, title = @title, url = @url, author = @author, source_created_a
     updated_at = now()
 WHERE id = @id;
 
+-- name: SetItemEntity :exec
+-- vis:system
+UPDATE source_items SET entity_id = @entity_id WHERE id = @id;
+
 -- name: SetRevision :exec
 -- vis:system
 UPDATE source_items SET revision = @revision WHERE id = @id;

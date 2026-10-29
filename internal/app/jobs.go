@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/alternayte/assay/internal/audit"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/settings"
 	syncer "github.com/alternayte/assay/internal/sync"
@@ -83,6 +84,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
 	s.sync.Workers(workers)
+	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
 	if s.opts.workers != nil {
 		s.opts.workers(workers)
 	}
@@ -98,6 +100,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 			}, &river.PeriodicJobOpts{RunOnStart: true, ID: "retention"}),
 		}
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sync.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.embedder.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
 }

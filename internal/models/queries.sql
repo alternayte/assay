@@ -69,3 +69,22 @@ INSERT INTO model_refusals (function, at) VALUES (@function, @at);
 
 -- name: DeleteRefusalsBefore :execrows
 DELETE FROM model_refusals WHERE at < @before;
+
+-- name: ListSpaces :many
+SELECT * FROM embedding_spaces WHERE status <> 'retired' ORDER BY id;
+
+-- name: ActiveSpace :one
+SELECT * FROM embedding_spaces WHERE status = 'active';
+
+-- name: InsertSpace :one
+INSERT INTO embedding_spaces (endpoint_id, model, dim) VALUES (@endpoint_id, @model, @dim)
+RETURNING *;
+
+-- name: RetireSpace :exec
+UPDATE embedding_spaces SET status = 'retired' WHERE id = @id;
+
+-- name: ActivateSpace :exec
+UPDATE embedding_spaces SET status = 'active', activated_at = @now WHERE id = @id;
+
+-- name: SetSpaceProgress :exec
+UPDATE embedding_spaces SET done = @done, total = @total, error = @error WHERE id = @id;

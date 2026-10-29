@@ -3,3 +3,20 @@
 //   sqlc v1.31.1
 
 package models
+
+import (
+	"time"
+)
+
+type EmbeddingSpace struct {
+	ID          int64
+	EndpointID  *int64
+	Model       string
+	Dim         int32
+	Status      string
+	Done        int32
+	Total       int32
+	Error       string
+	CreatedAt   time.Time
+	ActivatedAt *time.Time
+}

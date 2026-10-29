@@ -278,3 +278,37 @@ LIMIT 500;
 -- name: InsertEquivalence :exec
 INSERT INTO text_equivalence (a_norm, b_norm, equivalent, decision_id) VALUES (@a_norm, @b_norm, @equivalent, @decision_id)
 ON CONFLICT (a_norm, b_norm) DO NOTHING;
+
+-- name: ClaimsInUse :many
+-- Claims in the context of answers since a time.
+SELECT DISTINCT x.id::bigint AS id
+FROM questions q
+CROSS JOIN LATERAL jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
+WHERE q.created_at >= @since;
+
+-- name: StaleEvidence :many
+-- Stale passage evidence of the claims, with the claim and the most similar
+-- passage of the current version of its item.
+-- vis:system
+SELECT ev.id, ev.claim_id, ev.item_id, ev.connection_id, ev.quote, ev.stance, c.predicate,
+       coalesce(o.key, c.object_text, '')::text AS object, np.hash AS new_hash, np.norm AS new_norm
+FROM claim_evidence ev
+JOIN claims c ON c.id = ev.claim_id
+LEFT JOIN entities o ON o.id = c.object_entity_id
+CROSS JOIN LATERAL (SELECT p.hash, p.norm FROM passages p
+                    WHERE p.item_id = ev.item_id AND p.connection_id = ev.connection_id
+                    ORDER BY similarity(p.norm, ev.quote) DESC, p.ordinal LIMIT 1) np
+WHERE ev.state = 'stale' AND ev.kind = 'passage' AND ev.claim_id = ANY(@claims::bigint[])
+ORDER BY ev.id;
+
+-- name: MoveEvidence :execrows
+-- Moves stale evidence to a passage, unless the claim has evidence there.
+-- vis:system
+UPDATE claim_evidence e SET passage_hash = @passage_hash, quote = @quote, state = 'current', updated_at = now()
+WHERE e.id = @id AND e.state = 'stale'
+  AND NOT EXISTS (SELECT 1 FROM claim_evidence x WHERE x.claim_id = e.claim_id AND x.item_id = e.item_id
+                  AND x.passage_hash = @passage_hash AND x.stance = e.stance);
+
+-- name: DropStaleEvidence :exec
+-- vis:system
+DELETE FROM claim_evidence WHERE id = @id AND state = 'stale';

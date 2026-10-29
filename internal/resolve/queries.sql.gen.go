@@ -168,6 +168,34 @@ func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow
 	return i, err
 }
 
+const claimsInUse = `-- name: ClaimsInUse :many
+SELECT DISTINCT x.id::bigint AS id
+FROM questions q
+CROSS JOIN LATERAL jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
+WHERE q.created_at >= $1
+`
+
+// Claims in the context of answers since a time.
+func (q *Queries) ClaimsInUse(ctx context.Context, since time.Time) ([]int64, error) {
+	rows, err := q.db.Query(ctx, claimsInUse, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const decideCard = `-- name: DecideCard :exec
 UPDATE proposals SET status = $1, reviewer_id = $2, reason = $3, decided_at = $4 WHERE id = $5
 `
@@ -301,6 +329,16 @@ func (q *Queries) DescribeCandidates(ctx context.Context, arg DescribeCandidates
 		return nil, err
 	}
 	return items, nil
+}
+
+const dropStaleEvidence = `-- name: DropStaleEvidence :exec
+DELETE FROM claim_evidence WHERE id = $1 AND state = 'stale'
+`
+
+// vis:system
+func (q *Queries) DropStaleEvidence(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, dropStaleEvidence, id)
+	return err
 }
 
 const entitiesByNameAny = `-- name: EntitiesByNameAny :many
@@ -587,6 +625,29 @@ type MarkMentionsResolvedParams struct {
 func (q *Queries) MarkMentionsResolved(ctx context.Context, arg MarkMentionsResolvedParams) error {
 	_, err := q.db.Exec(ctx, markMentionsResolved, arg.ItemID, arg.PassageHash, arg.ExtractorVersion)
 	return err
+}
+
+const moveEvidence = `-- name: MoveEvidence :execrows
+UPDATE claim_evidence e SET passage_hash = $1, quote = $2, state = 'current', updated_at = now()
+WHERE e.id = $3 AND e.state = 'stale'
+  AND NOT EXISTS (SELECT 1 FROM claim_evidence x WHERE x.claim_id = e.claim_id AND x.item_id = e.item_id
+                  AND x.passage_hash = $1 AND x.stance = e.stance)
+`
+
+type MoveEvidenceParams struct {
+	PassageHash []byte
+	Quote       string
+	ID          int64
+}
+
+// Moves stale evidence to a passage, unless the claim has evidence there.
+// vis:system
+func (q *Queries) MoveEvidence(ctx context.Context, arg MoveEvidenceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveEvidence, arg.PassageHash, arg.Quote, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const nameCandidates = `-- name: NameCandidates :many
@@ -1003,6 +1064,66 @@ func (q *Queries) SourcesOfKeys(ctx context.Context, keys []string) ([]int64, er
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const staleEvidence = `-- name: StaleEvidence :many
+SELECT ev.id, ev.claim_id, ev.item_id, ev.connection_id, ev.quote, ev.stance, c.predicate,
+       coalesce(o.key, c.object_text, '')::text AS object, np.hash AS new_hash, np.norm AS new_norm
+FROM claim_evidence ev
+JOIN claims c ON c.id = ev.claim_id
+LEFT JOIN entities o ON o.id = c.object_entity_id
+CROSS JOIN LATERAL (SELECT p.hash, p.norm FROM passages p
+                    WHERE p.item_id = ev.item_id AND p.connection_id = ev.connection_id
+                    ORDER BY similarity(p.norm, ev.quote) DESC, p.ordinal LIMIT 1) np
+WHERE ev.state = 'stale' AND ev.kind = 'passage' AND ev.claim_id = ANY($1::bigint[])
+ORDER BY ev.id
+`
+
+type StaleEvidenceRow struct {
+	ID           int64
+	ClaimID      int64
+	ItemID       int64
+	ConnectionID int64
+	Quote        string
+	Stance       string
+	Predicate    string
+	Object       string
+	NewHash      []byte
+	NewNorm      string
+}
+
+// Stale passage evidence of the claims, with the claim and the most similar
+// passage of the current version of its item.
+// vis:system
+func (q *Queries) StaleEvidence(ctx context.Context, claims []int64) ([]StaleEvidenceRow, error) {
+	rows, err := q.db.Query(ctx, staleEvidence, claims)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []StaleEvidenceRow
+	for rows.Next() {
+		var i StaleEvidenceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ClaimID,
+			&i.ItemID,
+			&i.ConnectionID,
+			&i.Quote,
+			&i.Stance,
+			&i.Predicate,
+			&i.Object,
+			&i.NewHash,
+			&i.NewNorm,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

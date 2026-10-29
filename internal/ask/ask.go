@@ -270,7 +270,12 @@ func (s *Service) Ask(ctx context.Context, userID string, vis visibility.Set, qu
 	}
 	a.CreatedAt = s.now()
 	stored, _ := json.Marshal(a)
-	flags, _ := json.Marshal(Flags{NoEvidence: a.NoEvidence, Uncited: len(a.Uncited), Notice: a.Notice, Connections: orEmpty(c.Connections)})
+	claimIDs := []int64{}
+	for _, cl := range c.Claims {
+		claimIDs = append(claimIDs, cl.Claim.ID)
+	}
+	flags, _ := json.Marshal(Flags{NoEvidence: a.NoEvidence, Uncited: len(a.Uncited), Notice: a.Notice, Connections: orEmpty(c.Connections),
+		ClaimIDs: claimIDs})
 	id, err := New(s.Pool).InsertQuestion(context.WithoutCancel(ctx), InsertQuestionParams{UserID: userID, Text: question,
 		AnswerMd: a.Markdown, Citations: stored, Flags: flags, CreatedAt: a.CreatedAt})
 	if err != nil {
@@ -288,6 +293,9 @@ type Flags struct {
 	Uncited     int     `json:"uncited"`
 	Notice      *Notice `json:"notice,omitempty"`
 	Connections []int64 `json:"connections"`
+	// ClaimIDs are the claims in the answer context. Stale evidence of these
+	// claims gets a still_supports check (REQ-RES-009).
+	ClaimIDs []int64 `json:"claimIds"`
 }
 
 // queueCited queues extraction of the cited passages that have no cached

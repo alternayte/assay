@@ -14,6 +14,7 @@ import (
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/settings"
 	syncer "github.com/alternayte/assay/internal/sync"
@@ -91,6 +92,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
+	river.AddWorker(workers, &extract.Worker{S: s.extract})
 	if s.opts.workers != nil {
 		s.opts.workers(workers)
 	}

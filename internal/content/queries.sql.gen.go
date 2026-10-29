@@ -404,7 +404,7 @@ func (q *Queries) ItemClaims(ctx context.Context, itemID int64) ([]int64, error)
 const latestClaim = `-- name: LatestClaim :one
 SELECT id, coalesce(object_entity_id, 0)::bigint AS object_entity_id, object_norm, retracted_at
 FROM claims
-WHERE subject_id = $1 AND predicate = $2 AND scope_env = '' AND origin = 'source'
+WHERE subject_id = $1 AND predicate = $2 AND scope_env = $3
 ORDER BY valid_from DESC NULLS LAST, id DESC
 LIMIT 1
 `
@@ -412,6 +412,7 @@ LIMIT 1
 type LatestClaimParams struct {
 	SubjectID int64
 	Predicate string
+	ScopeEnv  string
 }
 
 type LatestClaimRow struct {
@@ -422,7 +423,7 @@ type LatestClaimRow struct {
 }
 
 func (q *Queries) LatestClaim(ctx context.Context, arg LatestClaimParams) (LatestClaimRow, error) {
-	row := q.db.QueryRow(ctx, latestClaim, arg.SubjectID, arg.Predicate)
+	row := q.db.QueryRow(ctx, latestClaim, arg.SubjectID, arg.Predicate, arg.ScopeEnv)
 	var i LatestClaimRow
 	err := row.Scan(
 		&i.ID,
@@ -547,8 +548,8 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) error {
 }
 
 const upsertClaim = `-- name: UpsertClaim :one
-INSERT INTO claims (subject_id, predicate, object_entity_id, object_text, object_norm, valid_from, origin)
-VALUES ($1, $2, $3, $4, $5, $6, 'source')
+INSERT INTO claims (subject_id, predicate, object_entity_id, object_text, object_norm, scope_env, valid_from, origin)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (subject_id, predicate, (coalesce(object_entity_id, 0)), object_norm, scope_env,
              (coalesce(valid_from, '-infinity'::timestamptz)))
 DO UPDATE SET retracted_at = NULL
@@ -561,7 +562,9 @@ type UpsertClaimParams struct {
 	ObjectEntityID *int64
 	ObjectText     *string
 	ObjectNorm     string
+	ScopeEnv       string
 	ValidFrom      *time.Time
+	Origin         string
 }
 
 func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64, error) {
@@ -571,7 +574,9 @@ func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64
 		arg.ObjectEntityID,
 		arg.ObjectText,
 		arg.ObjectNorm,
+		arg.ScopeEnv,
 		arg.ValidFrom,
+		arg.Origin,
 	)
 	var id int64
 	err := row.Scan(&id)

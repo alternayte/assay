@@ -22,6 +22,7 @@ import (
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/entities"
+	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/search"
@@ -50,6 +51,7 @@ type Server struct {
 	search   *search.Service
 	ask      *ask.Service
 	entities *entities.Service
+	extract  *extract.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -126,7 +128,8 @@ func (s *Server) services() error {
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
-	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Log: s.log, Now: s.now}
+	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
+	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -144,6 +147,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.search.Register(a)
 	s.ask.Register(a)
 	s.entities.Register(a)
+	s.extract.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 
@@ -159,7 +163,8 @@ func (s *Server) build(ctx context.Context) error {
 		return err
 	}
 	s.sync.River = s.river
-	s.metrics = newMetrics(s.pool, s.sync.Metrics.Collectors()...)
+	s.extract.River = s.river
+	s.metrics = newMetrics(s.pool, append(s.sync.Metrics.Collectors(), s.extract.Metrics.Collectors()...)...)
 	if s.tracer, err = tracing(ctx); err != nil {
 		return err
 	}
@@ -183,6 +188,9 @@ func (s *Server) Doctor() *doctor.Doctor { return s.doctor }
 
 // Models is the model gateway.
 func (s *Server) Models() *models.Gateway { return s.models }
+
+// Extract extracts claims from passages.
+func (s *Server) Extract() *extract.Service { return s.extract }
 
 // Ask answers questions.
 func (s *Server) Ask() *ask.Service { return s.ask }

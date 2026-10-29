@@ -18,6 +18,7 @@ import (
 
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/entities"
+	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/search"
 	"github.com/alternayte/assay/internal/visibility"
@@ -31,11 +32,12 @@ const (
 
 // Service answers questions.
 type Service struct {
-	Pool   *pgxpool.Pool
-	Models *models.Gateway
-	Search *search.Service
-	Log    *slog.Logger
-	Now    func() time.Time
+	Pool    *pgxpool.Pool
+	Models  *models.Gateway
+	Search  *search.Service
+	Extract *extract.Service
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 func (s *Service) now() time.Time {
@@ -264,6 +266,7 @@ func (s *Service) Ask(ctx context.Context, userID string, vis visibility.Set, qu
 			Sources: c.Sources, Claims: c.Claims, Results: c.Results, Notice: noticeOf(err)}
 	} else {
 		a = c.Finish(question, res.Content)
+		s.queueCited(ctx, vis, &a)
 	}
 	a.CreatedAt = s.now()
 	stored, _ := json.Marshal(a)
@@ -285,6 +288,31 @@ type Flags struct {
 	Uncited     int     `json:"uncited"`
 	Notice      *Notice `json:"notice,omitempty"`
 	Connections []int64 `json:"connections"`
+}
+
+// queueCited queues extraction of the cited passages that have no cached
+// result (REQ-ASK-006). A failure does not fail the answer.
+func (s *Service) queueCited(ctx context.Context, vis visibility.Set, a *Answer) {
+	if s.Extract == nil {
+		return
+	}
+	var items []int64
+	var hashes []string
+	for _, src := range a.Sources {
+		if !slices.Contains(a.Cited, src.ID) {
+			continue
+		}
+		for _, h := range src.PassageHashes {
+			items = append(items, src.ItemID)
+			hashes = append(hashes, h)
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	if _, err := s.Extract.Queue(context.WithoutCancel(ctx), vis, extract.TriggerAnswer, items, hashes); err != nil {
+		s.Log.Warn("extraction not queued", "error", err.Error())
+	}
 }
 
 func orEmpty[T any](s []T) []T {

@@ -89,13 +89,13 @@ WHERE entity_id = @entity_id AND connection_id = @connection_id AND alias_norm <
 -- name: LatestClaim :one
 SELECT id, coalesce(object_entity_id, 0)::bigint AS object_entity_id, object_norm, retracted_at
 FROM claims
-WHERE subject_id = @subject_id AND predicate = @predicate AND scope_env = '' AND origin = 'source'
+WHERE subject_id = @subject_id AND predicate = @predicate AND scope_env = @scope_env
 ORDER BY valid_from DESC NULLS LAST, id DESC
 LIMIT 1;
 
 -- name: UpsertClaim :one
-INSERT INTO claims (subject_id, predicate, object_entity_id, object_text, object_norm, valid_from, origin)
-VALUES (@subject_id, @predicate, @object_entity_id, @object_text, @object_norm, @valid_from, 'source')
+INSERT INTO claims (subject_id, predicate, object_entity_id, object_text, object_norm, scope_env, valid_from, origin)
+VALUES (@subject_id, @predicate, @object_entity_id, @object_text, @object_norm, @scope_env, @valid_from, @origin)
 ON CONFLICT (subject_id, predicate, (coalesce(object_entity_id, 0)), object_norm, scope_env,
              (coalesce(valid_from, '-infinity'::timestamptz)))
 DO UPDATE SET retracted_at = NULL

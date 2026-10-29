@@ -260,7 +260,7 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		objectText = &text
 		objectNorm = entities.NormalizeAlias(text)
 	}
-	claimID, err := in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, at)
+	claimID, err := in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, "", "source", at)
 	if err != nil {
 		return err
 	}
@@ -310,10 +310,11 @@ func (in *ingest) sourceType(ctx context.Context) (string, error) {
 
 // claim finds or creates a claim. A time-scoped predicate keeps the newest
 // value when it is unchanged, and otherwise starts a new dated value.
-func (in *ingest) claim(ctx context.Context, subject int64, predicate string, objectID *int64, objectText *string, objectNorm string, at time.Time) (int64, error) {
+func (in *ingest) claim(ctx context.Context, subject int64, predicate string, objectID *int64, objectText *string, objectNorm, scope, origin string,
+	at time.Time) (int64, error) {
 	var validFrom *time.Time
 	if claims.Registry[predicate].TimeScoped {
-		latest, err := in.q.LatestClaim(ctx, LatestClaimParams{SubjectID: subject, Predicate: predicate})
+		latest, err := in.q.LatestClaim(ctx, LatestClaimParams{SubjectID: subject, Predicate: predicate, ScopeEnv: scope})
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return 0, err
 		}
@@ -332,7 +333,7 @@ func (in *ingest) claim(ctx context.Context, subject int64, predicate string, ob
 		validFrom = &t
 	}
 	id, err := in.q.UpsertClaim(ctx, UpsertClaimParams{SubjectID: subject, Predicate: predicate, ObjectEntityID: objectID,
-		ObjectText: objectText, ObjectNorm: objectNorm, ValidFrom: validFrom})
+		ObjectText: objectText, ObjectNorm: objectNorm, ScopeEnv: scope, ValidFrom: validFrom, Origin: origin})
 	if err != nil {
 		return 0, fmt.Errorf("content: claim %s: %w", predicate, err)
 	}

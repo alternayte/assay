@@ -193,10 +193,15 @@ var (
 	markdownMark  = regexp.MustCompile("[#*_`>|\\[\\]]+")
 )
 
-// fakeContent is the default chat reply. For an Ask context it cites the
-// first sentence of the first two sources and the first claim. Otherwise it
-// is a fixed text.
+// fakeContent is the default chat reply. An extraction request gets no
+// claims. For an Ask context it cites the first sentence of the first two
+// sources and the first claim. Otherwise it is a fixed text.
 func fakeContent(body map[string]any) string {
+	if rf, ok := body["response_format"].(map[string]any); ok {
+		if js, ok := rf["json_schema"].(map[string]any); ok && js["name"] == "extraction" {
+			return `{"claims":[]}`
+		}
+	}
 	msgs, _ := body["messages"].([]any)
 	var user string
 	for _, m := range msgs {

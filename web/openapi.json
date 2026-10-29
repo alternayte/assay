@@ -1244,6 +1244,50 @@
         ],
         "type": "object"
       },
+      "Estimate": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Estimate.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "costUsd": {
+            "description": "The estimate with the prices of the extract function.",
+            "format": "double",
+            "type": "number"
+          },
+          "on": {
+            "description": "The extract function is on.",
+            "type": "boolean"
+          },
+          "passages": {
+            "description": "Passages with no cached result.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensIn": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensOut": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passages",
+          "tokensIn",
+          "tokensOut",
+          "costUsd",
+          "on"
+        ],
+        "type": "object"
+      },
       "Evidence": {
         "additionalProperties": false,
         "properties": {
@@ -3191,6 +3235,52 @@
         ],
         "type": "object"
       },
+      "StartInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/StartInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "passages": {
+            "description": "The passage count of the estimate that you confirm.",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "passages"
+        ],
+        "type": "object"
+      },
+      "StartOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/StartOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "queued": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queued"
+        ],
+        "type": "object"
+      },
       "Status": {
         "additionalProperties": false,
         "properties": {
@@ -4538,6 +4628,100 @@
           }
         },
         "summary": "Change a connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/extraction": {
+      "get": {
+        "description": "Counts the passages with no cached result and estimates the cost. Sends no model request.",
+        "operationId": "estimateExtraction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estimate"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Estimate the extraction of a connection",
+        "tags": [
+          "connections"
+        ]
+      },
+      "post": {
+        "description": "Confirm the passage count of the estimate. A different count returns 409 with the new estimate in the message.",
+        "operationId": "startExtraction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartOutBody"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Extract the claims of a connection",
         "tags": [
           "connections"
         ]

@@ -114,3 +114,10 @@ sql:
         <<: *go
         package: entities
         out: internal/entities
+  - <<: *pkg
+    queries: internal/extract/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: extract
+        out: internal/extract

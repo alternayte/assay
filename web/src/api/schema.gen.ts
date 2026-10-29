@@ -269,6 +269,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections/{id}/extraction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estimate the extraction of a connection
+         * @description Counts the passages with no cached result and estimates the cost. Sends no model request.
+         */
+        get: operations["estimateExtraction"];
+        put?: never;
+        /**
+         * Extract the claims of a connection
+         * @description Confirm the passage count of the estimate. A different count returns 409 with the new estimate in the message.
+         */
+        post: operations["startExtraction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connections/{id}/paused": {
         parameters: {
             query?: never;
@@ -1500,6 +1524,30 @@ export interface components {
                 message: string;
             };
         };
+        Estimate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Estimate.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: double
+             * @description The estimate with the prices of the extract function.
+             */
+            costUsd: number;
+            /** @description The extract function is on. */
+            on: boolean;
+            /**
+             * Format: int64
+             * @description Passages with no cached result.
+             */
+            passages: number;
+            /** Format: int64 */
+            tokensIn: number;
+            /** Format: int64 */
+            tokensOut: number;
+        };
         Evidence: {
             connectionName: string;
             /** Format: int64 */
@@ -2191,6 +2239,29 @@ export interface components {
              * @description All chunks.
              */
             total: number;
+        };
+        StartInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/StartInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The passage count of the estimate that you confirm.
+             */
+            passages: number;
+        };
+        StartOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/StartOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            queued: number;
         };
         Status: {
             /**
@@ -2996,6 +3067,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    estimateExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Estimate"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    startExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartInBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartOutBody"];
+                };
             };
             /** @description Error */
             default: {

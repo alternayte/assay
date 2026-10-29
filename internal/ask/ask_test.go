@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -39,9 +40,10 @@ type answer struct {
 		Claims      []string `json:"claims"`
 	} `json:"conflicts"`
 	Sources []struct {
-		ID     string `json:"id"`
-		ItemID int64  `json:"itemId"`
-		Title  string `json:"title"`
+		ID            string   `json:"id"`
+		ItemID        int64    `json:"itemId"`
+		Title         string   `json:"title"`
+		PassageHashes []string `json:"passageHashes"`
 	} `json:"sources"`
 	Claims  []claim `json:"claims"`
 	Results []struct {
@@ -258,5 +260,52 @@ func TestSCN_MOD_003_AskShowsResultsWithBudgetNotice(t *testing.T) {
 	}
 	if evs[0].Name != "results" {
 		t.Fatalf("first event %s", evs[0].Name)
+	}
+}
+
+func TestSCN_ASK_005_AnswerQueuesExtractionOfNewPassages(t *testing.T) {
+	s := start(t)
+	pool := s.env.Server.Pool()
+	q := "What does the Payments API do?"
+	first := final(t, ask(t, s.admin, q))
+	if len(first.Cited) < 2 || first.Cited[0] != "S1" || first.Cited[1] != "S2" {
+		t.Fatalf("cited %v", first.Cited)
+	}
+	if n := s.env.Count("SELECT count(*) FROM river_job WHERE kind = 'extract'"); n != 1 {
+		t.Fatalf("%d extraction jobs after the first answer", n)
+	}
+	// The passages of S1 are extracted. Those of S2 are new.
+	if _, err := pool.Exec(t.Context(), "DELETE FROM river_job WHERE kind = 'extract'"); err != nil {
+		t.Fatal(err)
+	}
+	var s1, s2 []string
+	var item1 int64
+	for _, src := range first.Sources {
+		switch src.ID {
+		case "S1":
+			s1, item1 = src.PassageHashes, src.ItemID
+		case "S2":
+			s2 = src.PassageHashes
+		}
+	}
+	for _, h := range s1 {
+		if _, err := pool.Exec(t.Context(), `INSERT INTO passage_extractions (item_id, passage_hash, extractor_version)
+			VALUES ($1, decode($2, 'hex'), $3)`, item1, h, extract.Version()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	final(t, ask(t, s.admin, q))
+	var args extract.Args
+	if err := pool.QueryRow(t.Context(), "SELECT args FROM river_job WHERE kind = 'extract'").Scan(&args); err != nil {
+		t.Fatal(err)
+	}
+	if n := s.env.Count("SELECT count(*) FROM river_job WHERE kind = 'extract'"); n != 1 {
+		t.Fatalf("%d jobs", n)
+	}
+	slices.Sort(args.Hashes)
+	want := slices.Clone(s2)
+	slices.Sort(want)
+	if !slices.Equal(args.Hashes, want) || args.Trigger != extract.TriggerAnswer {
+		t.Fatalf("job %+v, want the hashes of S2 %v", args, want)
 	}
 }

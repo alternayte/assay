@@ -426,3 +426,13 @@ func (g *Gateway) stream(ctx context.Context, t *target, path string, body map[s
 	}
 	return nil
 }
+
+// Prices returns the prices per million tokens of a function, and whether
+// the function is on.
+func (g *Gateway) Prices(ctx context.Context, fn Function) (in, out float64, on bool, err error) {
+	r, err := New(g.Pool).GetFunction(ctx, string(fn))
+	if err != nil {
+		return 0, 0, false, err
+	}
+	return r.PriceIn, r.PriceOut, r.Enabled && r.EndpointID != nil && r.Model != "", nil
+}

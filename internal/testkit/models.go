@@ -1,11 +1,14 @@
 package testkit
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/fixtures"
 )
 
@@ -56,4 +59,41 @@ func SetFunction(t testing.TB, admin *Client, fn string, f Function) {
 		"endpointId": f.Endpoint, "model": f.Model, "params": f.Params, "priceInPerMTok": f.PriceIn,
 		"priceOutPerMTok": f.PriceOut, "monthlyBudgetUsd": f.Budget, "enabled": true,
 	})
+}
+
+// RunExtractJobs works the queued extraction jobs in the test and returns
+// how many ran. Tests do not start River.
+func (e *Env) RunExtractJobs() int {
+	e.t.Helper()
+	ctx := context.Background()
+	rows, err := e.Server.Pool().Query(ctx, "SELECT id, args FROM river_job WHERE kind = 'extract' AND state IN ('available', 'scheduled') ORDER BY id")
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	type job struct {
+		id   int64
+		args []byte
+	}
+	var jobs []job
+	for rows.Next() {
+		var j job
+		if err := rows.Scan(&j.id, &j.args); err != nil {
+			e.t.Fatal(err)
+		}
+		jobs = append(jobs, j)
+	}
+	rows.Close()
+	for _, j := range jobs {
+		var a extract.Args
+		if err := json.Unmarshal(j.args, &a); err != nil {
+			e.t.Fatal(err)
+		}
+		if err := e.Server.Extract().Run(ctx, a); err != nil {
+			e.t.Fatalf("extract job %d: %v", j.id, err)
+		}
+		if _, err := e.Server.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", j.id); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	return len(jobs)
 }

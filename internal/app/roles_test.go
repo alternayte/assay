@@ -34,7 +34,9 @@ func start(t *testing.T, dbURL string, role app.Role) {
 	<-addr
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		if err := <-done; err != nil {
+			t.Errorf("%s process: %v", role, err)
+		}
 		s.Close()
 	})
 }

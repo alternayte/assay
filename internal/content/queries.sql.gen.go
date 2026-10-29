@@ -55,33 +55,72 @@ func (q *Queries) AddEntitySource(ctx context.Context, arg AddEntitySourceParams
 	return err
 }
 
-const addFieldEvidence = `-- name: AddFieldEvidence :exec
+const addEvidence = `-- name: AddEvidence :one
 INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
-VALUES ($1, $2, $3, $4, 'field', 'supports', $5, 'current', $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7, 'current', $8)
 ON CONFLICT (claim_id, item_id, passage_hash, stance)
 DO UPDATE SET state = 'current', quote = EXCLUDED.quote, source_type = EXCLUDED.source_type, updated_at = now()
+RETURNING (xmax = 0) AS inserted
 `
 
-type AddFieldEvidenceParams struct {
+type AddEvidenceParams struct {
 	ClaimID      int64
 	ConnectionID int64
 	ItemID       int64
 	PassageHash  []byte
+	Kind         string
+	Stance       string
 	Quote        string
 	SourceType   string
 }
 
+// Inserted is false when the row existed.
 // vis:system
-func (q *Queries) AddFieldEvidence(ctx context.Context, arg AddFieldEvidenceParams) error {
-	_, err := q.db.Exec(ctx, addFieldEvidence,
+func (q *Queries) AddEvidence(ctx context.Context, arg AddEvidenceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, addEvidence,
 		arg.ClaimID,
 		arg.ConnectionID,
 		arg.ItemID,
 		arg.PassageHash,
+		arg.Kind,
+		arg.Stance,
 		arg.Quote,
 		arg.SourceType,
 	)
-	return err
+	var inserted bool
+	err := row.Scan(&inserted)
+	return inserted, err
+}
+
+const claimGroupConnections = `-- name: ClaimGroupConnections :many
+SELECT DISTINCT e.connection_id FROM claim_evidence e
+JOIN claims c ON c.id = e.claim_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = $1
+ORDER BY e.connection_id
+`
+
+// The connections of the evidence of a claim and of the other claims of
+// its subject and predicate.
+// vis:system
+func (q *Queries) ClaimGroupConnections(ctx context.Context, claimID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, claimGroupConnections, claimID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var connection_id int64
+		if err := rows.Scan(&connection_id); err != nil {
+			return nil, err
+		}
+		items = append(items, connection_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const clearOtherNames = `-- name: ClearOtherNames :exec

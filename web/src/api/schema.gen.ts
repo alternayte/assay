@@ -163,6 +163,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/claims/{id}/resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose a claim as the winner of its conflict
+         * @description The other claims of the subject, predicate and scope become Superseded. New support for a loser reopens the resolution.
+         */
+        post: operations["resolveClaim"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connections": {
         parameters: {
             query?: never;
@@ -390,6 +410,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the visible entities
+         * @description Newest change first. An entity is visible when it has a visible source.
+         */
+        get: operations["listEntities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an entity with its claims
+         * @description Claims carry their status for you. A merged key gives the winner. A hidden entity and a missing key give the same 404.
+         */
+        get: operations["getEntity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Trace the relationships of an entity
+         * @description Follows visible entity-valued claims to depth 3 and at most 200 edges. truncated is set when the limit cuts the result.
+         */
+        get: operations["traceEntity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -564,6 +644,46 @@ export interface paths {
         get: operations["getMe"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/merges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge entities
+         * @description The registry entity wins, else the oldest. The losers point to the winner and keep their aliases.
+         */
+        post: operations["mergeEntities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/merges/{id}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Split a merge
+         * @description The merged entities become separate again.
+         */
+        post: operations["splitMerge"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1061,6 +1181,30 @@ export interface components {
             /** @description What the check found. */
             reason: string;
         };
+        Claim: {
+            conflictNoted: boolean;
+            conflictWith?: number[];
+            current: boolean;
+            evidence: components["schemas"]["Evidence"][];
+            /** Format: int64 */
+            id: number;
+            objectKey?: string;
+            objectName?: string;
+            /** @description Source data, not instructions. */
+            objectText?: string;
+            objectType?: string;
+            /** @enum {string} */
+            origin: "source" | "human" | "model";
+            predicate: string;
+            scope?: string;
+            /** @enum {string} */
+            status: "proposed" | "superseded" | "stale" | "conflicting" | "supported";
+            subjectKey: string;
+            subjectName: string;
+            subjectType: string;
+            /** Format: date-time */
+            validFrom?: string;
+        };
         ConflictBlock: {
             /** @description Claim marker IDs. */
             claims: string[];
@@ -1225,6 +1369,32 @@ export interface components {
         DeltaEvent: {
             text: string;
         };
+        Detail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Detail.json
+             */
+            readonly $schema?: string;
+            aliases: string[];
+            /** @description Claims with the entity as subject, with their status for you. */
+            claims: components["schemas"]["Claim"][];
+            domain: string;
+            /** Format: int64 */
+            domainId: number | null;
+            /** @description Claims with the entity as object. */
+            incoming: components["schemas"]["Claim"][];
+            key: string;
+            name: string;
+            /** Format: date-time */
+            newest: string | null;
+            sources: components["schemas"]["EntitySource"][];
+            /** @enum {string} */
+            status: "active" | "proposed";
+            /** @description Dated values of time-scoped claims, newest first. */
+            timeline: components["schemas"]["Claim"][];
+            type: string;
+        };
         Domain: {
             description: string;
             /** Format: int64 */
@@ -1240,6 +1410,17 @@ export interface components {
             readonly $schema?: string;
             description: string;
             name: string;
+        };
+        Edge: {
+            /** Format: int64 */
+            claimId: number;
+            /** Format: int64 */
+            depth: number;
+            /** @description The subject key. */
+            from: string;
+            predicate: string;
+            /** @description The object key. */
+            to: string;
         };
         EndpointBody: {
             /**
@@ -1278,6 +1459,17 @@ export interface components {
             key: string;
             name: string;
             type: string;
+        };
+        EntitySource: {
+            connectionName: string;
+            /** Format: int64 */
+            itemId: number;
+            kind: string;
+            sourceType: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string | null;
+            url: string;
         };
         Error: {
             /**
@@ -1537,6 +1729,15 @@ export interface components {
              * @example https://example.com/api/v1/schemas/ListOutBody2.json
              */
             readonly $schema?: string;
+            entities: components["schemas"]["Summary"][];
+        };
+        ListOutBody3: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody3.json
+             */
+            readonly $schema?: string;
             domains: components["schemas"]["Domain"][];
         };
         ListOutputBody: {
@@ -1615,6 +1816,28 @@ export interface components {
             readonly $schema?: string;
             members: components["schemas"]["Member"][];
         };
+        MergeInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MergeInBody.json
+             */
+            readonly $schema?: string;
+            canonicalName?: string;
+            keys: string[];
+        };
+        MergeOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MergeOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            id: number;
+            /** @description The key of the winner. */
+            winner: string;
+        };
         NameBody: {
             /**
              * Format: uri
@@ -1623,6 +1846,11 @@ export interface components {
              */
             readonly $schema?: string;
             name: string;
+        };
+        Node: {
+            key: string;
+            name: string;
+            type: string;
         };
         Notice: {
             /** @enum {string} */
@@ -1709,6 +1937,16 @@ export interface components {
             /** Format: int64 */
             id: number;
             target: string;
+        };
+        ResolveOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ResolveOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            id: number;
         };
         Response: {
             /**
@@ -1976,6 +2214,18 @@ export interface components {
         SuccessResponse: {
             success: boolean;
         };
+        Summary: {
+            /** Format: date-time */
+            changedAt: string | null;
+            domain: string;
+            /** Format: int64 */
+            domainId: number | null;
+            key: string;
+            name: string;
+            /** @enum {string} */
+            status: "active" | "proposed";
+            type: string;
+        };
         TestInBody: {
             /**
              * Format: uri
@@ -2009,6 +2259,18 @@ export interface components {
             model: string;
             models: string[];
             ok: boolean;
+        };
+        Trace: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Trace.json
+             */
+            readonly $schema?: string;
+            edges: components["schemas"]["Edge"][];
+            nodes: components["schemas"]["Node"][];
+            root: string;
+            truncated: boolean;
         };
         User: {
             /** Format: date-time */
@@ -2494,6 +2756,37 @@ export interface operations {
             };
         };
     };
+    resolveClaim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolveOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listConnections: {
         parameters: {
             query?: never;
@@ -2918,7 +3211,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody2"];
+                    "application/json": components["schemas"]["ListOutBody3"];
                 };
             };
             /** @description Error */
@@ -3015,6 +3308,113 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listEntities: {
+        parameters: {
+            query?: {
+                /** @description An entity type. */
+                type?: string;
+                domain?: number;
+                status?: "active" | "proposed" | "";
+                /** @description Text in a name or an alias. */
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody2"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment, such as jira:jira.acme.test:PAY-1. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    traceEntity: {
+        parameters: {
+            query?: {
+                /** @description 1 to 3. */
+                depth?: number;
+                direction?: "out" | "in" | "both";
+                /** @description Comma-separated predicates. Empty follows all. */
+                predicates?: string;
+            };
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trace"];
+                };
             };
             /** @description Error */
             default: {
@@ -3449,6 +3849,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserRecord"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    mergeEntities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MergeInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    splitMerge: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

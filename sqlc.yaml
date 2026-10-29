@@ -107,3 +107,10 @@ sql:
         <<: *go
         package: ask
         out: internal/ask
+  - <<: *pkg
+    queries: internal/entities/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: entities
+        out: internal/entities

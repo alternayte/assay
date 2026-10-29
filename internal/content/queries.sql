@@ -104,12 +104,24 @@ RETURNING id;
 -- name: Unretract :exec
 UPDATE claims SET retracted_at = NULL WHERE id = @id;
 
--- name: AddFieldEvidence :exec
+-- name: AddEvidence :one
+-- Inserted is false when the row existed.
 -- vis:system
 INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
-VALUES (@claim_id, @connection_id, @item_id, @passage_hash, 'field', 'supports', @quote, 'current', @source_type)
+VALUES (@claim_id, @connection_id, @item_id, @passage_hash, @kind, @stance, @quote, 'current', @source_type)
 ON CONFLICT (claim_id, item_id, passage_hash, stance)
-DO UPDATE SET state = 'current', quote = EXCLUDED.quote, source_type = EXCLUDED.source_type, updated_at = now();
+DO UPDATE SET state = 'current', quote = EXCLUDED.quote, source_type = EXCLUDED.source_type, updated_at = now()
+RETURNING (xmax = 0) AS inserted;
+
+-- name: ClaimGroupConnections :many
+-- The connections of the evidence of a claim and of the other claims of
+-- its subject and predicate.
+-- vis:system
+SELECT DISTINCT e.connection_id FROM claim_evidence e
+JOIN claims c ON c.id = e.claim_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = @claim_id
+ORDER BY e.connection_id;
 
 -- name: ConnectionKind :one
 SELECT kind FROM connections WHERE id = @id;

@@ -21,6 +21,7 @@ import (
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/search"
@@ -48,6 +49,7 @@ type Server struct {
 	embedder *content.Embedder
 	search   *search.Service
 	ask      *ask.Service
+	entities *entities.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -123,6 +125,7 @@ func (s *Server) services() error {
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics()}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
+	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
@@ -140,6 +143,7 @@ func (s *Server) registerAPI(a huma.API) {
 	content.Register(a, s.pool)
 	s.search.Register(a)
 	s.ask.Register(a)
+	s.entities.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 

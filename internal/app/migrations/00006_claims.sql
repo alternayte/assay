@@ -51,6 +51,38 @@ CREATE TABLE merges (
 );
 CREATE INDEX merges_winner ON merges (winner_id) WHERE undone_at IS NULL;
 
+-- The display name of an entity for a visible set (REQ-ENT-007): the
+-- registry name first, then the canonical name of an active merge when the
+-- reader sees a source of every merged entity, then the name from the
+-- highest-priority source. Only aliases from visible connections count, also
+-- those of merged entities, so a merge never shows a hidden name (SI-16).
+-- +goose StatementBegin
+CREATE FUNCTION entity_display_name(entity bigint, visible bigint[]) RETURNS text
+LANGUAGE sql STABLE AS $$
+    WITH names AS (
+        SELECT a.alias, a.alias_norm, a.is_name, k.kind, a.entity_id = entity AS own
+        FROM entity_aliases a
+        JOIN connections k ON k.id = a.connection_id
+        WHERE (a.entity_id = entity OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = entity))
+          AND a.connection_id = ANY(visible)
+    )
+    SELECT coalesce(
+        (SELECT n.alias FROM names n WHERE n.kind = 'registry' AND n.is_name ORDER BY n.own DESC LIMIT 1),
+        (SELECT m.canonical_name FROM merges m
+         WHERE m.winner_id = entity AND m.undone_at IS NULL AND m.canonical_name <> ''
+           AND NOT EXISTS (SELECT 1 FROM entities x
+                           WHERE (x.id = entity OR x.merged_into = entity)
+                             AND NOT EXISTS (SELECT 1 FROM entity_sources es
+                                             WHERE es.entity_id = x.id AND es.connection_id = ANY(visible)))
+         ORDER BY m.id DESC LIMIT 1),
+        (SELECT n.alias FROM names n
+         ORDER BY n.is_name DESC,
+                  CASE n.kind WHEN 'registry' THEN 0 WHEN 'github' THEN 1 WHEN 'azdo' THEN 1 WHEN 'jira' THEN 2 ELSE 3 END,
+                  n.own DESC, length(n.alias)
+         LIMIT 1))
+$$;
+-- +goose StatementEnd
+
 -- The extraction cache: one row per item, passage hash and extractor
 -- version. output keeps the validated model output.
 CREATE TABLE passage_extractions (
@@ -67,6 +99,7 @@ CREATE TABLE passage_extractions (
 
 -- +goose Down
 DROP TABLE passage_extractions;
+DROP FUNCTION entity_display_name(bigint, bigint[]);
 DROP TABLE merges;
 DROP TABLE resolutions;
 ALTER TABLE claim_evidence DROP COLUMN proposal_id;

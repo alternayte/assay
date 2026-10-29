@@ -120,3 +120,14 @@ func (e *Env) Count(query string, args ...any) int {
 	}
 	return n
 }
+
+// ShareWithEveryone shares a connection with the Everyone group.
+func ShareWithEveryone(t testing.TB, env *Env, admin *Client, connectionID int64) {
+	t.Helper()
+	var everyone int64
+	if err := env.Server.Pool().QueryRow(context.Background(), "SELECT id FROM groups WHERE builtin").Scan(&everyone); err != nil {
+		t.Fatal(err)
+	}
+	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", connectionID),
+		map[string]any{"groupIds": []int64{everyone}, "confirm": true})
+}

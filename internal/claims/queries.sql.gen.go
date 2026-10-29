@@ -7,8 +7,157 @@ package claims
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
+
+const claimScope = `-- name: ClaimScope :one
+SELECT c.id, c.subject_id, c.predicate, c.scope_env FROM claims c
+WHERE c.id = $1 AND c.retracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM claim_evidence e
+              WHERE e.claim_id = c.id AND e.connection_id = ANY($2::bigint[]) AND e.stance = 'supports')
+`
+
+type ClaimScopeParams struct {
+	ID      int64
+	Visible []int64
+}
+
+type ClaimScopeRow struct {
+	ID        int64
+	SubjectID int64
+	Predicate string
+	ScopeEnv  string
+}
+
+// A claim with visible support, for a resolution.
+func (q *Queries) ClaimScope(ctx context.Context, arg ClaimScopeParams) (ClaimScopeRow, error) {
+	row := q.db.QueryRow(ctx, claimScope, arg.ID, arg.Visible)
+	var i ClaimScopeRow
+	err := row.Scan(
+		&i.ID,
+		&i.SubjectID,
+		&i.Predicate,
+		&i.ScopeEnv,
+	)
+	return i, err
+}
+
+const closeResolutions = `-- name: CloseResolutions :exec
+UPDATE resolutions SET reopened_at = $1
+WHERE subject_id = $2 AND predicate = $3 AND scope_key = $4 AND reopened_at IS NULL
+`
+
+type CloseResolutionsParams struct {
+	Now       *time.Time
+	SubjectID int64
+	Predicate string
+	ScopeKey  string
+}
+
+// A new resolution replaces the open one of the same subject, predicate and
+// scope.
+func (q *Queries) CloseResolutions(ctx context.Context, arg CloseResolutionsParams) error {
+	_, err := q.db.Exec(ctx, closeResolutions,
+		arg.Now,
+		arg.SubjectID,
+		arg.Predicate,
+		arg.ScopeKey,
+	)
+	return err
+}
+
+const insertCard = `-- name: InsertCard :one
+INSERT INTO proposals (kind, target, payload, via, connections) VALUES ($1, $2, $3, 'system', $4)
+RETURNING id
+`
+
+type InsertCardParams struct {
+	Kind        string
+	Target      string
+	Payload     json.RawMessage
+	Connections []int64
+}
+
+func (q *Queries) InsertCard(ctx context.Context, arg InsertCardParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertCard,
+		arg.Kind,
+		arg.Target,
+		arg.Payload,
+		arg.Connections,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertResolution = `-- name: InsertResolution :one
+INSERT INTO resolutions (subject_id, predicate, scope_key, chosen_claim_id, decided_by, decided_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id
+`
+
+type InsertResolutionParams struct {
+	SubjectID     int64
+	Predicate     string
+	ScopeKey      string
+	ChosenClaimID int64
+	DecidedBy     *string
+	DecidedAt     time.Time
+}
+
+func (q *Queries) InsertResolution(ctx context.Context, arg InsertResolutionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertResolution,
+		arg.SubjectID,
+		arg.Predicate,
+		arg.ScopeKey,
+		arg.ChosenClaimID,
+		arg.DecidedBy,
+		arg.DecidedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const reopenResolutions = `-- name: ReopenResolutions :many
+UPDATE resolutions r SET reopened_at = $1
+FROM claims c
+WHERE c.id = $2 AND r.subject_id = c.subject_id AND r.predicate = c.predicate AND r.scope_key = c.scope_env
+  AND r.chosen_claim_id <> c.id AND r.reopened_at IS NULL
+RETURNING r.id, r.chosen_claim_id
+`
+
+type ReopenResolutionsParams struct {
+	Now     *time.Time
+	ClaimID int64
+}
+
+type ReopenResolutionsRow struct {
+	ID            int64
+	ChosenClaimID int64
+}
+
+// Resolutions that chose another claim than the one with new support.
+func (q *Queries) ReopenResolutions(ctx context.Context, arg ReopenResolutionsParams) ([]ReopenResolutionsRow, error) {
+	rows, err := q.db.Query(ctx, reopenResolutions, arg.Now, arg.ClaimID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReopenResolutionsRow
+	for rows.Next() {
+		var i ReopenResolutionsRow
+		if err := rows.Scan(&i.ID, &i.ChosenClaimID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const resolutions = `-- name: Resolutions :many
 SELECT id, subject_id, predicate, scope_key, chosen_claim_id, decided_at, reopened_at
@@ -89,13 +238,9 @@ func (q *Queries) SupersededDecisions(ctx context.Context, arg SupersededDecisio
 
 const visibleClaims = `-- name: VisibleClaims :many
 SELECT c.id, c.predicate, c.subject_id, s.key AS subject_key, s.type AS subject_type,
-       coalesce((SELECT n.alias FROM entity_aliases n JOIN connections nk ON nk.id = n.connection_id
-                 WHERE n.entity_id = s.id AND n.connection_id = ANY($1::bigint[])
-                 ORDER BY nk.kind = 'registry' DESC, n.is_name DESC, n.id LIMIT 1), s.key)::text AS subject_name,
+       coalesce(entity_display_name(s.id, $1::bigint[]), s.key)::text AS subject_name,
        c.object_entity_id, coalesce(o.key, '')::text AS object_key, coalesce(o.type, '')::text AS object_type,
-       coalesce((SELECT n.alias FROM entity_aliases n JOIN connections nk ON nk.id = n.connection_id
-                 WHERE n.entity_id = o.id AND n.connection_id = ANY($1::bigint[])
-                 ORDER BY nk.kind = 'registry' DESC, n.is_name DESC, n.id LIMIT 1), o.key, '')::text AS object_name,
+       coalesce(entity_display_name(o.id, $1::bigint[]), o.key, '')::text AS object_name,
        coalesce(c.object_text, '')::text AS object_text, c.object_norm, c.scope_env, c.valid_from, c.origin
 FROM claims c
 JOIN entities s ON s.id = c.subject_id

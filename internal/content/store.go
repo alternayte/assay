@@ -17,6 +17,10 @@ import (
 	"github.com/alternayte/assay/internal/entities"
 )
 
+// errBadEntity marks an entity with an unknown type or a key that is not
+// provider-qualified. Ingest drops it with a log line.
+var errBadEntity = errors.New("content: the entity is not valid")
+
 // Outcome is the result of storing one item.
 type Outcome int
 
@@ -124,20 +128,26 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 	if err := q.RefreshEvidence(ctx, itemID); err != nil {
 		return 0, err
 	}
-	in := ingest{q: q, connectionID: connectionID, domainID: domainID, itemID: itemID, log: log, ids: map[string]int64{}}
+	in := ingest{q: q, tx: tx, connectionID: connectionID, domainID: domainID, itemID: itemID, log: log, ids: map[string]int64{}}
 	var entityID *int64
 	if it.Entity != nil {
 		id, err := in.entity(ctx, *it.Entity)
-		if err != nil {
+		switch {
+		case errors.Is(err, errBadEntity):
+			log.Warn("entity dropped", "reason", err.Error())
+		case err != nil:
 			return 0, err
+		default:
+			entityID = &id
 		}
-		entityID = &id
 	}
 	if err := q.SetItemEntity(ctx, SetItemEntityParams{ID: itemID, EntityID: entityID}); err != nil {
 		return 0, err
 	}
 	for _, e := range it.Entities {
-		if _, err := in.entity(ctx, e); err != nil {
+		if _, err := in.entity(ctx, e); errors.Is(err, errBadEntity) {
+			log.Warn("entity dropped", "reason", err.Error())
+		} else if err != nil {
 			return 0, err
 		}
 	}
@@ -151,6 +161,7 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 
 type ingest struct {
 	q            *Queries
+	tx           pgx.Tx
 	connectionID int64
 	domainID     *int64
 	itemID       int64
@@ -163,6 +174,9 @@ type ingest struct {
 func (in *ingest) entity(ctx context.Context, e EntityRef) (int64, error) {
 	if id, ok := in.ids[e.Key]; ok {
 		return id, nil
+	}
+	if err := entities.CheckRef(e.Type, e.Key); err != nil {
+		return 0, fmt.Errorf("%w: %w", errBadEntity, err)
 	}
 	id, err := in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID})
 	if err != nil {
@@ -221,6 +235,10 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		return nil
 	}
 	subject, err := in.entity(ctx, f.Subject)
+	if errors.Is(err, errBadEntity) {
+		in.log.Warn("fact dropped", "predicate", f.Predicate, "reason", err.Error())
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -229,6 +247,10 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 	objectNorm := ""
 	if f.Object != nil {
 		id, err := in.entity(ctx, *f.Object)
+		if errors.Is(err, errBadEntity) {
+			in.log.Warn("fact dropped", "predicate", f.Predicate, "reason", err.Error())
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -248,8 +270,25 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 			return err
 		}
 	}
-	return in.q.AddFieldEvidence(ctx, AddFieldEvidenceParams{ClaimID: claimID, ConnectionID: in.connectionID, ItemID: in.itemID,
-		PassageHash: passageHash, Quote: quote, SourceType: source})
+	return in.evidence(ctx, claimID, passageHash, "field", "supports", quote, source, at)
+}
+
+// evidence adds an evidence row. New support for a claim reopens the
+// resolutions that chose another claim.
+func (in *ingest) evidence(ctx context.Context, claimID int64, passageHash []byte, kind, stance, quote, source string, now time.Time) error {
+	inserted, err := in.q.AddEvidence(ctx, AddEvidenceParams{ClaimID: claimID, ConnectionID: in.connectionID, ItemID: in.itemID,
+		PassageHash: passageHash, Kind: kind, Stance: stance, Quote: quote, SourceType: source})
+	if err != nil || !inserted || stance != "supports" {
+		return err
+	}
+	conns, err := in.q.ClaimGroupConnections(ctx, claimID)
+	if err != nil {
+		return err
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return claims.Reopen(ctx, in.tx, claimID, conns, now)
 }
 
 // sourceType is the evidence source type of the connection: its kind, or

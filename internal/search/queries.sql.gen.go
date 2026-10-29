@@ -194,9 +194,7 @@ func (q *Queries) Hits(ctx context.Context, arg HitsParams) ([]HitsRow, error) {
 
 const matchEntities = `-- name: MatchEntities :many
 SELECT e.id, e.key, e.type,
-       (SELECT n.alias FROM entity_aliases n JOIN connections nk ON nk.id = n.connection_id
-        WHERE n.entity_id = e.id AND n.connection_id = ANY($1::bigint[])
-        ORDER BY nk.kind = 'registry' DESC, n.is_name DESC, n.id LIMIT 1)::text AS name,
+       coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
        max(CASE WHEN a.alias_norm = $2::text THEN 2 ELSE similarity(a.alias_norm, $2::text) END)::float8 AS score
 FROM entity_aliases a
 JOIN entities e ON e.id = a.entity_id

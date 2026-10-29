@@ -1,0 +1,108 @@
+-- name: Explore :many
+-- Visible entities with filters, newest change first. An entity is visible
+-- when it has a visible source. Merged entities show as their winner.
+SELECT e.id, e.key, e.type, e.status, e.domain_id, coalesce(d.name, '')::text AS domain_name,
+       coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
+       greatest(e.updated_at,
+                (SELECT max(ev.updated_at) FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
+                 WHERE (c.subject_id = e.id OR c.subject_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+                   AND ev.connection_id = ANY(@visible::bigint[])))::timestamptz AS changed_at
+FROM entities e
+LEFT JOIN domains d ON d.id = e.domain_id
+WHERE e.status <> 'merged'
+  AND EXISTS (SELECT 1 FROM entity_sources s
+              WHERE (s.entity_id = e.id OR s.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+                AND s.connection_id = ANY(@visible::bigint[]))
+  AND (@type::text = '' OR e.type = @type)
+  AND (@domain::bigint = 0 OR e.domain_id = @domain)
+  AND (@status::text = '' OR e.status = @status)
+  AND (@query::text = '' OR EXISTS (SELECT 1 FROM entity_aliases a
+                                    WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+                                      AND a.connection_id = ANY(@visible::bigint[])
+                                      AND (a.alias_norm LIKE '%' || @query || '%' OR a.alias_norm % @query)))
+ORDER BY changed_at DESC NULLS LAST, e.id DESC
+LIMIT @lim;
+
+-- name: VisibleEntityByKey :one
+-- An entity by key, for a reader. A merged entity resolves to its winner.
+-- A hidden entity and a missing key give no row.
+SELECT w.id, w.key, w.type, w.status, w.domain_id, coalesce(d.name, '')::text AS domain_name,
+       coalesce(entity_display_name(w.id, @visible::bigint[]), w.key)::text AS name, w.created_at
+FROM entities e
+JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
+LEFT JOIN domains d ON d.id = w.domain_id
+WHERE e.key = @key
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]))
+  AND EXISTS (SELECT 1 FROM entity_sources s
+              WHERE (s.entity_id = w.id OR s.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = w.id))
+                AND s.connection_id = ANY(@visible::bigint[]));
+
+-- name: Members :many
+-- The winner and the entities merged into it.
+SELECT id FROM entities WHERE id = @id OR merged_into = @id ORDER BY id;
+
+-- name: VisibleAliases :many
+SELECT DISTINCT ON (a.alias_norm) a.alias, a.alias_norm, a.is_name
+FROM entity_aliases a
+WHERE a.entity_id = ANY(@members::bigint[]) AND a.connection_id = ANY(@visible::bigint[])
+ORDER BY a.alias_norm, a.is_name DESC, a.id;
+
+-- name: VisibleSources :many
+-- The visible items that give evidence about the entities, newest first.
+SELECT DISTINCT ON (i.id) i.id, i.title, i.url, i.kind, i.source_updated_at, k.name AS connection_name, k.kind AS source_type
+FROM claim_evidence ev
+JOIN claims c ON c.id = ev.claim_id
+JOIN source_items i ON i.id = ev.item_id
+JOIN connections k ON k.id = i.connection_id
+WHERE (c.subject_id = ANY(@members::bigint[]) OR c.object_entity_id = ANY(@members::bigint[]))
+  AND ev.connection_id = ANY(@visible::bigint[]) AND i.connection_id = ANY(@visible::bigint[])
+ORDER BY i.id;
+
+-- name: GetEntitiesByID :many
+SELECT id, key, type, status, merged_into, created_at FROM entities WHERE id = ANY(@ids::bigint[]);
+
+-- name: HasRegistrySource :many
+SELECT DISTINCT s.entity_id FROM entity_sources s JOIN connections k ON k.id = s.connection_id
+WHERE s.entity_id = ANY(@ids::bigint[]) AND k.kind = 'registry' AND s.connection_id = ANY(@visible::bigint[]);
+
+-- name: InsertMerge :one
+INSERT INTO merges (winner_id, loser_ids, canonical_name, by, auto)
+VALUES (@winner_id, @loser_ids, @canonical_name, @by, @auto)
+RETURNING id;
+
+-- name: MarkMerged :exec
+UPDATE entities SET status = 'merged', merged_into = @winner, updated_at = now() WHERE id = ANY(@ids::bigint[]);
+
+-- name: RepointMerged :exec
+-- Entities merged into a loser follow it to the new winner.
+UPDATE entities SET merged_into = @winner, updated_at = now() WHERE merged_into = ANY(@ids::bigint[]);
+
+-- name: GetMerge :one
+SELECT * FROM merges WHERE id = @id;
+
+-- name: UndoMerge :execrows
+UPDATE merges SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
+
+-- name: Unmerge :exec
+UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
+WHERE id = ANY(@ids::bigint[]) AND merged_into = @winner;
+
+-- name: Edges :many
+-- Entity-valued claims of the entities, in both directions, with visible
+-- support. Endpoints need a visible source.
+SELECT c.id, c.predicate, coalesce(cs.merged_into, cs.id)::bigint AS subject_id, coalesce(co.merged_into, co.id)::bigint AS object_id
+FROM claims c
+JOIN entities cs ON cs.id = c.subject_id
+JOIN entities co ON co.id = c.object_entity_id
+WHERE c.retracted_at IS NULL
+  AND (c.subject_id = ANY(@ids::bigint[]) OR c.object_entity_id = ANY(@ids::bigint[]))
+  AND (cardinality(@predicates::text[]) = 0 OR c.predicate = ANY(@predicates::text[]))
+  AND EXISTS (SELECT 1 FROM claim_evidence e
+              WHERE e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[]) AND e.stance = 'supports')
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = c.subject_id AND s.connection_id = ANY(@visible::bigint[]))
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = c.object_entity_id AND s.connection_id = ANY(@visible::bigint[]))
+ORDER BY c.id;
+
+-- name: Nodes :many
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+FROM entities e WHERE e.id = ANY(@ids::bigint[]);

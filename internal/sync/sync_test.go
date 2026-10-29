@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
+	"net/url"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -195,7 +196,10 @@ func TestSCN_SYN_006_EvidenceFollowsPassageHashes(t *testing.T) {
 	}
 	// Two claims with passage evidence, as extraction writes them.
 	var subject int64
-	if err := pool.QueryRow(ctx, "INSERT INTO entities (type, key) VALUES ('service', 'test:ledger') RETURNING id").Scan(&subject); err != nil {
+	if err := pool.QueryRow(ctx, "INSERT INTO entities (type, key) VALUES ('service', 'confluence:wiki:ledger') RETURNING id").Scan(&subject); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, "INSERT INTO entity_sources (entity_id, connection_id) VALUES ($1, $2)", subject, conn); err != nil {
 		t.Fatal(err)
 	}
 	evidence := map[string]int64{}
@@ -244,5 +248,19 @@ func TestSCN_SYN_006_EvidenceFollowsPassageHashes(t *testing.T) {
 	}
 	if n := env.Count("SELECT count(*) FROM model_usage"); n != 0 {
 		t.Fatalf("the sync recorded %d model calls", n)
+	}
+	var e struct {
+		Claims []struct {
+			Predicate string `json:"predicate"`
+			Status    string `json:"status"`
+		} `json:"claims"`
+	}
+	admin.Must(http.StatusOK, http.MethodGet, "/api/v1/entities/"+url.PathEscape("confluence:wiki:ledger"), nil).JSON(t, &e)
+	got := map[string]string{}
+	for _, c := range e.Claims {
+		got[c.Predicate] = c.Status
+	}
+	if got["stated"] != "supported" || got["rationale"] != "stale" {
+		t.Fatalf("claim status %v", got)
 	}
 }

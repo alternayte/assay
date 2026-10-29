@@ -13,9 +13,12 @@ import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { AskPage } from "@/routes/ask";
 import { ExplorePage } from "@/routes/explore";
+import { GlossaryPage, TermPage } from "@/routes/glossary";
 import { ProfilePage } from "@/routes/profile";
+import { RecordPage } from "@/routes/registry";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
 import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
+import { DecisionsPage } from "@/routes/settings/decisions";
 import { DiagnosticsPage } from "@/routes/settings/diagnostics";
 import { DomainsPage } from "@/routes/settings/domains";
 import { GroupsPage } from "@/routes/settings/groups";
@@ -71,6 +74,9 @@ const home = createRoute({ getParentRoute: () => authed, path: "/", component: A
 const question = createRoute({ getParentRoute: () => authed, path: "/questions/$id", component: AskPage });
 
 const explore = createRoute({ getParentRoute: () => authed, path: "/explore", component: ExplorePage });
+const glossary = createRoute({ getParentRoute: () => authed, path: "/glossary", component: GlossaryPage });
+const term = createRoute({ getParentRoute: () => authed, path: "/glossary/$key", component: TermPage });
+const record = createRoute({ getParentRoute: () => authed, path: "/registry/$key", component: RecordPage });
 const profile = createRoute({ getParentRoute: () => authed, path: "/profile", component: ProfilePage });
 
 const settings = createRoute({
@@ -106,6 +112,11 @@ const connection = createRoute({
   component: ConnectionPage,
 });
 const domains = createRoute({ getParentRoute: () => settings, path: "/domains", component: DomainsPage });
+const decisions = createRoute({
+  getParentRoute: () => settings,
+  path: "/decisions",
+  component: DecisionsPage,
+});
 const general = createRoute({ getParentRoute: () => settings, path: "/general", component: GeneralPage });
 const email = createRoute({ getParentRoute: () => settings, path: "/email", component: EmailPage });
 const audit = createRoute({ getParentRoute: () => settings, path: "/audit", component: AuditPage });
@@ -125,6 +136,9 @@ const routeTree = root.addChildren([
     home,
     question,
     explore,
+    glossary,
+    term,
+    record,
     profile,
     settings.addChildren([
       settingsIndex,
@@ -134,6 +148,7 @@ const routeTree = root.addChildren([
       newConnection,
       connection,
       domains,
+      decisions,
       general,
       modelsRoute,
       email,

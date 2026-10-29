@@ -14,6 +14,7 @@ import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { type CopyKey, t } from "@/copy";
+import { type Linked, linkMarkdown, splitLinks, TermLink, termOf } from "@/components/terms";
 import { cn } from "@/lib/cn";
 import { formatAgo, formatTime } from "@/lib/format";
 import { readEvents } from "@/lib/sse";
@@ -45,12 +46,21 @@ function External({ href, children }: { href?: string; children?: React.ReactNod
 }
 const external: Components["a"] = ({ href, children }) => <External href={href}>{children}</External>;
 
-/** Source text from a connection: sanitized Markdown, no raw HTML. */
-function SourceText({ text }: { text: string }) {
+/** A link renderer that shows term links as popovers and others as external links. */
+function linkWith(linked?: Linked): Components["a"] {
+  return ({ href, children }) => {
+    const terms = termOf(href, linked);
+    if (terms) return <TermLink terms={terms}>{children}</TermLink>;
+    return <External href={href}>{children}</External>;
+  };
+}
+
+/** Source text from a connection: sanitized Markdown, no raw HTML. Approved terms link. */
+function SourceText({ text, linked }: { text: string; linked?: Linked }) {
   return (
     <div className="prose-register">
-      <Markdown rehypePlugins={[rehypeSanitize]} components={{ a: external }}>
-        {text}
+      <Markdown rehypePlugins={[rehypeSanitize]} components={{ a: linked ? linkWith(linked) : external }}>
+        {linked ? linkMarkdown(text, linked.links) : text}
       </Markdown>
     </div>
   );
@@ -79,15 +89,19 @@ function AnswerText({
   markdown,
   sources,
   claims,
+  terms,
   onOpen,
 }: {
   markdown: string;
   sources: Source[];
   claims: Claim[];
+  terms?: Linked;
   onOpen: (o: Opened) => void;
 }) {
-  const linked = markdown.replace(/\[([SC]\d+)\]/g, "[$1](#cite-$1)");
+  const linked = linkMarkdown(markdown, terms?.links ?? []).replace(/\[([SC]\d+)\]/g, "[$1](#cite-$1)");
   const chip: Components["a"] = ({ href, children }) => {
+    const term = termOf(href, terms);
+    if (term) return <TermLink terms={term}>{children}</TermLink>;
     const id = href?.startsWith("#cite-") ? href.slice(6) : undefined;
     const source = id ? sources.find((s) => s.id === id) : undefined;
     const claim = id ? claims.find((c) => c.id === id) : undefined;
@@ -312,6 +326,17 @@ function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => void }) {
       unwrap(await api.GET("/api/v1/items/{id}", { params: { path: { id: itemId as number } } })),
     retry: false,
   });
+  const passages = item.data?.passages ?? [];
+  const sep = "\n\n";
+  const links = useQuery({
+    queryKey: ["item-links", itemId, passages.length],
+    enabled: passages.length > 0,
+    queryFn: async () => {
+      const texts = passages.map((p) => p.text);
+      const linked = unwrap(await api.POST("/api/v1/terms/links", { body: { text: texts.join(sep) } }));
+      return splitLinks(texts, linked, sep);
+    },
+  });
   const marked = useRef<HTMLLIElement>(null);
   useEffect(() => {
     if (item.data) marked.current?.scrollIntoView({ block: "center" });
@@ -366,7 +391,7 @@ function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => void }) {
                   <Notice tone="danger">{t("ask.passageHidden")}</Notice>
                 ) : (
                   <ol className="flex flex-col gap-2">
-                    {item.data.passages.map((p) => {
+                    {item.data.passages.map((p, n) => {
                       const hit = opened.source.passageHashes.includes(p.hash);
                       return (
                         <li
@@ -378,7 +403,7 @@ function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => void }) {
                             hit ? "border-l-4 border-accent bg-accent-wash" : "text-ink-muted",
                           )}
                         >
-                          <SourceText text={p.text} />
+                          <SourceText text={p.text} linked={links.data?.[n]} />
                         </li>
                       );
                     })}
@@ -482,7 +507,13 @@ function AnswerSheet({ live, onOpen }: { live: Live; onOpen: (o: Opened) => void
           <p className="text-lg leading-7 whitespace-pre-wrap text-ink-muted">{live.draft}</p>
         )}
         {a && a.markdown !== "" && (
-          <AnswerText markdown={a.markdown} sources={a.sources} claims={a.claims} onOpen={onOpen} />
+          <AnswerText
+            markdown={a.markdown}
+            sources={a.sources}
+            claims={a.claims}
+            terms={a.links}
+            onOpen={onOpen}
+          />
         )}
         {a && a.uncited.length > 0 && !a.noEvidence && (
           <p className="text-sm text-ink-muted">{t("ask.uncited", { count: a.uncited.length })}</p>

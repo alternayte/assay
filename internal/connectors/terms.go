@@ -27,8 +27,8 @@ func cells(line string) []string {
 }
 
 // GlossaryFacts reads the Markdown tables with a Term and a Definition
-// column. Each row gives a term entity with a defined_as fact; the row is
-// the quote (REQ-VOC-002).
+// column. Each row gives a term entity with a defined_as fact. The quote is
+// the plain text of the row, as the table passage holds it (REQ-VOC-002).
 func GlossaryFacts(body, provider, host string) []content.Fact {
 	var out []content.Fact
 	term, def := -1, -1
@@ -56,7 +56,7 @@ func GlossaryFacts(body, provider, host string) []content.Fact {
 			continue
 		}
 		subject := content.EntityRef{Type: "term", Key: TermKey(provider, host, cs[term]), Name: cs[term]}
-		out = append(out, content.Fact{Subject: subject, Predicate: "defined_as", Text: cs[def], Quote: strings.TrimSpace(line)})
+		out = append(out, content.Fact{Subject: subject, Predicate: "defined_as", Text: cs[def], Quote: content.Normalize(strings.Join(cs, " "))})
 	}
 	return out
 }

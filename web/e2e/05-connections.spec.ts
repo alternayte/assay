@@ -1,13 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { fixturesURL, owner, signIn, sourceToken } from "./env";
-
-async function createDomain(page: Page, name: string) {
-  await page.goto("/settings/domains");
-  await page.getByRole("button", { name: "Create a domain" }).first().click();
-  await page.getByRole("dialog").getByLabel("Name").fill(name);
-  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-  await expect(page.getByRole("cell", { name })).toBeVisible();
-}
+import { expect, test } from "@playwright/test";
+import { createDomain, fixturesURL, owner, signIn, sourceToken } from "./env";
 
 test("SCN-CON-001 the wizard tests Confluence, lists spaces, sets a domain and saves owner-only", async ({
   page,

@@ -13,6 +13,7 @@ import { Table, Td, Th } from "@/components/ui/table";
 import { type CopyKey, t } from "@/copy";
 import { formatAgo } from "@/lib/format";
 import { atLeast, useMe } from "@/lib/session";
+import { ThingDialog } from "@/routes/registry";
 
 const typeLabel = (k: string) => t(`entityTypes.${k}` as CopyKey);
 
@@ -73,9 +74,12 @@ export function ExplorePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold tracking-tight">{t("explore.title")}</h1>
-        <p className="text-base text-ink-muted">{t("explore.body")}</p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-semibold tracking-tight">{t("explore.title")}</h1>
+          <p className="text-base text-ink-muted">{t("explore.body")}</p>
+        </div>
+        <ThingDialog />
       </header>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
         <Field label={t("explore.search")}>

@@ -31,9 +31,9 @@ func TestSCN_VOC_002_DeterministicTermSources(t *testing.T) {
 	for _, f := range it.Facts {
 		if f.Predicate == "defined_as" && f.Subject.Type == "term" {
 			defs[f.Subject.Name] = f.Text
-			if !slices.Contains([]string{"| Manuscript | A paper that an author sends to a journal for review. |",
-				"| Article Processing Charge | The fee that an author pays when a journal accepts a paper. |",
-				"| Editor | The person who decides whether a journal accepts a manuscript. |"}, f.Quote) {
+			if !slices.Contains([]string{"Manuscript A paper that an author sends to a journal for review.",
+				"Article Processing Charge The fee that an author pays when a journal accepts a paper.",
+				"Editor The person who decides whether a journal accepts a manuscript."}, f.Quote) {
 				t.Errorf("quote %q is not a table row", f.Quote)
 			}
 		}
@@ -67,6 +67,11 @@ func TestSCN_VOC_002_DeterministicTermSources(t *testing.T) {
 	testkit.ShareWithEveryone(t, w.env, w.owner, public)
 	if r := w.env.RunNow(w.owner, public, "sync"); r.Status != "succeeded" {
 		t.Fatalf("sync: %+v", r)
+	}
+	// The sync stores the definitions with the rows as passage evidence.
+	if n := w.env.Count(`SELECT count(*) FROM claims c JOIN entities e ON e.id = c.subject_id JOIN claim_evidence ev ON ev.claim_id = c.id
+WHERE e.type = 'term' AND c.predicate = 'defined_as' AND ev.connection_id = $1`, public); n != 3 {
+		t.Errorf("%d stored glossary definitions, want 3", n)
 	}
 	cands, err := w.env.Server.Resolve().TermCandidates(ctx, resolve.TermRules{MinItems: 3, MinConnections: 2})
 	if err != nil {

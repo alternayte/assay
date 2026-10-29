@@ -42,7 +42,7 @@ export function SettingsLayout() {
 
 type Setting = Schemas["Setting"];
 
-function useSetting(key: string) {
+export function useSetting(key: string) {
   return useQuery({
     queryKey: ["settings"],
     queryFn: async () => unwrap(await api.GET("/api/v1/settings")).settings,
@@ -50,7 +50,7 @@ function useSetting(key: string) {
   });
 }
 
-function useSaveSetting(key: string, onSaved: (s: Setting) => void, onError: (msg: string) => void) {
+export function useSaveSetting(key: string, onSaved: (s: Setting) => void, onError: (msg: string) => void) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (v: { value: unknown; revision: number }) =>

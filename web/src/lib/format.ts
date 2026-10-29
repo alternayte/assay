@@ -22,3 +22,8 @@ export function formatAgo(iso: string, now = Date.now()): string {
   }
   return relative.format(seconds, "second");
 }
+
+/** An option label that adds the key when another option has the same name. */
+export function optionLabel(list: { key: string; name: string }[], x: { key: string; name: string }): string {
+  return list.filter((y) => y.name === x.name).length > 1 ? `${x.name} · ${x.key}` : x.name;
+}

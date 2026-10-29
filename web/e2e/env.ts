@@ -60,3 +60,55 @@ export async function acceptInvite(page: Page, link: string, who: { name: string
 /** The fixture server as the Assay container reaches it. */
 export const fixturesURL = process.env.E2E_FIXTURES_URL ?? "http://127.0.0.1:18090";
 export const sourceToken = "acme-token";
+
+/** Calls the API from the app page, with the session cookie and the origin of the app. */
+export async function call(page: Page, method: string, path: string, body?: unknown) {
+  return page.evaluate(
+    async ({ method, path, body }) => {
+      const r = await fetch(path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      return { status: r.status, json: text ? JSON.parse(text) : undefined };
+    },
+    { method, path, body },
+  );
+}
+
+/** Turns the answer function on with the fake model API of the fixture server. */
+export async function fakeAnswerModel(page: Page) {
+  const list = await call(page, "GET", "/api/v1/models/endpoints");
+  let id = list.json.endpoints.find((e: { name: string }) => e.name === "fake")?.id;
+  if (!id) {
+    const r = await call(page, "POST", "/api/v1/models/endpoints", {
+      name: "fake",
+      kind: "openai",
+      baseUrl: `${fixturesURL}/v1`,
+      apiKey: "fake-key",
+      extra: {},
+    });
+    expect(r.status).toBe(201);
+    id = r.json.id;
+  }
+  const f = await call(page, "PUT", "/api/v1/models/functions/answer", {
+    endpointId: id,
+    model: "fake-chat",
+    params: {},
+    priceInPerMTok: 0,
+    priceOutPerMTok: 0,
+    monthlyBudgetUsd: 5,
+    enabled: true,
+  });
+  expect(f.status).toBe(204);
+}
+
+/** Creates a domain as the signed-in admin. */
+export async function createDomain(page: Page, name: string) {
+  await page.goto("/settings/domains");
+  await page.getByRole("button", { name: "Create a domain" }).first().click();
+  await page.getByRole("dialog").getByLabel("Name").fill(name);
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("cell", { name })).toBeVisible();
+}

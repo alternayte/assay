@@ -1,48 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { fixturesURL, owner, signIn, sourceToken } from "./env";
-
-/** Calls the API from the app page, with the session cookie and the origin of the app. */
-async function call(page: Page, method: string, path: string, body?: unknown) {
-  return page.evaluate(
-    async ({ method, path, body }) => {
-      const r = await fetch(path, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
-      const text = await r.text();
-      return { status: r.status, json: text ? JSON.parse(text) : undefined };
-    },
-    { method, path, body },
-  );
-}
-
-/** Turns the answer function on with the fake model API of the fixture server. */
-async function fakeAnswerModel(page: Page) {
-  const list = await call(page, "GET", "/api/v1/models/endpoints");
-  let id = list.json.endpoints.find((e: { name: string }) => e.name === "fake")?.id;
-  if (!id) {
-    const r = await call(page, "POST", "/api/v1/models/endpoints", {
-      name: "fake",
-      kind: "openai",
-      baseUrl: `${fixturesURL}/v1`,
-      apiKey: "fake-key",
-      extra: {},
-    });
-    expect(r.status).toBe(201);
-    id = r.json.id;
-  }
-  const f = await call(page, "PUT", "/api/v1/models/functions/answer", {
-    endpointId: id,
-    model: "fake-chat",
-    params: {},
-    priceInPerMTok: 0,
-    priceOutPerMTok: 0,
-    monthlyBudgetUsd: 5,
-    enabled: true,
-  });
-  expect(f.status).toBe(204);
-}
+import { call, fakeAnswerModel, fixturesURL, owner, signIn, sourceToken } from "./env";
 
 /** Creates the Jira connection once and waits for its first sync. */
 async function jira(page: Page) {

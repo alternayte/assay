@@ -303,6 +303,116 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List model endpoints */
+        get: operations["listModelEndpoints"];
+        put?: never;
+        /** Create a model endpoint */
+        post: operations["createModelEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/endpoints/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a model endpoint */
+        put: operations["updateModelEndpoint"];
+        post?: never;
+        /**
+         * Delete a model endpoint
+         * @description Functions that use it lose their endpoint.
+         */
+        delete: operations["deleteModelEndpoint"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/endpoints/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a model endpoint
+         * @description Lists the models and makes one minimal call.
+         */
+        post: operations["testModelEndpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/functions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List model functions with the spend of the month */
+        get: operations["listModelFunctions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/functions/{function}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a model function */
+        put: operations["updateModelFunction"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report functions that are off or over budget */
+        get: operations["getModelStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/password-resets/accept": {
         parameters: {
             query?: never;
@@ -597,6 +707,39 @@ export interface components {
             /** @description The invite link. It shows only once. */
             url: string;
         };
+        EndpointBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EndpointBody.json
+             */
+            readonly $schema?: string;
+            /** @description Write-only. Empty keeps the current key. */
+            apiKey?: string;
+            /**
+             * Format: uri
+             * @description For openai, the URL before /chat/completions, such as https://openrouter.ai/api/v1. For decisions, the URL before /alpha/decisions, such as https://openrouter.ai/api.
+             */
+            baseUrl: string;
+            /** @description Remove the stored key. */
+            clearKey?: boolean;
+            extra: components["schemas"]["Extra"];
+            /** @enum {string} */
+            kind: "openai" | "decisions";
+            name: string;
+        };
+        EndpointRecord: {
+            baseUrl: string;
+            extra: components["schemas"]["Extra"];
+            hasKey: boolean;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            kind: "openai" | "decisions";
+            name: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
         Error: {
             /**
              * Format: uri
@@ -623,9 +766,80 @@ export interface components {
                 message: string;
             };
         };
+        Extra: {
+            /** @description Body fields that go with each request, unless the request sets them. */
+            body?: {
+                [key: string]: unknown;
+            };
+            /** @description Headers that go with each request. */
+            headers?: {
+                [key: string]: string;
+            };
+        };
         FieldError: {
             location: string;
             message: string;
+        };
+        FnInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/FnInBody.json
+             */
+            readonly $schema?: string;
+            enabled: boolean;
+            /** Format: int64 */
+            endpointId: number | null;
+            model: string;
+            /** Format: double */
+            monthlyBudgetUsd: number;
+            params: {
+                [key: string]: unknown;
+            };
+            /** Format: double */
+            priceInPerMTok: number;
+            /** Format: double */
+            priceOutPerMTok: number;
+        };
+        FunctionRecord: {
+            /**
+             * Format: int64
+             * @description Calls in the current month.
+             */
+            calls: number;
+            enabled: boolean;
+            /** Format: int64 */
+            endpointId: number | null;
+            endpointName: string;
+            /** @enum {string} */
+            function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide";
+            model: string;
+            /** Format: double */
+            monthlyBudgetUsd: number;
+            /** @description True when the budget refused a call after the last change of the function. */
+            overBudget: boolean;
+            params: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: double
+             * @description USD per million input tokens.
+             */
+            priceInPerMTok: number;
+            /**
+             * Format: double
+             * @description USD per million output tokens.
+             */
+            priceOutPerMTok: number;
+            /**
+             * Format: double
+             * @description Spend in the current month.
+             */
+            spentUsd: number;
+            /** Format: int64 */
+            tokensIn: number;
+            /** Format: int64 */
+            tokensOut: number;
         };
         Group: {
             /**
@@ -651,6 +865,16 @@ export interface components {
             readonly $schema?: string;
             changes: components["schemas"]["Change"][];
         };
+        IdOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/IdOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            id: number;
+        };
         Invite: {
             /** Format: date-time */
             createdAt: string;
@@ -673,6 +897,24 @@ export interface components {
             expiresAt: string;
             /** @description The reset link. It shows only once. */
             url: string;
+        };
+        ListEndpointsBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListEndpointsBody.json
+             */
+            readonly $schema?: string;
+            endpoints: components["schemas"]["EndpointRecord"][];
+        };
+        ListFunctionsBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListFunctionsBody.json
+             */
+            readonly $schema?: string;
+            functions: components["schemas"]["FunctionRecord"][];
         };
         ListOutputBody: {
             /**
@@ -864,6 +1106,16 @@ export interface components {
             password: string;
             token: string;
         };
+        Status: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Status.json
+             */
+            readonly $schema?: string;
+            off: string[];
+            overBudget: string[];
+        };
         StatusOutputBody: {
             /**
              * Format: uri
@@ -876,6 +1128,16 @@ export interface components {
         SuccessResponse: {
             success: boolean;
         };
+        TestInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/TestInBody.json
+             */
+            readonly $schema?: string;
+            /** @description The model for the minimal call. Empty uses the first listed model. */
+            model?: string;
+        };
         TestInputBody: {
             /**
              * Format: uri
@@ -885,6 +1147,20 @@ export interface components {
             readonly $schema?: string;
             /** Format: email */
             to: string;
+        };
+        TestResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/TestResult.json
+             */
+            readonly $schema?: string;
+            /** @description The error text of the endpoint when the test fails. */
+            message: string;
+            /** @description The model of the minimal call. */
+            model: string;
+            models: string[];
+            ok: boolean;
         };
         User: {
             /** Format: date-time */
@@ -1656,6 +1932,256 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listModelEndpoints: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListEndpointsBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createModelEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EndpointBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateModelEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EndpointBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteModelEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testModelEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listModelFunctions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListFunctionsBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateModelFunction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FnInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getModelStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Status"];
                 };
             };
             /** @description Error */

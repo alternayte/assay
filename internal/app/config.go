@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	"github.com/alternayte/assay/internal/outbound"
 )
 
 // Role selects the parts of the process that run.
@@ -31,6 +33,7 @@ type Config struct {
 	ExtraCAFile  string
 	Demo         bool
 	LogLevel     slog.Level
+	Outbound     outbound.Settings
 }
 
 var knownVars = map[string]bool{
@@ -77,6 +80,13 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
 		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
 	}
+	cfg.Outbound = outbound.Settings{
+		HTTPProxy:   valueOr(env["HTTP_PROXY"], env["http_proxy"]),
+		HTTPSProxy:  valueOr(env["HTTPS_PROXY"], env["https_proxy"]),
+		NoProxy:     valueOr(env["NO_PROXY"], env["no_proxy"]),
+		ExtraCAPEM:  cfg.ExtraCAPEM,
+		ExtraCAFile: cfg.ExtraCAFile,
+	}
 
 	var errs []error
 	if cfg.DatabaseURL == "" {
@@ -99,6 +109,9 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 	}
 	if err := cfg.LogLevel.UnmarshalText([]byte(valueOr(env["ASSAY_LOG_LEVEL"], "info"))); err != nil {
 		errs = append(errs, fmt.Errorf("ASSAY_LOG_LEVEL is %q. Set it to debug, info, warn or error", env["ASSAY_LOG_LEVEL"]))
+	}
+	if _, err := cfg.Outbound.RootCAs(); err != nil {
+		errs = append(errs, fmt.Errorf("the extra CA certificates are not valid: %w", err))
 	}
 	return cfg, errors.Join(errs...)
 }

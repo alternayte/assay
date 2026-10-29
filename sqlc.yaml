@@ -27,6 +27,8 @@ sql:
             go_type: {type: time.Time, pointer: true}
           - db_type: jsonb
             go_type: encoding/json.RawMessage
+          - db_type: pg_catalog.numeric
+            go_type: float64
   - <<: *pkg
     queries: internal/users/queries.sql
     gen:
@@ -48,3 +50,10 @@ sql:
         <<: *go
         package: secrets
         out: internal/secrets
+  - <<: *pkg
+    queries: internal/models/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: models
+        out: internal/models

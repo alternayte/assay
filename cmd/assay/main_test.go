@@ -67,7 +67,7 @@ func TestSCN_SET_003_Rekey(t *testing.T) {
 	storeB := &secrets.Store{Pool: pool, Box: boxB}
 	ctx := context.Background()
 	for _, n := range []string{"one", "two", "three"} {
-		if err := storeA.Put(ctx, pool, n, []byte("value-"+n)); err != nil {
+		if _, err := storeA.Put(ctx, pool, n, []byte("value-"+n)); err != nil {
 			t.Fatal(err)
 		}
 	}

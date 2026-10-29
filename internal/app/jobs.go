@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/alternayte/assay/internal/audit"
+	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/settings"
 )
 
@@ -55,11 +56,18 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	}
 	now := w.now()
 	return pgx.BeginFunc(ctx, w.pool, func(tx pgx.Tx) error {
-		n, err := audit.New(tx).DeleteBefore(ctx, now.AddDate(0, 0, -cfg.AuditDays))
+		auditN, err := audit.New(tx).DeleteBefore(ctx, now.AddDate(0, 0, -cfg.AuditDays))
 		if err != nil {
 			return err
 		}
-		w.log.Info("retention applied", "audit_deleted", n)
+		usageN, err := models.New(tx).DeleteUsageBefore(ctx, now.AddDate(0, 0, -cfg.ModelUsageDays))
+		if err != nil {
+			return err
+		}
+		if _, err := models.New(tx).DeleteRefusalsBefore(ctx, now.AddDate(0, 0, -cfg.ModelUsageDays)); err != nil {
+			return err
+		}
+		w.log.Info("retention applied", "audit_deleted", auditN, "model_usage_deleted", usageN)
 		return nil
 	})
 }

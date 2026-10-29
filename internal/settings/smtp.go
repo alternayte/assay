@@ -162,7 +162,7 @@ func (m *Mailer) RegisterSMTP(a huma.API) {
 			if in.Body.Password == "" {
 				err = m.Secrets.Delete(ctx, tx, SMTPPasswordSecret)
 			} else {
-				err = m.Secrets.Put(ctx, tx, SMTPPasswordSecret, []byte(in.Body.Password))
+				_, err = m.Secrets.Put(ctx, tx, SMTPPasswordSecret, []byte(in.Body.Password))
 			}
 			if err != nil {
 				return err

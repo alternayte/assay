@@ -199,6 +199,98 @@
         ],
         "type": "object"
       },
+      "EndpointBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EndpointBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "apiKey": {
+            "description": "Write-only. Empty keeps the current key.",
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "baseUrl": {
+            "description": "For openai, the URL before /chat/completions, such as https://openrouter.ai/api/v1. For decisions, the URL before /alpha/decisions, such as https://openrouter.ai/api.",
+            "format": "uri",
+            "type": "string"
+          },
+          "clearKey": {
+            "description": "Remove the stored key.",
+            "type": "boolean"
+          },
+          "extra": {
+            "$ref": "#/components/schemas/Extra"
+          },
+          "kind": {
+            "enum": [
+              "openai",
+              "decisions"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "baseUrl",
+          "extra"
+        ],
+        "type": "object"
+      },
+      "EndpointRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "baseUrl": {
+            "type": "string"
+          },
+          "extra": {
+            "$ref": "#/components/schemas/Extra"
+          },
+          "hasKey": {
+            "type": "boolean"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "openai",
+              "decisions"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "baseUrl",
+          "hasKey",
+          "extra",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Error": {
         "additionalProperties": false,
         "properties": {
@@ -271,6 +363,24 @@
         ],
         "type": "object"
       },
+      "Extra": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "additionalProperties": {},
+            "description": "Body fields that go with each request, unless the request sets them.",
+            "type": "object"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Headers that go with each request.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "FieldError": {
         "additionalProperties": false,
         "properties": {
@@ -284,6 +394,152 @@
         "required": [
           "location",
           "message"
+        ],
+        "type": "object"
+      },
+      "FnInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/FnInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpointId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "model": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "monthlyBudgetUsd": {
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "params": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "priceInPerMTok": {
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          },
+          "priceOutPerMTok": {
+            "format": "double",
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "endpointId",
+          "model",
+          "params",
+          "priceInPerMTok",
+          "priceOutPerMTok",
+          "monthlyBudgetUsd",
+          "enabled"
+        ],
+        "type": "object"
+      },
+      "FunctionRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "description": "Calls in the current month.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "endpointId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "endpointName": {
+            "type": "string"
+          },
+          "function": {
+            "enum": [
+              "answer",
+              "extract",
+              "compile",
+              "embed",
+              "rerank",
+              "decide"
+            ],
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "monthlyBudgetUsd": {
+            "format": "double",
+            "type": "number"
+          },
+          "overBudget": {
+            "description": "True when the budget refused a call after the last change of the function.",
+            "type": "boolean"
+          },
+          "params": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "priceInPerMTok": {
+            "description": "USD per million input tokens.",
+            "format": "double",
+            "type": "number"
+          },
+          "priceOutPerMTok": {
+            "description": "USD per million output tokens.",
+            "format": "double",
+            "type": "number"
+          },
+          "spentUsd": {
+            "description": "Spend in the current month.",
+            "format": "double",
+            "type": "number"
+          },
+          "tokensIn": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensOut": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "function",
+          "endpointId",
+          "endpointName",
+          "model",
+          "params",
+          "priceInPerMTok",
+          "priceOutPerMTok",
+          "monthlyBudgetUsd",
+          "enabled",
+          "spentUsd",
+          "calls",
+          "tokensIn",
+          "tokensOut",
+          "overBudget"
         ],
         "type": "object"
       },
@@ -347,6 +603,28 @@
         ],
         "type": "object"
       },
+      "IdOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/IdOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
       "Invite": {
         "additionalProperties": false,
         "properties": {
@@ -406,6 +684,54 @@
         "required": [
           "url",
           "expiresAt"
+        ],
+        "type": "object"
+      },
+      "ListEndpointsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListEndpointsBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "endpoints": {
+            "items": {
+              "$ref": "#/components/schemas/EndpointRecord"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "endpoints"
+        ],
+        "type": "object"
+      },
+      "ListFunctionsBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListFunctionsBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "functions": {
+            "items": {
+              "$ref": "#/components/schemas/FunctionRecord"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "functions"
         ],
         "type": "object"
       },
@@ -918,6 +1244,37 @@
         ],
         "type": "object"
       },
+      "Status": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Status.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "off": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "overBudget": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "off",
+          "overBudget"
+        ],
+        "type": "object"
+      },
       "StatusOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -950,6 +1307,25 @@
         ],
         "type": "object"
       },
+      "TestInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TestInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "model": {
+            "description": "The model for the minimal call. Empty uses the first listed model.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "TestInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -969,6 +1345,44 @@
         },
         "required": [
           "to"
+        ],
+        "type": "object"
+      },
+      "TestResult": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TestResult.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "message": {
+            "description": "The error text of the endpoint when the test fails.",
+            "type": "string"
+          },
+          "model": {
+            "description": "The model of the minimal call.",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "models",
+          "model",
+          "message"
         ],
         "type": "object"
       },
@@ -2037,6 +2451,322 @@
         "summary": "Get the current user",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/models/endpoints": {
+      "get": {
+        "operationId": "listModelEndpoints",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListEndpointsBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List model endpoints",
+        "tags": [
+          "models"
+        ]
+      },
+      "post": {
+        "operationId": "createModelEndpoint",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdOutBody"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create a model endpoint",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/endpoints/{id}": {
+      "delete": {
+        "description": "Functions that use it lose their endpoint.",
+        "operationId": "deleteModelEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a model endpoint",
+        "tags": [
+          "models"
+        ]
+      },
+      "put": {
+        "operationId": "updateModelEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndpointBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Change a model endpoint",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/endpoints/{id}/test": {
+      "post": {
+        "description": "Lists the models and makes one minimal call.",
+        "operationId": "testModelEndpoint",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Test a model endpoint",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/functions": {
+      "get": {
+        "operationId": "listModelFunctions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListFunctionsBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List model functions with the spend of the month",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/functions/{function}": {
+      "put": {
+        "operationId": "updateModelFunction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "function",
+            "required": true,
+            "schema": {
+              "enum": [
+                "answer",
+                "extract",
+                "compile",
+                "embed",
+                "rerank",
+                "decide"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FnInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Change a model function",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/status": {
+      "get": {
+        "operationId": "getModelStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Report functions that are off or over budget",
+        "tags": [
+          "models"
         ]
       }
     },

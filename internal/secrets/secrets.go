@@ -75,13 +75,41 @@ type Store struct {
 	Box  *Box
 }
 
-// Put encrypts and stores a secret.
-func (s *Store) Put(ctx context.Context, db DBTX, name string, value []byte) error {
+// Put encrypts and stores a secret and returns its ID.
+func (s *Store) Put(ctx context.Context, db DBTX, name string, value []byte) (int64, error) {
 	ct, nonce, err := s.Box.seal(name, value)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	return New(db).Upsert(ctx, UpsertParams{Name: name, Ciphertext: ct, Nonce: nonce, KeyVersion: s.Box.version})
+}
+
+// GetByID decrypts the secret with an ID.
+func (s *Store) GetByID(ctx context.Context, db DBTX, id int64) ([]byte, error) {
+	r, err := New(db).GetByID(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.Box.open(r.Name, r.KeyVersion, r.Ciphertext, r.Nonce)
+}
+
+// Check reports the names of secrets that do not decrypt with the current
+// key.
+func (s *Store) Check(ctx context.Context) ([]string, int, error) {
+	rows, err := New(s.Pool).All(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	var bad []string
+	for _, r := range rows {
+		if _, err := s.Box.open(r.Name, r.KeyVersion, r.Ciphertext, r.Nonce); err != nil {
+			bad = append(bad, r.Name)
+		}
+	}
+	return bad, len(rows), nil
 }
 
 // Get decrypts a secret. It returns ErrNotFound when no secret has the name.
@@ -125,7 +153,7 @@ func Rekey(ctx context.Context, pool *pgxpool.Pool, current, next *Box) (int, er
 			if err != nil {
 				return err
 			}
-			if err := q.Upsert(ctx, UpsertParams{Name: r.Name, Ciphertext: ct, Nonce: nonce, KeyVersion: next.version}); err != nil {
+			if _, err := q.Upsert(ctx, UpsertParams{Name: r.Name, Ciphertext: ct, Nonce: nonce, KeyVersion: next.version}); err != nil {
 				return err
 			}
 			n++

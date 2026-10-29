@@ -1,8 +1,12 @@
--- name: Upsert :exec
+-- name: Upsert :one
 INSERT INTO secrets (name, ciphertext, nonce, key_version)
 VALUES (@name, @ciphertext, @nonce, @key_version)
 ON CONFLICT (name) DO UPDATE
-SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, key_version = excluded.key_version, updated_at = now();
+SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, key_version = excluded.key_version, updated_at = now()
+RETURNING id;
+
+-- name: GetByID :one
+SELECT name, ciphertext, nonce, key_version FROM secrets WHERE id = @id;
 
 -- name: Get :one
 SELECT name, ciphertext, nonce, key_version FROM secrets WHERE name = @name;
@@ -15,3 +19,6 @@ SELECT name, ciphertext, nonce, key_version FROM secrets ORDER BY name FOR UPDAT
 
 -- name: Delete :execrows
 DELETE FROM secrets WHERE name = @name;
+
+-- name: All :many
+SELECT name, ciphertext, nonce, key_version FROM secrets ORDER BY name;

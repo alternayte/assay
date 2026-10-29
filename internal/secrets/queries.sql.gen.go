@@ -10,6 +10,42 @@ import (
 	"time"
 )
 
+const all = `-- name: All :many
+SELECT name, ciphertext, nonce, key_version FROM secrets ORDER BY name
+`
+
+type AllRow struct {
+	Name       string
+	Ciphertext []byte
+	Nonce      []byte
+	KeyVersion int32
+}
+
+func (q *Queries) All(ctx context.Context) ([]AllRow, error) {
+	rows, err := q.db.Query(ctx, all)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AllRow
+	for rows.Next() {
+		var i AllRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Ciphertext,
+			&i.Nonce,
+			&i.KeyVersion,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const delete = `-- name: Delete :execrows
 DELETE FROM secrets WHERE name = $1
 `
@@ -36,6 +72,29 @@ type GetRow struct {
 func (q *Queries) Get(ctx context.Context, name string) (GetRow, error) {
 	row := q.db.QueryRow(ctx, get, name)
 	var i GetRow
+	err := row.Scan(
+		&i.Name,
+		&i.Ciphertext,
+		&i.Nonce,
+		&i.KeyVersion,
+	)
+	return i, err
+}
+
+const getByID = `-- name: GetByID :one
+SELECT name, ciphertext, nonce, key_version FROM secrets WHERE id = $1
+`
+
+type GetByIDRow struct {
+	Name       string
+	Ciphertext []byte
+	Nonce      []byte
+	KeyVersion int32
+}
+
+func (q *Queries) GetByID(ctx context.Context, id int64) (GetByIDRow, error) {
+	row := q.db.QueryRow(ctx, getByID, id)
+	var i GetByIDRow
 	err := row.Scan(
 		&i.Name,
 		&i.Ciphertext,
@@ -110,11 +169,12 @@ func (q *Queries) LockAll(ctx context.Context) ([]LockAllRow, error) {
 	return items, nil
 }
 
-const upsert = `-- name: Upsert :exec
+const upsert = `-- name: Upsert :one
 INSERT INTO secrets (name, ciphertext, nonce, key_version)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (name) DO UPDATE
 SET ciphertext = excluded.ciphertext, nonce = excluded.nonce, key_version = excluded.key_version, updated_at = now()
+RETURNING id
 `
 
 type UpsertParams struct {
@@ -124,12 +184,14 @@ type UpsertParams struct {
 	KeyVersion int32
 }
 
-func (q *Queries) Upsert(ctx context.Context, arg UpsertParams) error {
-	_, err := q.db.Exec(ctx, upsert,
+func (q *Queries) Upsert(ctx context.Context, arg UpsertParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsert,
 		arg.Name,
 		arg.Ciphertext,
 		arg.Nonce,
 		arg.KeyVersion,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }

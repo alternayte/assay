@@ -214,4 +214,3 @@ func ReportMarkdown(rs []BandResult) string {
 	}
 	return b.String()
 }
-

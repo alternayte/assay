@@ -45,6 +45,10 @@ var knownVars = map[string]bool{
 	"ASSAY_EXTRA_CA_FILE":  true,
 	"ASSAY_DEMO":           true,
 	"ASSAY_LOG_LEVEL":      true,
+	// Compose reads these from the same .env file. Assay ignores them.
+	"ASSAY_VERSION": true,
+	"ASSAY_PORT":    true,
+	"ASSAY_IMAGE":   true,
 }
 
 // LoadConfig reads the bootstrap variables from environ. It fails when a

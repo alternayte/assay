@@ -1,0 +1,33 @@
+# Assay on Docker Compose. install.sh writes .env next to this file.
+name: assay
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: assay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run install.sh to create .env}
+      POSTGRES_DB: assay
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assay -d assay"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  assay:
+    image: ${ASSAY_IMAGE:-ghcr.io/alternayte/assay:${ASSAY_VERSION:-latest}}
+    env_file: .env
+    environment:
+      ASSAY_DATABASE_URL: postgres://assay:${POSTGRES_PASSWORD}@db:5432/assay?sslmode=disable
+    ports:
+      - "127.0.0.1:${ASSAY_PORT:-8080}:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db:

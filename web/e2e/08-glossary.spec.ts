@@ -187,3 +187,21 @@ test("SCN-VOC-010 an admin creates a domain and sets it as a connection default"
     journals,
   );
 });
+
+test("SCN-OPS-003 admins filter the audit log by action, with auto-apply and registry actions", async ({
+  page,
+}) => {
+  await signIn(page, owner);
+  await page.goto("/settings/decisions");
+  const off = await call(page, "PUT", "/api/v1/calibration/same_entity", { autoApply: false });
+  expect(off.status).toBe(200);
+  await page.goto("/settings/audit");
+  const filter = page.getByLabel("Action");
+  const rows = page.getByRole("table").getByRole("row");
+  for (const action of ["registry.save", "resolve.auto_apply"]) {
+    await filter.fill(action);
+    await page.getByRole("button", { name: "Filter", exact: true }).click();
+    await expect(rows.nth(1)).toBeVisible();
+    for (const cell of await rows.locator("td:nth-child(3)").allTextContents()) expect(cell).toBe(action);
+  }
+});

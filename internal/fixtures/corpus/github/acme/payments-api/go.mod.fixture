@@ -1,0 +1,3 @@
+module github.com/acme/payments-api
+
+go 1.26

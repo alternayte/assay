@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	gosync "sync"
 	"time"
 
@@ -299,22 +300,48 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		st.fail(err)
 		return conn.Cursor
 	}
-	ids := make([]string, len(refs))
+	revisions, err := s.revisions(ctx, conn.ID, refs)
+	if err != nil {
+		st.fail(err)
+		return conn.Cursor
+	}
+	ids := make([]string, 0, len(refs))
 	newest := time.Time{}
 	if conn.Cursor != "" {
 		newest, _ = time.Parse(time.RFC3339Nano, conn.Cursor)
 	}
-	for i, r := range refs {
-		ids[i] = r.ID
+	for _, r := range refs {
 		if r.Updated.After(newest) {
 			newest = r.Updated
 		}
+		if r.Version != "" && revisions[r.ID] == r.Version {
+			st.add(content.Unchanged)
+			continue
+		}
+		ids = append(ids, r.ID)
 	}
 	s.fetchAll(ctx, conn, k, ids, st)
 	if newest.IsZero() {
 		return conn.Cursor
 	}
 	return newest.UTC().Format(time.RFC3339Nano)
+}
+
+// revisions returns the stored revisions of a connection when a ref has a
+// version, as the refs of a repository connector have.
+func (s *Service) revisions(ctx context.Context, connectionID int64, refs []connectors.Ref) (map[string]string, error) {
+	out := map[string]string{}
+	if !slices.ContainsFunc(refs, func(r connectors.Ref) bool { return r.Version != "" }) {
+		return out, nil
+	}
+	rows, err := New(s.Pool).ItemRevisions(ctx, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.ExternalID] = r.Revision
+	}
+	return out, nil
 }
 
 // reconcile lists all IDs in scope, tombstones the items that are gone and

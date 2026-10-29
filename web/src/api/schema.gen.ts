@@ -175,7 +175,7 @@ export interface paths {
         put?: never;
         /**
          * List the scope options of a source
-         * @description Spaces for Confluence, projects for Jira.
+         * @description Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.
          */
         post: operations["listConnectionScopes"];
         delete?: never;
@@ -941,7 +941,7 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira";
+            kind: "confluence" | "jira" | "github" | "azdo";
             name: string;
             options?: {
                 [key: string]: unknown;
@@ -1321,6 +1321,8 @@ export interface components {
              */
             readonly $schema?: string;
             connections: components["schemas"]["ConnectionRecord"][];
+            /** @description The include globs of a new repository connection. */
+            defaultGlobs: string[];
             /** @description The kinds that an admin can create. */
             kinds: string[];
         };
@@ -1624,7 +1626,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL.
              */
             baseUrl: string;
             /**
@@ -1632,8 +1634,11 @@ export interface components {
              * @description Use the stored token of this connection when token is empty.
              */
             connectionId?: number;
+            excludeGlobs?: string[];
+            /** @description Repository files to read. Empty uses the default globs. */
+            includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira";
+            kind: "confluence" | "jira" | "github" | "azdo";
             options?: {
                 [key: string]: unknown;
             };

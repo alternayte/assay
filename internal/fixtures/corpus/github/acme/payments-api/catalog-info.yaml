@@ -1,0 +1,48 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-api
+  title: Payments API
+  annotations:
+    github.com/project-slug: acme/payments-api
+spec:
+  type: service
+  lifecycle: production
+  owner: group:payments-team
+  system: payments
+  dependsOn:
+    - component:ledger-service
+    - resource:payments-db
+  providesApis:
+    - payments-rest
+  consumesApis:
+    - ledger-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: payments-rest
+  title: Payments REST API
+spec:
+  type: openapi
+  lifecycle: production
+  owner: payments-team
+  system: payments
+  definition:
+    $text: ./api/openapi.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: payments
+spec:
+  owner: group:default/payments-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: payments-db
+spec:
+  type: database
+  owner: payments-team
+  system: payments

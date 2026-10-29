@@ -49,6 +49,9 @@ func (e *SkipError) Error() string { return "skipped: " + e.Reason }
 type Ref struct {
 	ID      string
 	Updated time.Time
+	// Version is the source revision of a repository file, its blob ID.
+	// Sync fetches the file only when the stored revision differs.
+	Version string
 }
 
 // Validation is the result of a connection test.
@@ -70,7 +73,8 @@ type Connector interface {
 	// Scopes lists the scope options, such as spaces or projects.
 	Scopes(ctx context.Context) ([]Scope, error)
 	// Changed calls fn for each item in scope updated at or after since,
-	// oldest first.
+	// oldest first. A repository connector calls fn for every file with
+	// its blob ID as the version.
 	Changed(ctx context.Context, since time.Time, fn func(Ref) error) error
 	// ListIDs calls fn for each item ID in scope.
 	ListIDs(ctx context.Context, fn func(id string) error) error

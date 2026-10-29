@@ -19,6 +19,7 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/settings"
 )
 
 // GroupRef is a group that a connection is shared with.
@@ -81,16 +82,18 @@ type RunRecord struct {
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira"`
-	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test."`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo"`
+	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL."`
 	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
 	Options      map[string]any `json:"options,omitempty"`
+	IncludeGlobs []string       `json:"includeGlobs,omitempty" doc:"Repository files to read. Empty uses the default globs."`
+	ExcludeGlobs []string       `json:"excludeGlobs,omitempty"`
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
 	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
@@ -141,7 +144,7 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 		return source{}, err
 	}
 	src := source{Kind: b.Kind, BaseURL: strings.TrimRight(b.BaseURL, "/"), Token: b.Token, Scope: rawJSON(b.Scope),
-		Options: rawJSON(b.Options), Concurrency: 4, PerSecond: 5}
+		Options: rawJSON(b.Options), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Concurrency: 4, PerSecond: 5}
 	if src.Token == "" && b.ConnectionID != nil {
 		c, err := New(s.Pool).GetConnection(ctx, *b.ConnectionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -177,8 +180,9 @@ func (s *Service) Register(a huma.API) {
 
 	type listOut struct {
 		Body struct {
-			Connections []ConnectionRecord `json:"connections"`
-			Kinds       []string           `json:"kinds" doc:"The kinds that an admin can create."`
+			Connections  []ConnectionRecord `json:"connections"`
+			Kinds        []string           `json:"kinds" doc:"The kinds that an admin can create."`
+			DefaultGlobs []string           `json:"defaultGlobs" doc:"The include globs of a new repository connection."`
 		}
 	}
 	huma.Register(a, huma.Operation{
@@ -189,9 +193,14 @@ func (s *Service) Register(a huma.API) {
 		if err != nil {
 			return nil, api.Internal(err)
 		}
+		rules, err := settings.Read[RulesConfig](ctx, s.Pool, Rules)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
 		out := &listOut{}
 		out.Body.Connections = recs
 		out.Body.Kinds = Kinds
+		out.Body.DefaultGlobs = rules.DefaultGlobs
 		return out, nil
 	})
 
@@ -237,7 +246,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "listConnectionScopes", Method: http.MethodPost, Path: "/api/v1/connections/scopes", Tags: tags,
-		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira.", Middlewares: admins,
+		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.", Middlewares: admins,
 	}, func(ctx context.Context, in *struct{ Body sourceBody }) (*scopesOut, error) {
 		src, err := s.resolve(ctx, in.Body)
 		if err != nil {

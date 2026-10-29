@@ -1,0 +1,20 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ledger-service
+  title: Ledger service
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  providesApis:
+    - ledger-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ledger-rest
+spec:
+  type: openapi
+  lifecycle: production
+  owner: platform-team

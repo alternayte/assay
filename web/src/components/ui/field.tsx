@@ -13,6 +13,10 @@ export function Select({ className, ...props }: React.ComponentProps<"select">) 
   return <select className={cn(control, "pr-8", className)} {...props} />;
 }
 
+export function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return <textarea className={cn(control, "h-auto py-2", className)} {...props} />;
+}
+
 /** A labelled control with an optional hint and error. */
 export function Field({
   label,

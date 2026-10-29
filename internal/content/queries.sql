@@ -1,20 +1,27 @@
 -- name: GetItemByExternalID :one
 -- vis:system
-SELECT id, content_hash FROM source_items
+SELECT id, content_hash, revision FROM source_items
 WHERE connection_id = @connection_id AND external_id = @external_id;
 
 -- name: InsertItem :one
 -- vis:system
-INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash)
-VALUES (@connection_id, @external_id, @kind, @title, @url, @author, @source_created_at, @source_updated_at, @content_hash)
+INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
+                          revision)
+VALUES (@connection_id, @external_id, @kind, @title, @url, @author, @source_created_at, @source_updated_at, @content_hash,
+        @revision)
 RETURNING id;
 
 -- name: UpdateItem :exec
 -- vis:system
 UPDATE source_items
 SET kind = @kind, title = @title, url = @url, author = @author, source_created_at = @source_created_at,
-    source_updated_at = @source_updated_at, content_hash = @content_hash, version_id = @version_id, updated_at = now()
+    source_updated_at = @source_updated_at, content_hash = @content_hash, version_id = @version_id, revision = @revision,
+    updated_at = now()
 WHERE id = @id;
+
+-- name: SetRevision :exec
+-- vis:system
+UPDATE source_items SET revision = @revision WHERE id = @id;
 
 -- name: InsertVersion :one
 INSERT INTO source_versions (item_id, connection_id, content_hash, title, body, metadata, edited_by, source_updated_at)
@@ -95,10 +102,13 @@ UPDATE claims SET retracted_at = NULL WHERE id = @id;
 
 -- name: AddFieldEvidence :exec
 -- vis:system
-INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state)
-VALUES (@claim_id, @connection_id, @item_id, @passage_hash, 'field', 'supports', @quote, 'current')
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+VALUES (@claim_id, @connection_id, @item_id, @passage_hash, 'field', 'supports', @quote, 'current', @source_type)
 ON CONFLICT (claim_id, item_id, passage_hash, stance)
-DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now();
+DO UPDATE SET state = 'current', quote = EXCLUDED.quote, source_type = EXCLUDED.source_type, updated_at = now();
+
+-- name: ConnectionKind :one
+SELECT kind FROM connections WHERE id = @id;
 
 -- name: ItemClaims :many
 -- vis:system

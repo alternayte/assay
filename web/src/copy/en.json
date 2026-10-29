@@ -394,7 +394,6 @@
     "name": "Name",
     "nameHint": "People see this name next to search results.",
     "baseUrl": "Base URL",
-    "baseUrlHint": "The URL before /rest, such as https://wiki.acme.test.",
     "token": "Personal access token",
     "tokenHint": "Use a read-only token. Assay stores it encrypted and never shows it again.",
     "tokenKeep": "Leave empty to keep the stored token.",
@@ -407,8 +406,8 @@
     "testFirst": "Test the connection before you continue.",
     "spaces": "Spaces",
     "projects": "Projects",
-    "scopeHint": "Select the spaces or projects to read.",
-    "scopeEmpty": "The source shows no spaces or projects for this token.",
+    "scopeHint": "Select the spaces, projects or repositories to read.",
+    "scopeEmpty": "The source shows no spaces, projects or repositories for this token.",
     "scopeRequired": "Select one or more.",
     "scopeFilter": "Filter the list",
     "jql": "Extra JQL",
@@ -423,7 +422,21 @@
     "ownerOnlyNote": "Only you can read the content of the new connection. Share it with groups after the first sync.",
     "save": "Save the connection",
     "nameTaken": "A connection with this name exists.",
-    "none": "None"
+    "none": "None",
+    "baseUrlHints": {
+      "confluence": "The URL before /rest, such as https://wiki.acme.test.",
+      "jira": "The URL before /rest, such as https://jira.acme.test.",
+      "github": "Use https://api.github.com for GitHub. Use https://git.acme.test/api/v3 for GitHub Enterprise Server.",
+      "azdo": "The collection URL, such as https://ado.acme.test/tfs/AcmeCollection."
+    },
+    "apiVersion": "API version",
+    "apiVersionHint": "Assay sends this api-version with each request.",
+    "repositories": "Repositories",
+    "includeGlobs": "Files to read",
+    "includeGlobsHint": "Write one glob on each line. Assay reads only files that match a glob.",
+    "excludeGlobs": "Files to skip",
+    "excludeGlobsHint": "Optional. Write one glob on each line.",
+    "testRepoOk": "Connected as {user}. The token reads {count} repositories."
   },
   "domains": {
     "title": "Domains",

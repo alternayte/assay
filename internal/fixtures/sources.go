@@ -3,6 +3,7 @@ package fixtures
 import (
 	"bufio"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -13,7 +14,7 @@ import (
 	"time"
 )
 
-//go:embed corpus
+//go:embed all:corpus
 var corpus embed.FS
 
 // SourceToken is the token that the fake source APIs accept.
@@ -77,7 +78,10 @@ type Fault struct {
 type Hit struct {
 	Method string
 	Path   string
-	At     time.Time
+	Query  string
+	// Auth is the scheme of the Authorization header, such as Basic.
+	Auth string
+	At   time.Time
 }
 
 // Sources holds the fake Confluence and Jira APIs and their state. Tests
@@ -89,6 +93,7 @@ type Sources struct {
 	projects [][2]string
 	pages    map[string]*Page
 	issues   map[string]*Issue
+	repos    map[string]*Repo // by host:id
 	faults   map[string]*Fault
 	hits     []Hit
 	tokens   map[string]bool
@@ -97,7 +102,7 @@ type Sources struct {
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
-	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{},
+	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
 		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now}
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
@@ -141,6 +146,7 @@ func NewSources() *Sources {
 		s.issues[is.Key] = is
 		return nil
 	})
+	s.loadRepos()
 	return s
 }
 
@@ -193,11 +199,31 @@ func when(v string) time.Time {
 	return t
 }
 
-// ServeHTTP serves the Confluence API under /confluence and the Jira API
-// under /jira.
+// token reads the token of a Bearer, token or Basic header. Basic carries
+// the token as the password, the way Azure DevOps takes it.
+func token(h string) string {
+	scheme, v, _ := strings.Cut(h, " ")
+	switch strings.ToLower(scheme) {
+	case "bearer", "token":
+		return v
+	case "basic":
+		b, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return ""
+		}
+		_, pass, _ := strings.Cut(string(b), ":")
+		return pass
+	}
+	return ""
+}
+
+// ServeHTTP serves the Confluence API under /confluence, the Jira API under
+// /jira, the GitHub API under /github, the GitHub Enterprise Server API
+// under /ghes/api/v3 and the Azure DevOps Server API under /azdo.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	s.hits = append(s.hits, Hit{Method: r.Method, Path: r.URL.Path, At: time.Now()})
+	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	s.hits = append(s.hits, Hit{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: scheme, At: time.Now()})
 	var fault *Fault
 	for prefix, f := range s.faults {
 		if strings.HasPrefix(r.URL.Path, prefix) && f.Count > 0 {
@@ -206,7 +232,7 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	authorized := s.tokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
+	authorized := s.tokens[token(r.Header.Get("Authorization"))]
 	s.mu.Unlock()
 	if r.URL.Path == "/manifest.json" && r.Method == http.MethodGet {
 		s.serveManifest(w, r)
@@ -234,6 +260,12 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.confluence(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jira/"):
 		s.jira(w, r)
+	case strings.HasPrefix(r.URL.Path, "/github/"):
+		s.github(w, r, "/github", "/github")
+	case strings.HasPrefix(r.URL.Path, "/ghes/api/v3/"):
+		s.github(w, r, "/ghes/api/v3", "/ghes")
+	case strings.HasPrefix(r.URL.Path, "/azdo/"+AzdoCollection+"/"):
+		s.azdo(w, r)
 	default:
 		http.NotFound(w, r)
 	}

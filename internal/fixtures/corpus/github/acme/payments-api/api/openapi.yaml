@@ -1,0 +1,8 @@
+openapi: 3.1.0
+info:
+  title: Payments REST API
+  version: 1.4.0
+paths:
+  /payments:
+    post:
+      summary: Take a card payment.

@@ -400,6 +400,36 @@ func (q *Queries) ItemIDs(ctx context.Context, connectionID int64) ([]ItemIDsRow
 	return items, nil
 }
 
+const itemRevisions = `-- name: ItemRevisions :many
+SELECT external_id, revision FROM source_items WHERE connection_id = $1 AND revision <> ''
+`
+
+type ItemRevisionsRow struct {
+	ExternalID string
+	Revision   string
+}
+
+// vis:system
+func (q *Queries) ItemRevisions(ctx context.Context, connectionID int64) ([]ItemRevisionsRow, error) {
+	rows, err := q.db.Query(ctx, itemRevisions, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemRevisionsRow
+	for rows.Next() {
+		var i ItemRevisionsRow
+		if err := rows.Scan(&i.ExternalID, &i.Revision); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConnections = `-- name: ListConnections :many
 SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,

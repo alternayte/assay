@@ -40,8 +40,9 @@ var DefaultRules = connectors.Rules{InitiativeTypes: []string{"Epic", "Initiativ
 // Connection is a connection to create in a test.
 type Connection struct {
 	Name    string
-	Kind    string // confluence or jira
-	BaseURL string // the fixture server URL; the kind path is added
+	Kind    string // confluence, jira, github or azdo
+	BaseURL string // the fixture server URL; Path is added
+	Path    string // the API path on the fixture server; empty is /<kind>
 	Scope   map[string]any
 	Token   string // empty uses the fixture token
 	Rate    float64
@@ -56,11 +57,14 @@ func CreateConnection(t testing.TB, admin *Client, c Connection) int64 {
 	if c.Rate == 0 {
 		c.Rate = 100
 	}
+	if c.Path == "" {
+		c.Path = "/" + c.Kind
+	}
 	var out struct {
 		ID int64 `json:"id"`
 	}
 	admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/connections", map[string]any{
-		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + "/" + c.Kind, "token": c.Token, "scope": c.Scope,
+		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope,
 		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": c.Rate,
 	}).JSON(t, &out)
 	return out.ID

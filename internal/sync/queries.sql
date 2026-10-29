@@ -102,6 +102,10 @@ WHERE id = @id;
 -- vis:system
 SELECT id, external_id FROM source_items WHERE connection_id = @connection_id;
 
+-- name: ItemRevisions :many
+-- vis:system
+SELECT external_id, revision FROM source_items WHERE connection_id = @connection_id AND revision <> '';
+
 -- name: ItemByExternalID :one
 -- vis:system
 SELECT id FROM source_items WHERE connection_id = @connection_id AND external_id = @external_id;

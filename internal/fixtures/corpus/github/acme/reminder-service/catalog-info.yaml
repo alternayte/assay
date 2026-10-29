@@ -1,0 +1,11 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: reminder-service
+  title: Reminder service
+spec:
+  type: service
+  lifecycle: experimental
+  owner: reminders-team
+  consumesApis:
+    - payments-rest

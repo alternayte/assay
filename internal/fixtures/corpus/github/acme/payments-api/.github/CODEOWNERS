@@ -1,0 +1,5 @@
+# Default owners of the payments repository.
+*       @acme/payments-team
+
+# Path rules do not create owner claims.
+/api/   @acme/api-guild @dana.acme

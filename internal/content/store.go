@@ -35,7 +35,11 @@ func (it *Item) Hash() []byte {
 		h.Write([]byte(s))
 		h.Write([]byte{0})
 	}
-	for _, v := range []any{it.Metadata, it.Entity, it.Facts} {
+	vs := []any{it.Metadata, it.Entity, it.Facts}
+	if len(it.Entities) > 0 {
+		vs = append(vs, it.Entities)
+	}
+	for _, v := range vs {
 		b, _ := json.Marshal(v)
 		h.Write(b)
 		h.Write([]byte{0})
@@ -64,13 +68,18 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		outcome = Created
 		itemID, err = q.InsertItem(ctx, InsertItemParams{ConnectionID: connectionID, ExternalID: it.ExternalID, Kind: it.Kind,
 			Title: it.Title, Url: it.URL, Author: it.Author, SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated),
-			ContentHash: hash})
+			ContentHash: hash, Revision: it.Revision})
 		if err != nil {
 			return 0, err
 		}
 	case err != nil:
 		return 0, err
 	case bytes.Equal(existing.ContentHash, hash):
+		if existing.Revision != it.Revision {
+			if err := q.SetRevision(ctx, SetRevisionParams{ID: existing.ID, Revision: it.Revision}); err != nil {
+				return 0, err
+			}
+		}
 		return Unchanged, nil
 	default:
 		itemID = existing.ID
@@ -83,7 +92,8 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		return 0, err
 	}
 	if err := q.UpdateItem(ctx, UpdateItemParams{ID: itemID, Kind: it.Kind, Title: it.Title, Url: it.URL, Author: it.Author,
-		SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated), ContentHash: hash, VersionID: &versionID}); err != nil {
+		SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated), ContentHash: hash, VersionID: &versionID,
+		Revision: it.Revision}); err != nil {
 		return 0, err
 	}
 	if err := q.DeleteItemPassages(ctx, itemID); err != nil {
@@ -120,6 +130,11 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 			return 0, err
 		}
 	}
+	for _, e := range it.Entities {
+		if _, err := in.entity(ctx, e); err != nil {
+			return 0, err
+		}
+	}
 	for _, f := range it.Facts {
 		if err := in.fact(ctx, f, ps, it.Updated); err != nil {
 			return 0, err
@@ -135,6 +150,7 @@ type ingest struct {
 	itemID       int64
 	log          *slog.Logger
 	ids          map[string]int64
+	kind         string // the connection kind, read on first use
 }
 
 // entity upserts an entity with its source and aliases.
@@ -220,8 +236,31 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 	if err != nil {
 		return err
 	}
+	source := f.Source
+	if source == "" {
+		if source, err = in.sourceType(ctx); err != nil {
+			return err
+		}
+	}
 	return in.q.AddFieldEvidence(ctx, AddFieldEvidenceParams{ClaimID: claimID, ConnectionID: in.connectionID, ItemID: in.itemID,
-		PassageHash: passageHash, Quote: quote})
+		PassageHash: passageHash, Quote: quote, SourceType: source})
+}
+
+// sourceType is the evidence source type of the connection: its kind, or
+// repository for GitHub and Azure DevOps.
+func (in *ingest) sourceType(ctx context.Context) (string, error) {
+	if in.kind == "" {
+		k, err := in.q.ConnectionKind(ctx, in.connectionID)
+		if err != nil {
+			return "", err
+		}
+		in.kind = k
+	}
+	switch in.kind {
+	case "github", "azdo":
+		return "repository", nil
+	}
+	return in.kind, nil
 }
 
 // claim finds or creates a claim. A time-scoped predicate keeps the newest

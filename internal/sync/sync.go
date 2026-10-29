@@ -5,6 +5,7 @@ package sync
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,8 +19,11 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/connectors/azdo"
 	"github.com/alternayte/assay/internal/connectors/confluence"
+	"github.com/alternayte/assay/internal/connectors/github"
 	"github.com/alternayte/assay/internal/connectors/jira"
+	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
@@ -36,15 +40,10 @@ type RulesConfig struct {
 	MaxFilesPerRepo int      `json:"maxFilesPerRepo" minimum:"1"`
 }
 
-// DefaultGlobs are the default repository include globs (SDD section 8).
-var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/decisions/**/*.md", "CODEOWNERS", ".github/CODEOWNERS",
-	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
-	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml"}
-
 // Rules is the definition of the connector rules setting.
 var Rules = settings.Define("connectors", "Rules that connectors use to read sources.",
 	RulesConfig{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks", DecisionLabels: []string{"decision", "adr"},
-		GlossaryLabels: []string{"glossary"}, DefaultGlobs: DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000},
+		GlossaryLabels: []string{"glossary"}, DefaultGlobs: tree.DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000},
 	func(c RulesConfig) error {
 		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 {
 			return errors.New("the limits must be 1 or more")
@@ -97,7 +96,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira"}
+var Kinds = []string{"confluence", "jira", "github", "azdo"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -106,6 +105,8 @@ type source struct {
 	Token       string
 	Scope       json.RawMessage
 	Options     json.RawMessage
+	Include     []string
+	Exclude     []string
 	Concurrency int
 	PerSecond   float64
 }
@@ -116,7 +117,13 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	if err != nil {
 		return nil, err
 	}
-	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: "Bearer " + src.Token,
+	authorization := "Bearer " + src.Token
+	if src.Kind == "azdo" {
+		// Azure DevOps Server takes a personal access token as the
+		// password of Basic authentication.
+		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
+	}
+	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization,
 		Concurrency: src.Concurrency, PerSecond: src.PerSecond})
 	if err != nil {
 		return nil, err
@@ -133,6 +140,16 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	case "jira":
 		return jira.New(c, src.Scope, r, limits)
 	}
+	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude}
+	if len(globs.Include) == 0 {
+		globs.Include = rules.DefaultGlobs
+	}
+	switch src.Kind {
+	case "github":
+		return github.New(c, src.Scope, globs, limits)
+	case "azdo":
+		return azdo.New(c, src.Scope, src.Options, globs, limits)
+	}
 	return nil, fmt.Errorf("sync: connections of kind %s cannot sync", src.Kind)
 }
 
@@ -140,7 +157,7 @@ func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id)
 
 // sourceOf returns the source of a stored connection with its token.
 func (s *Service) sourceOf(ctx context.Context, c Connection) (source, error) {
-	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options,
+	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options, Include: c.IncludeGlobs, Exclude: c.ExcludeGlobs,
 		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond}
 	if c.SecretID != nil {
 		tok, err := s.Secrets.GetByID(ctx, s.Pool, *c.SecretID)
@@ -195,6 +212,7 @@ func (s *Service) ReachAll(ctx context.Context) ([]Reach, error) {
 			continue
 		}
 		c := Connection{ID: r.ID, Kind: r.Kind, BaseUrl: r.BaseUrl, SecretID: r.SecretID, Scope: r.Scope, Options: r.Options,
+			IncludeGlobs: r.IncludeGlobs, ExcludeGlobs: r.ExcludeGlobs,
 			RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond}
 		res := Reach{Name: r.Name, BaseURL: r.BaseUrl}
 		src, err := s.sourceOf(ctx, c)

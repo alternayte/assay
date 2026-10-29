@@ -19,6 +19,9 @@ func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	sources := NewSources()
 	mux.Handle("/confluence/", sources)
 	mux.Handle("/jira/", sources)
+	mux.Handle("/github/", sources)
+	mux.Handle("/ghes/", sources)
+	mux.Handle("/azdo/", sources)
 	mux.Handle("GET /manifest.json", sources)
 	mux.Handle("/", NewModels())
 	var lc net.ListenConfig

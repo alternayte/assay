@@ -330,7 +330,7 @@ func TestSCN_EVL_001_DemoCountsMatchManifest(t *testing.T) {
 	}
 	ids := map[string]int64{}
 	for _, mc := range m.Connections {
-		id := testkit.CreateConnection(t, admin, testkit.Connection{Name: mc.Name, Kind: mc.Kind, BaseURL: base, Scope: mc.Scope})
+		id := testkit.CreateConnection(t, admin, testkit.Connection{Name: mc.Name, Kind: mc.Kind, BaseURL: base, Path: mc.Path, Scope: mc.Scope})
 		ids[mc.Name] = id
 		run := env.RunNow(admin, id, "sync")
 		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != 0 {
@@ -354,5 +354,123 @@ func TestSCN_EVL_001_DemoCountsMatchManifest(t *testing.T) {
 	rows.Close()
 	if len(with) != 1 || with[0] != ids["acme-restricted"] {
 		t.Fatalf("the canary is in connections %v; want only %d", with, ids["acme-restricted"])
+	}
+}
+
+func blobHits(src *fixtures.Sources, since int) int {
+	n := 0
+	for _, h := range src.Hits()[since:] {
+		if strings.Contains(h.Path, "/git/blobs/") || strings.Contains(h.Path, "/blobs/") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSCN_CON_004_SyncFetchesOnlyChangedBlobs(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
+		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
+	want := src.RepoItems("github", "acme/payments-api")
+
+	first := env.RunNow(admin, conn, "sync")
+	if first.Status != "succeeded" || first.Created != want {
+		t.Fatalf("first sync %+v, want %d new", first, want)
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id LIKE '%main.go'", conn); n != 0 {
+		t.Fatal("a file outside the globs is stored")
+	}
+	if n := env.Count(`SELECT count(*) FROM claim_evidence WHERE connection_id = $1 AND source_type = 'catalog'`, conn); n == 0 {
+		t.Fatal("the catalog file gave no catalog evidence")
+	}
+	if n := env.Count(`SELECT count(*) FROM claim_evidence WHERE connection_id = $1 AND source_type = 'codeowners'`, conn); n != 1 {
+		t.Fatalf("CODEOWNERS gave %d evidence rows, want 1", n)
+	}
+
+	mark := len(src.Hits())
+	second := env.RunNow(admin, conn, "sync")
+	if second.Status != "succeeded" || second.Created != 0 || second.Updated != 0 || second.Unchanged != want {
+		t.Fatalf("second sync %+v", second)
+	}
+	if n := blobHits(src, mark); n != 0 {
+		t.Fatalf("an unchanged tree fetched %d blobs", n)
+	}
+
+	src.PutFile("github", "acme/payments-api", "docs/architecture.md", []byte("# Architecture\n\nThe Payments API is a Go service. It stores payments in PostgreSQL 17.\n"))
+	mark = len(src.Hits())
+	third := env.RunNow(admin, conn, "sync")
+	if third.Updated != 1 || third.Created != 0 {
+		t.Fatalf("third sync %+v", third)
+	}
+	if n := blobHits(src, mark); n != 1 {
+		t.Fatalf("one changed file fetched %d blobs", n)
+	}
+	if n := env.Count("SELECT count(*) FROM source_versions WHERE connection_id = $1", conn); n != want+1 {
+		t.Fatalf("want %d versions, got %d", want+1, n)
+	}
+
+	src.DeleteFile("github", "acme/payments-api", "docs/architecture.md")
+	rec := env.RunNow(admin, conn, "reconcile")
+	if rec.Status != "succeeded" || rec.Deleted != 1 {
+		t.Fatalf("reconcile %+v", rec)
+	}
+}
+
+func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-azdo", Kind: "azdo", BaseURL: base,
+		Path: "/azdo/" + fixtures.AzdoCollection, Scope: map[string]any{"repositories": []string{"Platform/ledger-service"}}})
+	var v struct {
+		User   string `json:"user"`
+		Sample int    `json:"sample"`
+	}
+	admin.Must(http.StatusOK, http.MethodPost, "/api/v1/connections/test", map[string]any{"kind": "azdo",
+		"baseUrl": base + "/azdo/" + fixtures.AzdoCollection, "connectionId": conn,
+		"scope": map[string]any{"repositories": []string{"Platform/ledger-service"}}}).JSON(t, &v)
+	want := src.RepoItems("azdo", "Platform/ledger-service")
+	if v.User != "Assay Reader" || v.Sample != want {
+		t.Fatalf("test %+v, want %d files", v, want)
+	}
+
+	run := env.RunNow(admin, conn, "sync")
+	if run.Status != "succeeded" || run.Created != want || len(run.Skipped) != 0 {
+		t.Fatalf("sync %+v, want %d new", run, want)
+	}
+	for _, f := range []string{"README.md", "docs/runbook.md", "catalog-info.yaml", "CODEOWNERS", "Chart.yaml", "Ledger.csproj"} {
+		if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id = $2", conn,
+			"Platform/ledger-service:"+f); n != 1 {
+			t.Fatalf("%s is not indexed", f)
+		}
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id LIKE '%.cs'", conn); n != 0 {
+		t.Fatal("a file outside the globs is stored")
+	}
+	var url string
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT url FROM source_items WHERE connection_id = $1 AND external_id = $2",
+		conn, "Platform/ledger-service:docs/runbook.md").Scan(&url); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(url, "/Platform/_git/ledger-service?path=%2Fdocs%2Frunbook.md&version=GBmain") {
+		t.Fatalf("url %s", url)
+	}
+	n := 0
+	for _, h := range src.Hits() {
+		if !strings.HasPrefix(h.Path, "/azdo/") {
+			continue
+		}
+		n++
+		if h.Auth != "Basic" {
+			t.Fatalf("%s %s has auth %q", h.Method, h.Path, h.Auth)
+		}
+		if strings.Contains(h.Path, "/_apis/git/") && !strings.Contains(h.Query, "api-version=7.1") {
+			t.Fatalf("%s?%s has no api-version=7.1", h.Path, h.Query)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no request reached the Azure DevOps fixture")
 	}
 }

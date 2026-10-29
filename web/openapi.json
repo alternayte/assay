@@ -169,7 +169,9 @@
           "kind": {
             "enum": [
               "confluence",
-              "jira"
+              "jira",
+              "github",
+              "azdo"
             ],
             "type": "string"
           },
@@ -1194,6 +1196,13 @@
             },
             "type": "array"
           },
+          "defaultGlobs": {
+            "description": "The include globs of a new repository connection.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "kinds": {
             "description": "The kinds that an admin can create.",
             "items": {
@@ -1204,7 +1213,8 @@
         },
         "required": [
           "connections",
-          "kinds"
+          "kinds",
+          "defaultGlobs"
         ],
         "type": "object"
       },
@@ -2034,7 +2044,7 @@
             "type": "string"
           },
           "baseUrl": {
-            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test.",
+            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL.",
             "format": "uri",
             "type": "string"
           },
@@ -2043,10 +2053,25 @@
             "format": "int64",
             "type": "integer"
           },
+          "excludeGlobs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "includeGlobs": {
+            "description": "Repository files to read. Empty uses the default globs.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "kind": {
             "enum": [
               "confluence",
-              "jira"
+              "jira",
+              "github",
+              "azdo"
             ],
             "type": "string"
           },
@@ -2910,7 +2935,7 @@
     },
     "/api/v1/connections/scopes": {
       "post": {
-        "description": "Spaces for Confluence, projects for Jira.",
+        "description": "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.",
         "operationId": "listConnectionScopes",
         "requestBody": {
           "content": {

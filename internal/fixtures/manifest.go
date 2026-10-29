@@ -1,6 +1,10 @@
 package fixtures
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/alternayte/assay/internal/connectors/tree"
+)
 
 // ManifestConnection is one Acme connection of the demo.
 type ManifestConnection struct {
@@ -27,6 +31,10 @@ func (s *Sources) Manifest() Manifest {
 		{Name: "acme-public", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"ENG"}}, Shared: true, Items: s.Count("ENG")},
 		{Name: "acme-jira", Kind: "jira", Path: "/jira", Scope: map[string]any{"projects": []string{"PAY", "REM"}}, Shared: true,
 			Items: s.Count("PAY") + s.Count("REM")},
+		{Name: "acme-github", Kind: "github", Path: "/github", Scope: map[string]any{"repositories": []string{"acme/payments-api", "acme/reminder-service"}},
+			Shared: true, Items: s.RepoItems("github", "acme/payments-api") + s.RepoItems("github", "acme/reminder-service")},
+		{Name: "acme-azdo", Kind: "azdo", Path: "/azdo/" + AzdoCollection, Scope: map[string]any{"repositories": []string{"Platform/ledger-service"}},
+			Shared: true, Items: s.RepoItems("azdo", "Platform/ledger-service")},
 		{Name: "acme-restricted", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"RST"}},
 			Owner: "owner@acme.test", Items: s.Count("RST")},
 	}}
@@ -34,4 +42,17 @@ func (s *Sources) Manifest() Manifest {
 
 func (s *Sources) serveManifest(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.Manifest())
+}
+
+// RepoItems is the number of files of a repository that match the default
+// globs.
+func (s *Sources) RepoItems(host, repo string) int {
+	g := tree.Globs{Include: tree.DefaultGlobs}
+	n := 0
+	for _, p := range s.RepoFiles(host, repo) {
+		if g.Match(p) {
+			n++
+		}
+	}
+	return n
 }

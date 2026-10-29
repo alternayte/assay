@@ -6,7 +6,7 @@ import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
@@ -16,7 +16,9 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
-type Kind = "confluence" | "jira";
+type Kind = "confluence" | "jira" | "github" | "azdo";
+
+const isRepo = (k: string) => k === "github" || k === "azdo";
 
 function messageOf(e: unknown): string {
   if (e instanceof ApiError) {
@@ -112,8 +114,10 @@ export function ConnectionsPage() {
 }
 
 /** The source part of a connection form. */
-type Source = { kind: Kind; name: string; baseUrl: string; token: string };
-type Scope = { spaces?: string[]; projects?: string[]; jql?: string };
+type Source = { kind: Kind; name: string; baseUrl: string; token: string; apiVersion?: string };
+type Scope = { spaces?: string[]; projects?: string[]; repositories?: string[]; jql?: string };
+/** Repository globs, one per line. */
+type Globs = { include: string; exclude: string };
 type Schedule = {
   syncMinutes: number;
   reconcileHours: number;
@@ -130,12 +134,20 @@ const defaultSchedule: Schedule = {
 };
 
 function scopeList(kind: Kind, scope: Scope): string[] {
+  if (isRepo(kind)) return scope.repositories ?? [];
   return (kind === "jira" ? scope.projects : scope.spaces) ?? [];
 }
 
 function withList(kind: Kind, scope: Scope, ids: string[]): Scope {
+  if (isRepo(kind)) return { ...scope, repositories: ids };
   return kind === "jira" ? { ...scope, projects: ids } : { ...scope, spaces: ids };
 }
+
+const lines = (s: string) =>
+  s
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
 function SourceFields({
   value,
@@ -160,6 +172,8 @@ function SourceFields({
           >
             <option value="confluence">{kindLabel("confluence")}</option>
             <option value="jira">{kindLabel("jira")}</option>
+            <option value="github">{kindLabel("github")}</option>
+            <option value="azdo">{kindLabel("azdo")}</option>
           </Select>
         )}
       </Field>
@@ -174,7 +188,7 @@ function SourceFields({
           />
         )}
       </Field>
-      <Field label={t("connections.baseUrl")} hint={t("connections.baseUrlHint")}>
+      <Field label={t("connections.baseUrl")} hint={t(`connections.baseUrlHints.${value.kind}` as CopyKey)}>
         {(p) => (
           <Input
             {...p}
@@ -202,17 +216,63 @@ function SourceFields({
           />
         )}
       </Field>
+      {value.kind === "azdo" && (
+        <Field label={t("connections.apiVersion")} hint={t("connections.apiVersionHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              required
+              className="font-mono"
+              value={value.apiVersion ?? ""}
+              onChange={(e) => onChange({ ...value, apiVersion: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
     </div>
   );
 }
 
-function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number) {
+/** The include and exclude globs of a repository connection. */
+function GlobFields({ value, onChange }: { value: Globs; onChange: (g: Globs) => void }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label={t("connections.includeGlobs")} hint={t("connections.includeGlobsHint")}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={8}
+            className="font-mono text-sm"
+            value={value.include}
+            onChange={(e) => onChange({ ...value, include: e.target.value })}
+          />
+        )}
+      </Field>
+      <Field label={t("connections.excludeGlobs")} hint={t("connections.excludeGlobsHint")}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={8}
+            className="font-mono text-sm"
+            value={value.exclude}
+            onChange={(e) => onChange({ ...value, exclude: e.target.value })}
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
+
+function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number, globs?: Globs) {
   return {
     kind: s.kind,
     baseUrl: s.baseUrl.trim(),
     token: s.token || undefined,
     connectionId: s.token ? undefined : connectionId,
     scope: scope as Record<string, unknown> | undefined,
+    options: s.kind === "azdo" ? { apiVersion: s.apiVersion?.trim() || undefined } : undefined,
+    includeGlobs: globs && isRepo(s.kind) ? lines(globs.include) : undefined,
+    excludeGlobs: globs && isRepo(s.kind) ? lines(globs.exclude) : undefined,
   };
 }
 
@@ -237,7 +297,14 @@ function ScopePicker({
 }) {
   const [filter, setFilter] = useState("");
   const options = useQuery({
-    queryKey: ["connection-scopes", source.kind, source.baseUrl, connectionId, source.token.length],
+    queryKey: [
+      "connection-scopes",
+      source.kind,
+      source.baseUrl,
+      source.apiVersion,
+      connectionId,
+      source.token.length,
+    ],
     queryFn: async () =>
       unwrap(
         await api.POST("/api/v1/connections/scopes", { body: sourceBody(source, undefined, connectionId) }),
@@ -256,7 +323,11 @@ function ScopePicker({
   const shown = (options.data ?? []).filter((o) =>
     `${o.id} ${o.name}`.toLowerCase().includes(filter.trim().toLowerCase()),
   );
-  const label = source.kind === "jira" ? t("connections.projects") : t("connections.spaces");
+  const label = isRepo(source.kind)
+    ? t("connections.repositories")
+    : source.kind === "jira"
+      ? t("connections.projects")
+      : t("connections.spaces");
   return (
     <div className="flex flex-col gap-3">
       <Field label={t("connections.scopeFilter")} hint={t("connections.scopeHint")}>
@@ -359,8 +430,20 @@ export function NewConnectionPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [step, setStep] = useState(1);
-  const [source, setSource] = useState<Source>({ kind: "confluence", name: "", baseUrl: "", token: "" });
+  const [source, setSource] = useState<Source>({
+    kind: "confluence",
+    name: "",
+    baseUrl: "",
+    token: "",
+    apiVersion: "7.1",
+  });
   const [scope, setScope] = useState<Scope>({});
+  const list = useConnections();
+  const [globs, setGlobs] = useState<Globs>();
+  const defaultGlobs = list.data?.defaultGlobs;
+  useEffect(() => {
+    if (defaultGlobs && !globs) setGlobs({ include: defaultGlobs.join("\n"), exclude: "" });
+  }, [defaultGlobs, globs]);
   const [schedule, setSchedule] = useState<Schedule>(defaultSchedule);
   const [error, setError] = useState<string>();
   const test = useTest();
@@ -371,7 +454,7 @@ export function NewConnectionPage() {
       unwrap(
         await api.POST("/api/v1/connections", {
           body: {
-            ...sourceBody(source, scope),
+            ...sourceBody(source, scope, undefined, globs),
             name: source.name.trim(),
             ...schedule,
             defaultDomainId: schedule.defaultDomainId ?? undefined,
@@ -450,7 +533,10 @@ export function NewConnectionPage() {
             </div>
             {test.isSuccess && (
               <Notice tone="success">
-                {t("connections.testOk", { user: test.data.user, count: test.data.sample })}
+                {t(isRepo(source.kind) ? "connections.testRepoOk" : "connections.testOk", {
+                  user: test.data.user,
+                  count: test.data.sample,
+                })}
               </Notice>
             )}
             {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
@@ -459,6 +545,7 @@ export function NewConnectionPage() {
         {step === 2 && (
           <form onSubmit={submitScope} className="flex flex-col gap-4">
             <ScopePicker source={source} scope={scope} onChange={setScope} />
+            {isRepo(source.kind) && globs && <GlobFields value={globs} onChange={setGlobs} />}
             <div className="flex gap-3">
               <Button type="button" onClick={() => setStep(1)}>
                 {t("connections.previous")}
@@ -752,8 +839,18 @@ function VisibilitySheet({ c }: { c: Connection }) {
 function ConfigurationSheet({ c }: { c: Connection }) {
   const qc = useQueryClient();
   const kind = c.kind as Kind;
-  const [source, setSource] = useState<Source>({ kind, name: c.name, baseUrl: c.baseUrl, token: "" });
+  const [source, setSource] = useState<Source>({
+    kind,
+    name: c.name,
+    baseUrl: c.baseUrl,
+    token: "",
+    apiVersion: String(c.options?.apiVersion ?? "7.1"),
+  });
   const [scope, setScope] = useState<Scope>(c.scope as Scope);
+  const [globs, setGlobs] = useState<Globs>({
+    include: (c.includeGlobs ?? []).join("\n"),
+    exclude: (c.excludeGlobs ?? []).join("\n"),
+  });
   const [schedule, setSchedule] = useState<Schedule>({
     syncMinutes: c.syncMinutes,
     reconcileHours: c.reconcileHours,
@@ -769,11 +866,10 @@ function ConfigurationSheet({ c }: { c: Connection }) {
         await api.PUT("/api/v1/connections/{id}", {
           params: { path: { id: c.id } },
           body: {
+            ...sourceBody(source, scope, c.id, globs),
+            connectionId: undefined,
             kind,
             name: source.name.trim(),
-            baseUrl: source.baseUrl.trim(),
-            token: source.token || undefined,
-            scope: scope as Record<string, unknown>,
             ...schedule,
             defaultDomainId: schedule.defaultDomainId ?? undefined,
           },
@@ -804,7 +900,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           <Button
             type="button"
             disabled={test.isPending}
-            onClick={() => test.mutate(sourceBody(source, scope, c.id))}
+            onClick={() => test.mutate(sourceBody(source, scope, c.id, globs))}
           >
             {test.isPending ? t("connections.testing") : t("connections.test")}
           </Button>
@@ -816,6 +912,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
         </div>
         <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
+        {isRepo(kind) && <GlobFields value={globs} onChange={setGlobs} />}
         <ScheduleFields value={schedule} onChange={setSchedule} />
         <div>
           <Button type="submit" variant="primary" disabled={save.isPending}>

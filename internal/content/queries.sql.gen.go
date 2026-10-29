@@ -56,10 +56,10 @@ func (q *Queries) AddEntitySource(ctx context.Context, arg AddEntitySourceParams
 }
 
 const addFieldEvidence = `-- name: AddFieldEvidence :exec
-INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state)
-VALUES ($1, $2, $3, $4, 'field', 'supports', $5, 'current')
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+VALUES ($1, $2, $3, $4, 'field', 'supports', $5, 'current', $6)
 ON CONFLICT (claim_id, item_id, passage_hash, stance)
-DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now()
+DO UPDATE SET state = 'current', quote = EXCLUDED.quote, source_type = EXCLUDED.source_type, updated_at = now()
 `
 
 type AddFieldEvidenceParams struct {
@@ -68,6 +68,7 @@ type AddFieldEvidenceParams struct {
 	ItemID       int64
 	PassageHash  []byte
 	Quote        string
+	SourceType   string
 }
 
 // vis:system
@@ -78,6 +79,7 @@ func (q *Queries) AddFieldEvidence(ctx context.Context, arg AddFieldEvidencePara
 		arg.ItemID,
 		arg.PassageHash,
 		arg.Quote,
+		arg.SourceType,
 	)
 	return err
 }
@@ -97,6 +99,17 @@ type ClearOtherNamesParams struct {
 func (q *Queries) ClearOtherNames(ctx context.Context, arg ClearOtherNamesParams) error {
 	_, err := q.db.Exec(ctx, clearOtherNames, arg.EntityID, arg.ConnectionID, arg.AliasNorm)
 	return err
+}
+
+const connectionKind = `-- name: ConnectionKind :one
+SELECT kind FROM connections WHERE id = $1
+`
+
+func (q *Queries) ConnectionKind(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, connectionKind, id)
+	var kind string
+	err := row.Scan(&kind)
+	return kind, err
 }
 
 const deleteItem = `-- name: DeleteItem :execrows
@@ -134,7 +147,7 @@ func (q *Queries) DeleteItemPassages(ctx context.Context, itemID int64) error {
 }
 
 const getItemByExternalID = `-- name: GetItemByExternalID :one
-SELECT id, content_hash FROM source_items
+SELECT id, content_hash, revision FROM source_items
 WHERE connection_id = $1 AND external_id = $2
 `
 
@@ -146,13 +159,14 @@ type GetItemByExternalIDParams struct {
 type GetItemByExternalIDRow struct {
 	ID          int64
 	ContentHash []byte
+	Revision    string
 }
 
 // vis:system
 func (q *Queries) GetItemByExternalID(ctx context.Context, arg GetItemByExternalIDParams) (GetItemByExternalIDRow, error) {
 	row := q.db.QueryRow(ctx, getItemByExternalID, arg.ConnectionID, arg.ExternalID)
 	var i GetItemByExternalIDRow
-	err := row.Scan(&i.ID, &i.ContentHash)
+	err := row.Scan(&i.ID, &i.ContentHash, &i.Revision)
 	return i, err
 }
 
@@ -239,8 +253,10 @@ func (q *Queries) InsertChunk(ctx context.Context, arg InsertChunkParams) error 
 }
 
 const insertItem = `-- name: InsertItem :one
-INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
+                          revision)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10)
 RETURNING id
 `
 
@@ -254,6 +270,7 @@ type InsertItemParams struct {
 	SourceCreatedAt *time.Time
 	SourceUpdatedAt *time.Time
 	ContentHash     []byte
+	Revision        string
 }
 
 // vis:system
@@ -268,6 +285,7 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (int64, 
 		arg.SourceCreatedAt,
 		arg.SourceUpdatedAt,
 		arg.ContentHash,
+		arg.Revision,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -412,6 +430,21 @@ func (q *Queries) RetractUnsupported(ctx context.Context, arg RetractUnsupported
 	return result.RowsAffected(), nil
 }
 
+const setRevision = `-- name: SetRevision :exec
+UPDATE source_items SET revision = $1 WHERE id = $2
+`
+
+type SetRevisionParams struct {
+	Revision string
+	ID       int64
+}
+
+// vis:system
+func (q *Queries) SetRevision(ctx context.Context, arg SetRevisionParams) error {
+	_, err := q.db.Exec(ctx, setRevision, arg.Revision, arg.ID)
+	return err
+}
+
 const unretract = `-- name: Unretract :exec
 UPDATE claims SET retracted_at = NULL WHERE id = $1
 `
@@ -424,8 +457,9 @@ func (q *Queries) Unretract(ctx context.Context, id int64) error {
 const updateItem = `-- name: UpdateItem :exec
 UPDATE source_items
 SET kind = $1, title = $2, url = $3, author = $4, source_created_at = $5,
-    source_updated_at = $6, content_hash = $7, version_id = $8, updated_at = now()
-WHERE id = $9
+    source_updated_at = $6, content_hash = $7, version_id = $8, revision = $9,
+    updated_at = now()
+WHERE id = $10
 `
 
 type UpdateItemParams struct {
@@ -437,6 +471,7 @@ type UpdateItemParams struct {
 	SourceUpdatedAt *time.Time
 	ContentHash     []byte
 	VersionID       *int64
+	Revision        string
 	ID              int64
 }
 
@@ -451,6 +486,7 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) error {
 		arg.SourceUpdatedAt,
 		arg.ContentHash,
 		arg.VersionID,
+		arg.Revision,
 		arg.ID,
 	)
 	return err

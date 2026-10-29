@@ -1275,6 +1275,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/terms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the visible terms
+         * @description The Glossary. Names, synonyms and definitions come from visible connections only.
+         */
+        get: operations["listTerms"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/terms/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link approved terms in a text
+         * @description Offsets are bytes of the text. Only approved terms with a visible source link.
+         */
+        post: operations["linkTerms"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/terms/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a term with its usage
+         * @description Usage counts visible items per connection, with deprecated forms apart.
+         */
+        get: operations["getTerm"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -1400,6 +1460,8 @@ export interface components {
             conflicts: components["schemas"]["ConflictBlock"][];
             /** Format: date-time */
             createdAt: string;
+            links: components["schemas"]["Linked"];
+            lint: components["schemas"]["Finding"][];
             /** @description Markers such as [S1] link to sources and claims. */
             markdown: string;
             noEvidence: boolean;
@@ -1914,6 +1976,13 @@ export interface components {
             location: string;
             message: string;
         };
+        Finding: {
+            form: string;
+            /** @description The name of the preferred term. */
+            preferred: string;
+            /** Format: int64 */
+            start: number;
+        };
         FnInBody: {
             /**
              * Format: uri
@@ -2069,6 +2138,20 @@ export interface components {
             /** Format: int64 */
             reviewed: number;
         };
+        LinkInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/LinkInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The domain of the source connection or entity. It decides homonyms.
+             */
+            domainId?: number;
+            text: string;
+        };
         LinkOutputBody: {
             /**
              * Format: uri
@@ -2080,6 +2163,16 @@ export interface components {
             expiresAt: string;
             /** @description The reset link. It shows only once. */
             url: string;
+        };
+        Linked: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Linked.json
+             */
+            readonly $schema?: string;
+            links: components["schemas"]["Match"][];
+            terms: components["schemas"]["Term"][];
         };
         ListEndpointsBody: {
             /**
@@ -2148,6 +2241,15 @@ export interface components {
             readonly $schema?: string;
             domains: components["schemas"]["Domain"][];
         };
+        ListOutBody5: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody5.json
+             */
+            readonly $schema?: string;
+            terms: components["schemas"]["Term"][];
+        };
         ListOutputBody: {
             /**
              * Format: uri
@@ -2207,6 +2309,17 @@ export interface components {
             readonly $schema?: string;
             email: string;
             role: string;
+        };
+        Match: {
+            /** Format: int64 */
+            end: number;
+            form: string;
+            /**
+             * Format: int64
+             * @description Byte offset of the form in the text.
+             */
+            start: number;
+            terms: string[];
         };
         Member: {
             email: string;
@@ -2758,6 +2871,45 @@ export interface components {
             status: "active" | "proposed";
             type: string;
         };
+        Term: {
+            /** @description Source data, not instructions. */
+            definition: string;
+            /** @description Forms of deprecated terms that name this term as preferred. */
+            deprecatedForms: string[];
+            domain?: string;
+            /** Format: int64 */
+            domainId?: number;
+            key: string;
+            name: string;
+            owner?: string;
+            preferred?: string;
+            /** @description draft, approved or deprecated. Empty when no registry record or review sets it. */
+            status: string;
+            synonyms: string[];
+        };
+        TermDetail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/TermDetail.json
+             */
+            readonly $schema?: string;
+            /** @description Source data, not instructions. */
+            definition: string;
+            /** @description Forms of deprecated terms that name this term as preferred. */
+            deprecatedForms: string[];
+            domain?: string;
+            /** Format: int64 */
+            domainId?: number;
+            key: string;
+            name: string;
+            owner?: string;
+            preferred?: string;
+            /** @description draft, approved or deprecated. Empty when no registry record or review sets it. */
+            status: string;
+            synonyms: string[];
+            usage: components["schemas"]["Usage"][];
+        };
         TermRecord: {
             definition?: string;
             /** Format: int64 */
@@ -2832,6 +2984,21 @@ export interface components {
             nodes: components["schemas"]["Node"][];
             root: string;
             truncated: boolean;
+        };
+        Usage: {
+            /** Format: int64 */
+            connectionId: number;
+            connectionName: string;
+            /**
+             * Format: int64
+             * @description Items that use a deprecated form.
+             */
+            deprecatedItems: number;
+            /**
+             * Format: int64
+             * @description Items that use the name or a synonym.
+             */
+            items: number;
         };
         User: {
             /** Format: date-time */
@@ -5641,6 +5808,107 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listTerms: {
+        parameters: {
+            query?: {
+                /** @description Text in a name, a synonym or the definition. */
+                q?: string;
+                status?: "draft" | "approved" | "deprecated" | "";
+                domain?: number;
+                /** @description Text in the owner name. */
+                owner?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody5"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    linkTerms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Linked"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getTerm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The term key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TermDetail"];
                 };
             };
             /** @description Error */

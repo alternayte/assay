@@ -56,6 +56,7 @@ type Server struct {
 	extract  *extract.Service
 	resolve  *resolve.Service
 	registry *registry.Service
+	vocab    *vocab.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -130,14 +131,15 @@ func (s *Server) services() error {
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics()}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
-	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
+	s.vocab = &vocab.Service{Pool: s.pool}
+	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
 	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
 	s.registry = &registry.Service{Pool: s.pool, Log: s.log, Now: s.now}
 	s.entities.Rename = s.registry.Rename
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
 		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm}}
-	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Log: s.log, Now: s.now}
+	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -159,6 +161,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.resolve.Register(a)
 	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
+	s.vocab.Register(a)
 }
 
 func (s *Server) build(ctx context.Context) error {

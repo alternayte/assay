@@ -22,6 +22,7 @@ import (
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/visibility"
+	"github.com/alternayte/assay/internal/vocab"
 )
 
 // Sizes of the lists (SDD section 14).
@@ -88,7 +89,28 @@ type Response struct {
 type Service struct {
 	Pool   *pgxpool.Pool
 	Models *models.Gateway
+	Vocab  *vocab.Service
 	Log    *slog.Logger
+}
+
+// MaxExpansions is the most synonym forms of a query that search adds.
+const MaxExpansions = 3
+
+// expansions are the query with approved forms swapped for their synonyms
+// and preferred terms (REQ-VOC-007).
+func (s *Service) expansions(ctx context.Context, vis visibility.Set, text string) ([]string, error) {
+	if s.Vocab == nil {
+		return nil, nil
+	}
+	ts, err := s.Vocab.Approved(ctx, vis)
+	if err != nil {
+		return nil, err
+	}
+	out := vocab.Expansions(ts, text)
+	if len(out) > MaxExpansions {
+		out = out[:MaxExpansions]
+	}
+	return out, nil
 }
 
 // Search runs a hybrid search for the items of the visible set. Results are
@@ -220,6 +242,22 @@ func (s *Service) lists(ctx context.Context, vis visibility.Set, text string, f 
 	lists := [][]hit{{}, {}}
 	for _, r := range ft {
 		lists[0] = append(lists[0], hit{r.ChunkID, r.ItemID})
+	}
+	alts, err := s.expansions(ctx, vis, text)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, alt := range alts {
+		rows, err := q.FullText(ctx, FullTextParams{Query: alt, Visible: vis, SourceType: f.SourceType, Connection: f.ConnectionID,
+			Since: f.Since, Domain: f.DomainID, EntityType: f.EntityType, Lim: ListSize})
+		if err != nil {
+			return nil, false, err
+		}
+		l := make([]hit, len(rows))
+		for i, r := range rows {
+			l[i] = hit{r.ChunkID, r.ItemID}
+		}
+		lists = append(lists, l)
 	}
 	for _, r := range tg {
 		lists[1] = append(lists[1], hit{r.ChunkID, r.ItemID})

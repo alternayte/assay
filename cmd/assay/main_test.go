@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -92,5 +93,47 @@ func TestSCN_SET_003_Rekey(t *testing.T) {
 		if _, err := storeA.Get(ctx, n); err == nil {
 			t.Fatalf("%s still decrypts with key A", n)
 		}
+	}
+}
+
+func TestSCN_INS_007_Doctor(t *testing.T) {
+	db := testkit.DB(t)
+	srv := testkit.StartOn(t, db)
+	admin := srv.Setup("owner@acme.test")
+	_, openaiURL, _ := testkit.FakeModels(t)
+	testkit.CreateEndpoint(t, admin, "Reachable", "openai", openaiURL, fixtures.FakeKey, nil)
+	testkit.CreateEndpoint(t, admin, "Unreachable", "openai", "http://127.0.0.1:1/v1", "", nil)
+
+	env := []string{
+		"ASSAY_DATABASE_URL=" + db,
+		"ASSAY_SECRET_KEY=" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)),
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"doctor"}, env, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("doctor exits 0 with an unreachable endpoint:\n%s", out.String())
+	}
+	text := out.String()
+	for _, want := range []string{"PASS  Database version", "PASS  Database extensions", "PASS  Secret key", "PASS  Endpoint Reachable", "FAIL  Endpoint Unreachable"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("doctor output lacks %q:\n%s", want, text)
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "FAIL  Endpoint Unreachable") && !strings.Contains(line, "connection refused") {
+			t.Fatalf("the failure names no cause: %s", line)
+		}
+	}
+
+	var api struct {
+		OK     bool `json:"ok"`
+		Checks []struct {
+			Name string `json:"name"`
+			OK   bool   `json:"ok"`
+		} `json:"checks"`
+	}
+	admin.Must(http.StatusOK, http.MethodPost, "/api/v1/diagnostics", nil).JSON(t, &api)
+	if api.OK || len(api.Checks) < 6 {
+		t.Fatalf("diagnostics route: %+v", api)
 	}
 }

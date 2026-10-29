@@ -11,6 +11,8 @@ export const navItems: NavItem[] = [
   { to: "/settings/users", label: "settings.users", role: "admin", group: "settings" },
   { to: "/settings/groups", label: "settings.groups", role: "admin", group: "settings" },
   { to: "/settings/general", label: "settings.general", role: "admin", group: "settings" },
+  { to: "/settings/models", label: "settings.models", role: "admin", group: "settings" },
   { to: "/settings/email", label: "settings.email", role: "admin", group: "settings" },
+  { to: "/settings/diagnostics", label: "settings.diagnostics", role: "admin", group: "settings" },
   { to: "/settings/audit", label: "settings.audit", role: "admin", group: "settings" },
 ];

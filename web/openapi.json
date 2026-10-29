@@ -113,6 +113,27 @@
         ],
         "type": "object"
       },
+      "Check": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "What the check found.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "ok",
+          "reason"
+        ],
+        "type": "object"
+      },
       "CreateInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -955,6 +976,34 @@
         },
         "required": [
           "name"
+        ],
+        "type": "object"
+      },
+      "OutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "type": "array"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checks",
+          "ok"
         ],
         "type": "object"
       },
@@ -1949,6 +1998,37 @@
         "summary": "List audit entries, newest first",
         "tags": [
           "audit"
+        ]
+      }
+    },
+    "/api/v1/diagnostics": {
+      "post": {
+        "operationId": "runDiagnostics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Run the installation checks",
+        "tags": [
+          "diagnostics"
         ]
       }
     },

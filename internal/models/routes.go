@@ -491,3 +491,36 @@ func orEmpty(m map[string]any) map[string]any {
 	}
 	return m
 }
+
+// Endpoints returns the endpoints without keys.
+func (g *Gateway) Endpoints(ctx context.Context) ([]EndpointRecord, error) {
+	rows, err := New(g.Pool).ListEndpoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]EndpointRecord, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, EndpointRecord{ID: r.ID, Name: r.Name, Kind: r.Kind, BaseURL: r.BaseUrl, HasKey: r.HasKey, UpdatedAt: r.UpdatedAt})
+	}
+	return out, nil
+}
+
+// Reach lists the models of an endpoint and returns their count. The error
+// names the cause, such as a refused connection or a TLS failure.
+func (g *Gateway) Reach(ctx context.Context, id int64) (int, error) {
+	r, err := New(g.Pool).GetEndpoint(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	t := &target{kind: r.Kind, baseURL: strings.TrimRight(r.BaseUrl, "/")}
+	_ = json.Unmarshal(r.Extra, &t.extra)
+	if r.SecretID != nil {
+		k, err := g.Secrets.GetByID(ctx, g.Pool, *r.SecretID)
+		if err != nil {
+			return 0, err
+		}
+		t.key = string(k)
+	}
+	ids, err := g.listModels(ctx, t)
+	return len(ids), err
+}

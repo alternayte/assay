@@ -13,6 +13,8 @@ import (
 
 	"github.com/alternayte/assay/internal/app"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/doctor"
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/users"
 )
@@ -27,8 +29,12 @@ Commands:
   migrate                Apply the database migrations and exit.
   admin create           Create an admin: --email, --name, optional --password.
   admin reset-password   Set the password of a user: --email, optional --password.
+  doctor                 Check the database, the secret key, the proxy, the CA
+                         certificates and each endpoint. Exits 1 on a failure.
   secrets rekey          Encrypt all secrets again with ASSAY_SECRET_KEY_NEW.
                          Then set ASSAY_SECRET_KEY to that key and restart.
+  fixtures serve         Serve the fake model API and the fake source APIs for
+                         tests and the demo: --addr, default :8090.
   version                Print the version.
 
 Without --password, the command prints a generated password once.
@@ -51,7 +57,9 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
-	case "serve", "migrate", "admin", "secrets":
+	case "fixtures":
+		return fixturesServe(args[1:], stderr)
+	case "serve", "migrate", "admin", "secrets", "doctor":
 	default:
 		fmt.Fprintf(stderr, "assay: unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -73,6 +81,8 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return admin(ctx, cfg, log, args[1:], stdout, stderr)
 	case "secrets":
 		return rekey(ctx, cfg, log, args[1:], stdout, stderr)
+	case "doctor":
+		return runDoctor(ctx, cfg, stdout)
 	case "migrate":
 		pool, _, err := app.Open(ctx, cfg, log, auth.Options{})
 		if err != nil {
@@ -170,5 +180,47 @@ func rekey(ctx context.Context, cfg app.Config, log *slog.Logger, args []string,
 		return 1
 	}
 	fmt.Fprintf(stdout, "Encrypted %d secrets with the new key. Set ASSAY_SECRET_KEY to the value of ASSAY_SECRET_KEY_NEW, remove ASSAY_SECRET_KEY_NEW and restart.\n", n)
+	return 0
+}
+
+func runDoctor(ctx context.Context, cfg app.Config, stdout io.Writer) int {
+	s, err := app.New(ctx, cfg, app.NewLogger(io.Discard, slog.LevelError), app.Options{})
+	if err != nil {
+		fmt.Fprintf(stdout, "FAIL  Database: %v\n", err)
+		return 1
+	}
+	defer s.Close()
+	checks := s.Doctor().Run(ctx)
+	for _, c := range checks {
+		mark := "PASS"
+		if !c.OK {
+			mark = "FAIL"
+		}
+		fmt.Fprintf(stdout, "%s  %s: %s\n", mark, c.Name, c.Reason)
+	}
+	if doctor.Failed(checks) {
+		return 1
+	}
+	return 0
+}
+
+func fixturesServe(args []string, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "serve" {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	fs := flag.NewFlagSet("assay fixtures serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	addr := fs.String("addr", ":8090", "listen address")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	log := app.NewLogger(stderr, slog.LevelInfo)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := fixtures.Serve(ctx, *addr, log); err != nil {
+		log.Error("fixtures stopped", "error", err.Error())
+		return 1
+	}
 	return 0
 }

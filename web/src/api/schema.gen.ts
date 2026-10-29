@@ -143,6 +143,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run the installation checks */
+        post: operations["runDiagnostics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -674,6 +691,12 @@ export interface components {
             updatedAt: string;
             updatedBy: string;
         };
+        Check: {
+            name: string;
+            ok: boolean;
+            /** @description What the check found. */
+            reason: string;
+        };
         CreateInputBody: {
             /**
              * Format: uri
@@ -1000,6 +1023,16 @@ export interface components {
              */
             readonly $schema?: string;
             name: string;
+        };
+        OutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/OutBody.json
+             */
+            readonly $schema?: string;
+            checks: components["schemas"]["Check"][];
+            ok: boolean;
         };
         PasswordInputBody: {
             /**
@@ -1529,6 +1562,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ListOutputBody3"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    runDiagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutBody"];
                 };
             };
             /** @description Error */

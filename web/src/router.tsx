@@ -13,8 +13,10 @@ import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { ProfilePage } from "@/routes/profile";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
+import { DiagnosticsPage } from "@/routes/settings/diagnostics";
 import { GroupsPage } from "@/routes/settings/groups";
 import { AuditPage, EmailPage, GeneralPage, SettingsLayout } from "@/routes/settings/index";
+import { ModelsPage } from "@/routes/settings/models";
 import { UsersPage } from "@/routes/settings/users";
 
 type Context = { queryClient: QueryClient };
@@ -91,6 +93,12 @@ const groups = createRoute({ getParentRoute: () => settings, path: "/groups", co
 const general = createRoute({ getParentRoute: () => settings, path: "/general", component: GeneralPage });
 const email = createRoute({ getParentRoute: () => settings, path: "/email", component: EmailPage });
 const audit = createRoute({ getParentRoute: () => settings, path: "/audit", component: AuditPage });
+const modelsRoute = createRoute({ getParentRoute: () => settings, path: "/models", component: ModelsPage });
+const diagnostics = createRoute({
+  getParentRoute: () => settings,
+  path: "/diagnostics",
+  component: DiagnosticsPage,
+});
 
 const routeTree = root.addChildren([
   signIn,
@@ -100,7 +108,7 @@ const routeTree = root.addChildren([
   authed.addChildren([
     home,
     profile,
-    settings.addChildren([settingsIndex, users, groups, general, email, audit]),
+    settings.addChildren([settingsIndex, users, groups, general, modelsRoute, email, diagnostics, audit]),
   ]),
 ]);
 

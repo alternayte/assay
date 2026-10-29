@@ -1,9 +1,12 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
 import { LogOut, Monitor, Moon, Search, Sun, UserRound } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useState } from "react";
+import { api, unwrap } from "@/api/client";
 import { Palette } from "@/components/palette";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
 import { t } from "@/copy";
 import { atLeast, useMe, useSignOut } from "@/lib/session";
 import { setTheme, storedTheme, type ThemeChoice } from "@/lib/theme";
@@ -16,6 +19,26 @@ const themes: { value: ThemeChoice; label: Parameters<typeof t>[0]; icon: typeof
 
 const navLink =
   "rounded-sm px-2 py-1 text-base text-ink-muted transition-ink hover:bg-paper-sunk hover:text-ink data-[status=active]:text-ink data-[status=active]:shadow-[inset_0_-2px_0_var(--accent)]";
+
+function BudgetBanner() {
+  const status = useQuery({
+    queryKey: ["models", "status"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/models/status")),
+    refetchInterval: 60_000,
+  });
+  const over = status.data?.overBudget ?? [];
+  if (over.length === 0) return null;
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 pt-4">
+      <Notice tone="danger">
+        {t("models.banner", { functions: over.join(", ") })}{" "}
+        <Link to="/settings/models" className="font-medium text-accent underline">
+          {t("models.bannerAction")}
+        </Link>
+      </Notice>
+    </div>
+  );
+}
 
 export function Shell() {
   const me = useMe();
@@ -115,6 +138,7 @@ export function Shell() {
           </DropdownMenu.Root>
         </div>
       </header>
+      {atLeast(me, "admin") && <BudgetBanner />}
       <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         <Outlet />
       </main>

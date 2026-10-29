@@ -18,6 +18,7 @@ import (
 
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
@@ -36,6 +37,7 @@ type Server struct {
 	secrets  *secrets.Store
 	mailer   *settings.Mailer
 	models   *models.Gateway
+	doctor   *doctor.Doctor
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -108,6 +110,7 @@ func (s *Server) services() error {
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
+	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Outbound: s.cfg.Outbound}
 	return nil
 }
 
@@ -118,6 +121,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.mailer.RegisterSMTP(a)
 	audit.Register(a, s.pool)
 	s.models.Register(a)
+	s.doctor.Register(a)
 }
 
 func (s *Server) build(ctx context.Context) error {
@@ -149,6 +153,9 @@ func (s *Server) build(ctx context.Context) error {
 
 // Handler is the HTTP handler of the process.
 func (s *Server) Handler() http.Handler { return s.handler }
+
+// Doctor runs the installation checks.
+func (s *Server) Doctor() *doctor.Doctor { return s.doctor }
 
 // Models is the model gateway.
 func (s *Server) Models() *models.Gateway { return s.models }

@@ -178,7 +178,7 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 	} else if p, ok := claims.Registry[f.Predicate]; ok && len(p.Objects) == 1 && p.Objects[0] == claims.ObjDate {
 		if _, err := time.Parse("2006-01-02", f.Text); err != nil {
 			in.log.Warn("fact dropped", "predicate", f.Predicate, "reason", "not a date")
-			return nil
+			return nil //nolint:nilerr // A bad date drops the fact, not the item.
 		}
 		objType = claims.ObjDate
 	}

@@ -48,7 +48,11 @@ func TestSCN_CON_009_OnlyGetAndHead(t *testing.T) {
 	}
 	// Another host fails before sending.
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://other.acme.test/x", nil)
-	if _, err := c.Do(req); !errors.Is(err, outbound.ErrForeignHost) {
+	resp, err := c.Do(req)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, outbound.ErrForeignHost) {
 		t.Fatalf("other host: %v", err)
 	}
 }

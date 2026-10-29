@@ -17,7 +17,7 @@ func BenchReport(scn string, pass bool, ms int64, extra map[string]any) {
 		line[k] = v
 	}
 	b, _ := json.Marshal(line)
-	fh, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	fh, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // The report path comes from the bench recipe.
 	if err != nil {
 		return
 	}

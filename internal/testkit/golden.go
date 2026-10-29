@@ -24,7 +24,7 @@ func Golden(t testing.TB, path string, v any) {
 		}
 		return
 	}
-	want, err := os.ReadFile(path)
+	want, err := os.ReadFile(path) //nolint:gosec // Tests name their golden files.
 	if err != nil {
 		t.Fatalf("%v (run go test -update to create it)", err)
 	}

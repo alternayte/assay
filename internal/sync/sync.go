@@ -164,6 +164,8 @@ func sourceError(err error) string {
 		return "The source returned 404. Check the base URL."
 	case errors.As(err, &se):
 		return fmt.Sprintf("The source answered %d (%s).", se.Status, http.StatusText(se.Status))
+	case errors.Is(err, errPaused):
+		return "The connection is paused. Resume it to sync."
 	case errors.As(err, &skip):
 		return "Skipped: " + skip.Reason
 	case errors.Is(err, outbound.ErrForeignHost):

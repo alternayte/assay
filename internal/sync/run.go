@@ -107,6 +107,9 @@ func (s *Service) Schedule(ctx context.Context) error {
 	return nil
 }
 
+// errPaused fails a run of a paused connection.
+var errPaused = errors.New("sync: the connection is paused")
+
 // ErrRunActive means that a run of the same kind is queued or running.
 var ErrRunActive = errors.New("sync: a run of this kind is queued or running")
 
@@ -214,7 +217,7 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 	st := &stats{}
 	cursor := conn.Cursor
 	if conn.Status == "paused" {
-		st.fail(errors.New("The connection is paused. Resume it to sync."))
+		st.fail(errPaused)
 	} else {
 		src, err := s.sourceOf(ctx, conn)
 		if err != nil {

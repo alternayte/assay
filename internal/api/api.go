@@ -72,6 +72,8 @@ func FromAuth(err error) error {
 // init makes huma use the Assay envelope for its own errors, such as a
 // validation failure. huma.NewError is a global, so it is set once.
 func init() {
+	// Every Assay route returns empty lists, never null.
+	huma.DefaultArrayNullable = false
 	huma.NewError = func(status int, message string, errs ...error) huma.StatusError {
 		e := Problem(status, codeFor(status), message)
 		for _, err := range errs {

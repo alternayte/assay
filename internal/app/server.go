@@ -9,16 +9,19 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
 	"github.com/alternayte/assay/internal/users"
+	"github.com/alternayte/assay/web"
 )
 
 // Server is one Assay process.
@@ -92,18 +95,35 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Serv
 	return s, nil
 }
 
-func (s *Server) build(ctx context.Context) error {
+// services builds the feature services. It does not touch the database.
+func (s *Server) services() error {
 	box, err := secrets.NewBox(s.cfg.SecretKey)
 	if err != nil {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
 	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention}}
+	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
+	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
+	return nil
+}
+
+// registerAPI adds the routes of every feature.
+func (s *Server) registerAPI(a huma.API) {
+	s.users.Register(a)
+	s.settings.Register(a)
+	s.mailer.RegisterSMTP(a)
+	audit.Register(a, s.pool)
+}
+
+func (s *Server) build(ctx context.Context) error {
+	if err := s.services(); err != nil {
+		return err
+	}
 	if err := s.settings.Seed(ctx); err != nil {
 		return err
 	}
-	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
-	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
+	var err error
 	if s.river, err = s.newRiver(); err != nil {
 		return err
 	}
@@ -161,11 +181,17 @@ func (s *Server) routes() (http.Handler, error) {
 			apiErr = err
 			return
 		}
-		s.users.Register(a)
-		s.settings.Register(a)
-		s.mailer.RegisterSMTP(a)
+		s.registerAPI(a)
 	})
-	return r, apiErr
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	spa, err := s.spa(web.Dist())
+	if err != nil {
+		return nil, err
+	}
+	r.NotFound(spa.ServeHTTP)
+	return r, nil
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {

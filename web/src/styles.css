@@ -1,0 +1,181 @@
+/* Direction: a 1930s assay office register — cream ruled ledger paper, blue-black iron-gall ink, cyanotype blue for the assayer's marks, and dense tabular entries; at night the same register reads as ink-dark board with paper-coloured script. */
+
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/*
+ * Tokens. Every value in the UI comes from here.
+ *
+ * Type: IBM Plex Sans for entries, JetBrains Mono for keys, IDs and citation
+ * marks. Minor-third ratio (1.2) from a 14px body, the size of a dense
+ * register entry. Labels are small capitals with open tracking, like column
+ * heads in a ledger.
+ *
+ * Space: a 4px unit. The ruled line is 24px; rows and sections keep to it.
+ *
+ * Colour: paper ground, ink, one accent (cyanotype), and state colours that
+ * always come with a text label.
+ */
+:root {
+  --paper: #f6f2e8;
+  --paper-raised: #fbf8f1;
+  --paper-sunk: #eee8da;
+  --rule: #d9d1bf;
+  --rule-strong: #b9ae96;
+  --ink: #1c2433;
+  --ink-muted: #545c6b;
+  --ink-faint: #686f7b;
+  --accent: #1f5f99;
+  --accent-ink: #fbf8f1;
+  --accent-wash: #dfe8f1;
+  --state-supported: #2f6b3a;
+  --state-conflict: #9c4116;
+  --state-stale: #6f5f22;
+  --state-danger: #a32020;
+  --state-wash-supported: #e1ebdf;
+  --state-wash-conflict: #f3e2d6;
+  --state-wash-stale: #efe8cf;
+  --state-wash-danger: #f5dede;
+  --focus: #1f5f99;
+  --shadow: 0 1px 0 var(--rule), 0 2px 6px rgb(28 36 51 / 0.06);
+}
+
+[data-theme="dark"] {
+  --paper: #12161f;
+  --paper-raised: #191f2b;
+  --paper-sunk: #0d1017;
+  --rule: #2c3445;
+  --rule-strong: #46506a;
+  --ink: #ece6d6;
+  --ink-muted: #aab0bb;
+  --ink-faint: #8c93a0;
+  --accent: #8ebbe8;
+  --accent-ink: #0d1017;
+  --accent-wash: #1d2c3e;
+  --state-supported: #8cc79a;
+  --state-conflict: #eea27c;
+  --state-stale: #d9c67c;
+  --state-danger: #f08a8a;
+  --state-wash-supported: #1b2b20;
+  --state-wash-conflict: #33231a;
+  --state-wash-stale: #2d2a19;
+  --state-wash-danger: #351c1f;
+  --focus: #8ebbe8;
+  --shadow: 0 1px 0 var(--rule), 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-paper-sunk: var(--paper-sunk);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-wash: var(--accent-wash);
+  --color-supported: var(--state-supported);
+  --color-conflict: var(--state-conflict);
+  --color-stale: var(--state-stale);
+  --color-danger: var(--state-danger);
+  --color-wash-supported: var(--state-wash-supported);
+  --color-wash-conflict: var(--state-wash-conflict);
+  --color-wash-stale: var(--state-wash-stale);
+  --color-wash-danger: var(--state-wash-danger);
+  --color-focus: var(--focus);
+
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Minor third from 14px. */
+  --text-xs: 0.729rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.05rem;
+  --text-lg--line-height: 1.5rem;
+  --text-xl: 1.26rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.512rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 1.814rem;
+  --text-3xl--line-height: 2.25rem;
+
+  --tracking-label: 0.08em;
+  --spacing: 0.25rem;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --shadow-sheet: var(--shadow);
+  --ease-ink: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@layer base {
+  html {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    margin: 0;
+    font-size: var(--text-base);
+    line-height: var(--text-base--line-height);
+    background: var(--paper);
+    min-height: 100dvh;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  ::selection {
+    background: var(--accent-wash);
+    color: var(--ink);
+  }
+}
+
+@layer utilities {
+  /* Column heads of the register. */
+  .label {
+    font-size: var(--text-xs);
+    line-height: var(--text-xs--line-height);
+    letter-spacing: var(--tracking-label);
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--ink-muted);
+  }
+  /* The ruled ground of a sheet. */
+  .ruled {
+    background-image: linear-gradient(to bottom, transparent calc(1.5rem - 1px), var(--rule) 1.5rem);
+    background-size: 100% 1.5rem;
+  }
+  .transition-ink {
+    transition-property: color, background-color, border-color, opacity, transform;
+    transition-duration: 120ms;
+    transition-timing-function: var(--ease-ink);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every transition. */
+    transition-duration: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every transition. */
+    animation-duration: 0ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must win over every transition. */
+    animation-iteration-count: 1 !important;
+  }
+}

@@ -159,7 +159,9 @@ var ErrNotFound = errors.New("resolve: not found")
 var errCardKind = errors.New("resolve: this card kind is decided on its own page")
 
 // Accept accepts a card as a reviewer. A merge card merges its entities
-// with an optional canonical name and stores the verdict same.
+// with an optional canonical name and stores the verdict same. A link card
+// adds the claim of its mention. An unnamed card makes its entity active,
+// with the canonical name as its name.
 func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, canonical, by string) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		c, err := s.openCard(ctx, tx, vis, id)
@@ -174,6 +176,14 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, cano
 			if err := s.verdict(ctx, tx, c.SubjectRefs, "same", by); err != nil {
 				return err
 			}
+		case "mention_link":
+			if err := s.acceptMention(ctx, tx, c.Payload); err != nil {
+				return err
+			}
+		case "unnamed":
+			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical); err != nil {
+				return err
+			}
 		default:
 			return errCardKind
 		}
@@ -182,15 +192,21 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, cano
 }
 
 // Reject rejects a card with a reason. A merge card stores the verdict
-// different, so the pair is not suggested again (REQ-RES-006).
+// different, so the pair is not suggested again (REQ-RES-006). An unnamed
+// card deletes its proposed entity.
 func (s *Service) Reject(ctx context.Context, vis visibility.Set, id int64, reason, by string) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		c, err := s.openCard(ctx, tx, vis, id)
 		if err != nil {
 			return err
 		}
-		if c.Kind == "merge" {
+		switch c.Kind {
+		case "merge":
 			if err := s.verdict(ctx, tx, c.SubjectRefs, "different", by); err != nil {
+				return err
+			}
+		case "unnamed":
+			if err := s.rejectUnnamed(ctx, tx, c.Payload); err != nil {
 				return err
 			}
 		}
@@ -328,7 +344,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "acceptCard", Method: http.MethodPost, Path: "/api/v1/cards/{id}/accept", Tags: tags,
-		Summary: "Accept a card", Description: "A merge card merges its entities. The canonical name is optional.",
+		Summary: "Accept a card", Description: "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.",
 		Middlewares: reviewers, DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, in *acceptIn) (*struct{}, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)

@@ -55,6 +55,59 @@ func (q *Queries) AcronymPairs(ctx context.Context) ([]AcronymPairsRow, error) {
 	return items, nil
 }
 
+const activateEntity = `-- name: ActivateEntity :execrows
+UPDATE entities SET status = 'active', updated_at = now() WHERE id = $1 AND status = 'proposed'
+`
+
+func (q *Queries) ActivateEntity(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, activateEntity, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const addMentionAlias = `-- name: AddMentionAlias :exec
+INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (entity_id, connection_id, alias_norm) DO NOTHING
+`
+
+type AddMentionAliasParams struct {
+	EntityID     int64
+	ConnectionID int64
+	Alias        string
+	AliasNorm    string
+	IsName       bool
+}
+
+// vis:system
+func (q *Queries) AddMentionAlias(ctx context.Context, arg AddMentionAliasParams) error {
+	_, err := q.db.Exec(ctx, addMentionAlias,
+		arg.EntityID,
+		arg.ConnectionID,
+		arg.Alias,
+		arg.AliasNorm,
+		arg.IsName,
+	)
+	return err
+}
+
+const addProposedSource = `-- name: AddProposedSource :exec
+INSERT INTO entity_sources (entity_id, connection_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+`
+
+type AddProposedSourceParams struct {
+	EntityID     int64
+	ConnectionID int64
+}
+
+// vis:system
+func (q *Queries) AddProposedSource(ctx context.Context, arg AddProposedSourceParams) error {
+	_, err := q.db.Exec(ctx, addProposedSource, arg.EntityID, arg.ConnectionID)
+	return err
+}
+
 const addVerdict = `-- name: AddVerdict :exec
 INSERT INTO pair_verdicts (a_id, b_id, kind, verdict, by)
 VALUES (least($1::bigint, $2::bigint), greatest($1::bigint, $2::bigint), $3, $4, $5)
@@ -182,6 +235,15 @@ func (q *Queries) DecisionForUpdate(ctx context.Context, id int64) (DecisionForU
 	return i, err
 }
 
+const deleteProposedEntity = `-- name: DeleteProposedEntity :exec
+DELETE FROM entities WHERE id = $1 AND status = 'proposed'
+`
+
+func (q *Queries) DeleteProposedEntity(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, deleteProposedEntity, id)
+	return err
+}
+
 const deleteStaleProfiles = `-- name: DeleteStaleProfiles :exec
 DELETE FROM entity_profiles p
 WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = p.entity_id AND e.status <> 'merged')
@@ -190,6 +252,113 @@ WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = p.entity_id AND e.status
 func (q *Queries) DeleteStaleProfiles(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteStaleProfiles)
 	return err
+}
+
+const describeCandidates = `-- name: DescribeCandidates :many
+SELECT p.entity_id, e.key, p.text, p.connections, word_similarity($1, p.text)::float8 AS score
+FROM entity_profiles p
+JOIN entities e ON e.id = p.entity_id
+WHERE e.type = ANY($2::text[]) AND e.status = 'active'
+ORDER BY score DESC, p.entity_id
+LIMIT 5
+`
+
+type DescribeCandidatesParams struct {
+	Description string
+	Types       []string
+}
+
+type DescribeCandidatesRow struct {
+	EntityID    int64
+	Key         string
+	Text        string
+	Connections []int64
+	Score       float64
+}
+
+// Profiles of the types that share the most words with the description.
+func (q *Queries) DescribeCandidates(ctx context.Context, arg DescribeCandidatesParams) ([]DescribeCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, describeCandidates, arg.Description, arg.Types)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DescribeCandidatesRow
+	for rows.Next() {
+		var i DescribeCandidatesRow
+		if err := rows.Scan(
+			&i.EntityID,
+			&i.Key,
+			&i.Text,
+			&i.Connections,
+			&i.Score,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const entitiesByNameAny = `-- name: EntitiesByNameAny :many
+SELECT DISTINCT e.id, e.key, e.type FROM entity_aliases a
+JOIN entities e ON e.id = coalesce((SELECT m.merged_into FROM entities m WHERE m.id = a.entity_id), a.entity_id)
+WHERE a.alias_norm = $1 AND e.type = ANY($2::text[]) AND e.status <> 'merged'
+ORDER BY e.id
+`
+
+type EntitiesByNameAnyParams struct {
+	Norm  string
+	Types []string
+}
+
+type EntitiesByNameAnyRow struct {
+	ID   int64
+	Key  string
+	Type string
+}
+
+// Active entities of the types with the alias, from any connection.
+// vis:system
+func (q *Queries) EntitiesByNameAny(ctx context.Context, arg EntitiesByNameAnyParams) ([]EntitiesByNameAnyRow, error) {
+	rows, err := q.db.Query(ctx, entitiesByNameAny, arg.Norm, arg.Types)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EntitiesByNameAnyRow
+	for rows.Next() {
+		var i EntitiesByNameAnyRow
+		if err := rows.Scan(&i.ID, &i.Key, &i.Type); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const entityByKeyAny = `-- name: EntityByKeyAny :one
+SELECT e.id, e.key, e.type FROM entities e
+WHERE e.key = $1 AND e.status <> 'merged'
+`
+
+type EntityByKeyAnyRow struct {
+	ID   int64
+	Key  string
+	Type string
+}
+
+func (q *Queries) EntityByKeyAny(ctx context.Context, key string) (EntityByKeyAnyRow, error) {
+	row := q.db.QueryRow(ctx, entityByKeyAny, key)
+	var i EntityByKeyAnyRow
+	err := row.Scan(&i.ID, &i.Key, &i.Type)
+	return i, err
 }
 
 const entityRefs = `-- name: EntityRefs :many
@@ -326,6 +495,24 @@ func (q *Queries) InsertDecisionCard(ctx context.Context, arg InsertDecisionCard
 	return id, err
 }
 
+const insertProposedEntity = `-- name: InsertProposedEntity :one
+INSERT INTO entities (type, key, status) VALUES ($1, $2, 'proposed')
+ON CONFLICT (key) DO UPDATE SET updated_at = now()
+RETURNING id
+`
+
+type InsertProposedEntityParams struct {
+	Type string
+	Key  string
+}
+
+func (q *Queries) InsertProposedEntity(ctx context.Context, arg InsertProposedEntityParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertProposedEntity, arg.Type, arg.Key)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listCalibration = `-- name: ListCalibration :many
 SELECT kind, bins, reviewed, auto_apply, updated_at FROM calibration ORDER BY kind
 `
@@ -354,6 +541,65 @@ func (q *Queries) ListCalibration(ctx context.Context) ([]ListCalibrationRow, er
 			&i.AutoApply,
 			&i.UpdatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markMentionsResolved = `-- name: MarkMentionsResolved :exec
+UPDATE passage_extractions SET resolved_at = now()
+WHERE item_id = $1 AND passage_hash = $2 AND extractor_version = $3
+`
+
+type MarkMentionsResolvedParams struct {
+	ItemID           int64
+	PassageHash      []byte
+	ExtractorVersion string
+}
+
+func (q *Queries) MarkMentionsResolved(ctx context.Context, arg MarkMentionsResolvedParams) error {
+	_, err := q.db.Exec(ctx, markMentionsResolved, arg.ItemID, arg.PassageHash, arg.ExtractorVersion)
+	return err
+}
+
+const nameCandidates = `-- name: NameCandidates :many
+SELECT e.id, e.key, max(similarity(a.alias_norm, $1))::float8 AS score
+FROM entity_aliases a
+JOIN entities e ON e.id = a.entity_id
+WHERE a.alias_norm % $1 AND similarity(a.alias_norm, $1) >= 0.4 AND e.type = ANY($2::text[]) AND e.status = 'active'
+GROUP BY e.id, e.key
+ORDER BY score DESC, e.id
+LIMIT 5
+`
+
+type NameCandidatesParams struct {
+	Norm  string
+	Types []string
+}
+
+type NameCandidatesRow struct {
+	ID    int64
+	Key   string
+	Score float64
+}
+
+// Entities of the types with a similar alias.
+// vis:system
+func (q *Queries) NameCandidates(ctx context.Context, arg NameCandidatesParams) ([]NameCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, nameCandidates, arg.Norm, arg.Types)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NameCandidatesRow
+	for rows.Next() {
+		var i NameCandidatesRow
+		if err := rows.Scan(&i.ID, &i.Key, &i.Score); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -413,6 +659,77 @@ func (q *Queries) OpenPairCard(ctx context.Context, refs []string) (bool, error)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const openTargetCard = `-- name: OpenTargetCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = $1 AND target = $2 AND status IN ('open', 'accepted'))::boolean
+`
+
+type OpenTargetCardParams struct {
+	Kind   string
+	Target string
+}
+
+func (q *Queries) OpenTargetCard(ctx context.Context, arg OpenTargetCardParams) (bool, error) {
+	row := q.db.QueryRow(ctx, openTargetCard, arg.Kind, arg.Target)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const pendingMentions = `-- name: PendingMentions :many
+SELECT x.item_id, x.passage_hash, x.extractor_version, x.output, x.reasons, p.norm, p.connection_id, i.source_updated_at
+FROM passage_extractions x
+JOIN source_items i ON i.id = x.item_id
+JOIN LATERAL (SELECT ps.norm, ps.connection_id FROM passages ps
+              WHERE ps.item_id = x.item_id AND ps.hash = x.passage_hash LIMIT 1) p ON true
+WHERE x.resolved_at IS NULL
+  AND jsonb_path_exists(x.reasons, '$[*] ? (@.reason == "description_mention" || @.reason == "unresolved")')
+ORDER BY x.created_at
+LIMIT 200
+`
+
+type PendingMentionsRow struct {
+	ItemID           int64
+	PassageHash      []byte
+	ExtractorVersion string
+	Output           json.RawMessage
+	Reasons          json.RawMessage
+	Norm             string
+	ConnectionID     int64
+	SourceUpdatedAt  *time.Time
+}
+
+// Extractions with description or unresolved mentions that resolution has
+// not handled.
+// vis:system
+func (q *Queries) PendingMentions(ctx context.Context) ([]PendingMentionsRow, error) {
+	rows, err := q.db.Query(ctx, pendingMentions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PendingMentionsRow
+	for rows.Next() {
+		var i PendingMentionsRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.PassageHash,
+			&i.ExtractorVersion,
+			&i.Output,
+			&i.Reasons,
+			&i.Norm,
+			&i.ConnectionID,
+			&i.SourceUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const profileHashes = `-- name: ProfileHashes :many
@@ -550,6 +867,22 @@ func (q *Queries) ProfilesOf(ctx context.Context, ids []int64) ([]ProfilesOfRow,
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameEntity = `-- name: RenameEntity :exec
+UPDATE entity_aliases SET alias = $1, alias_norm = $2 WHERE entity_id = $3 AND is_name
+`
+
+type RenameEntityParams struct {
+	Alias     string
+	AliasNorm string
+	EntityID  int64
+}
+
+// vis:system
+func (q *Queries) RenameEntity(ctx context.Context, arg RenameEntityParams) error {
+	_, err := q.db.Exec(ctx, renameEntity, arg.Alias, arg.AliasNorm, arg.EntityID)
+	return err
 }
 
 const reviewedOutcomes = `-- name: ReviewedOutcomes :many

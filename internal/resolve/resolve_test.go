@@ -22,6 +22,7 @@ type world struct {
 	jira, github     int64
 	azdo, restricted int64
 	labels           fixtures.Labels
+	src              *fixtures.Sources
 }
 
 // start syncs Jira, GitHub and Azure DevOps, shared with Everyone, and the
@@ -31,7 +32,7 @@ func start(t *testing.T, opts ...testkit.Option) *world {
 	env := testkit.Start(t, opts...)
 	w := &world{env: env, owner: env.Setup("owner@acme.test")}
 	w.reviewer, _ = env.Invite(w.owner, "reviewer@acme.test", "reviewer", "reviewer-password-1")
-	_, w.base = testkit.FakeSources(t)
+	w.src, w.base = testkit.FakeSources(t)
 	u, _ := url.Parse(w.base)
 	w.host = u.Host
 	w.labels = fixtures.CorpusLabels(u.Host)

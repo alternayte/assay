@@ -182,3 +182,81 @@ SELECT id FROM entities WHERE key = ANY(@keys::text[]) ORDER BY id;
 -- name: ProfilesOf :many
 SELECT p.entity_id, e.key, p.text, p.connections FROM entity_profiles p JOIN entities e ON e.id = p.entity_id
 WHERE p.entity_id = ANY(@ids::bigint[]);
+
+-- name: PendingMentions :many
+-- Extractions with description or unresolved mentions that resolution has
+-- not handled.
+-- vis:system
+SELECT x.item_id, x.passage_hash, x.extractor_version, x.output, x.reasons, p.norm, p.connection_id, i.source_updated_at
+FROM passage_extractions x
+JOIN source_items i ON i.id = x.item_id
+JOIN LATERAL (SELECT ps.norm, ps.connection_id FROM passages ps
+              WHERE ps.item_id = x.item_id AND ps.hash = x.passage_hash LIMIT 1) p ON true
+WHERE x.resolved_at IS NULL
+  AND jsonb_path_exists(x.reasons, '$[*] ? (@.reason == "description_mention" || @.reason == "unresolved")')
+ORDER BY x.created_at
+LIMIT 200;
+
+-- name: MarkMentionsResolved :exec
+UPDATE passage_extractions SET resolved_at = now()
+WHERE item_id = @item_id AND passage_hash = @passage_hash AND extractor_version = @extractor_version;
+
+-- name: EntityByKeyAny :one
+SELECT e.id, e.key, e.type FROM entities e
+WHERE e.key = @key AND e.status <> 'merged';
+
+-- name: EntitiesByNameAny :many
+-- Active entities of the types with the alias, from any connection.
+-- vis:system
+SELECT DISTINCT e.id, e.key, e.type FROM entity_aliases a
+JOIN entities e ON e.id = coalesce((SELECT m.merged_into FROM entities m WHERE m.id = a.entity_id), a.entity_id)
+WHERE a.alias_norm = @norm AND e.type = ANY(@types::text[]) AND e.status <> 'merged'
+ORDER BY e.id;
+
+-- name: NameCandidates :many
+-- Entities of the types with a similar alias.
+-- vis:system
+SELECT e.id, e.key, max(similarity(a.alias_norm, @norm))::float8 AS score
+FROM entity_aliases a
+JOIN entities e ON e.id = a.entity_id
+WHERE a.alias_norm % @norm AND similarity(a.alias_norm, @norm) >= 0.4 AND e.type = ANY(@types::text[]) AND e.status = 'active'
+GROUP BY e.id, e.key
+ORDER BY score DESC, e.id
+LIMIT 5;
+
+-- name: DescribeCandidates :many
+-- Profiles of the types that share the most words with the description.
+SELECT p.entity_id, e.key, p.text, p.connections, word_similarity(@description, p.text)::float8 AS score
+FROM entity_profiles p
+JOIN entities e ON e.id = p.entity_id
+WHERE e.type = ANY(@types::text[]) AND e.status = 'active'
+ORDER BY score DESC, p.entity_id
+LIMIT 5;
+
+-- name: InsertProposedEntity :one
+INSERT INTO entities (type, key, status) VALUES (@type, @key, 'proposed')
+ON CONFLICT (key) DO UPDATE SET updated_at = now()
+RETURNING id;
+
+-- name: AddProposedSource :exec
+-- vis:system
+INSERT INTO entity_sources (entity_id, connection_id) VALUES (@entity_id, @connection_id) ON CONFLICT DO NOTHING;
+
+-- name: AddMentionAlias :exec
+-- vis:system
+INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
+VALUES (@entity_id, @connection_id, @alias, @alias_norm, @is_name)
+ON CONFLICT (entity_id, connection_id, alias_norm) DO NOTHING;
+
+-- name: OpenTargetCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = @kind AND target = @target AND status IN ('open', 'accepted'))::boolean;
+
+-- name: ActivateEntity :execrows
+UPDATE entities SET status = 'active', updated_at = now() WHERE id = @id AND status = 'proposed';
+
+-- name: RenameEntity :exec
+-- vis:system
+UPDATE entity_aliases SET alias = @alias, alias_norm = @alias_norm WHERE entity_id = @entity_id AND is_name;
+
+-- name: DeleteProposedEntity :exec
+DELETE FROM entities WHERE id = @id AND status = 'proposed';

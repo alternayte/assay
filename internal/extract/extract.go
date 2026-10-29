@@ -177,6 +177,7 @@ type Rejection struct {
 type Valid struct {
 	Raw
 	Quote string // normalized
+	Index int    // in the model output
 }
 
 // Parse validates the model output against the schema, the predicate
@@ -198,7 +199,7 @@ func Parse(output, passageNorm string) ([]Valid, []Rejection) {
 			bad = append(bad, Rejection{Index: i, Reason: reason, Detail: detail})
 			continue
 		}
-		ok = append(ok, Valid{Raw: r, Quote: content.Normalize(r.Quote)})
+		ok = append(ok, Valid{Raw: r, Quote: content.Normalize(r.Quote), Index: i})
 	}
 	return ok, bad
 }

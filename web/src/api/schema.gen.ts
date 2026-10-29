@@ -234,7 +234,7 @@ export interface paths {
         put?: never;
         /**
          * Accept a card
-         * @description A merge card merges its entities. The canonical name is optional.
+         * @description A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.
          */
         post: operations["acceptCard"];
         delete?: never;

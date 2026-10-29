@@ -64,6 +64,9 @@ CREATE TABLE text_equivalence (
     CHECK (a_norm < b_norm)
 );
 
+-- Resolution marks the extractions whose open mentions it handled.
+ALTER TABLE passage_extractions ADD COLUMN resolved_at timestamptz;
+
 ALTER TABLE proposals ADD COLUMN decision_id bigint REFERENCES decisions (id) ON DELETE CASCADE;
 
 -- A purge removes the model outputs and cards whose inputs came from the
@@ -84,6 +87,7 @@ CREATE TRIGGER connections_purge_outputs BEFORE DELETE ON connections
 DROP TRIGGER connections_purge_outputs ON connections;
 DROP FUNCTION purge_connection_outputs();
 ALTER TABLE proposals DROP COLUMN decision_id;
+ALTER TABLE passage_extractions DROP COLUMN resolved_at;
 DROP TABLE text_equivalence;
 DROP TABLE pair_verdicts;
 DROP TABLE calibration;

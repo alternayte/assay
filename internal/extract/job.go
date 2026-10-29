@@ -155,10 +155,10 @@ func (s *Service) passage(ctx context.Context, vis []int64, version string, p Pa
 	}
 	valid, rejected := Parse(res.Content, p.Norm)
 	var out []content.Extracted
-	for i, v := range valid {
+	for _, v := range valid {
 		c, reason, detail := s.resolve(ctx, vis, v)
 		if reason != "" {
-			rejected = append(rejected, Rejection{Index: i, Reason: reason, Detail: detail})
+			rejected = append(rejected, Rejection{Index: v.Index, Reason: reason, Detail: detail})
 			continue
 		}
 		out = append(out, c)
@@ -189,7 +189,8 @@ func (s *Service) passage(ctx context.Context, vis []int64, version string, p Pa
 
 // resolve turns the mentions of a claim into entities. A key resolves
 // directly. A name resolves when exactly one visible entity of an allowed
-// type has it as an alias. Description mentions wait for resolution.
+// type has it as an alias. Description mentions and other names go to
+// resolution (REQ-EXT-005).
 func (s *Service) resolve(ctx context.Context, vis []int64, v Valid) (content.Extracted, string, string) {
 	p := claims.Registry[v.Predicate]
 	c := content.Extracted{Predicate: v.Predicate, Stance: v.Stance, Quote: v.Quote}

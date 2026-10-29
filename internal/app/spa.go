@@ -67,4 +67,3 @@ func setSecurityHeaders(w http.ResponseWriter) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("X-Frame-Options", "DENY")
 }
-

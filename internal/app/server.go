@@ -212,6 +212,12 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ready\n"))
 }
 
+// RunOn is Run that sends the listen address on addr once it listens.
+func (s *Server) RunOn(ctx context.Context, addr chan string) error {
+	s.addr = addr
+	return s.Run(ctx)
+}
+
 // Run serves HTTP and works jobs until ctx ends. Then it stops new work,
 // finishes open requests, releases running jobs and returns within 30
 // seconds.

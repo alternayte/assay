@@ -18,10 +18,12 @@ import (
 
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
+	syncer "github.com/alternayte/assay/internal/sync"
 	"github.com/alternayte/assay/internal/users"
 	"github.com/alternayte/assay/web"
 )
@@ -38,6 +40,7 @@ type Server struct {
 	mailer   *settings.Mailer
 	models   *models.Gateway
 	doctor   *doctor.Doctor
+	sync     *syncer.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -106,10 +109,11 @@ func (s *Server) services() error {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
-	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention}}
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
+	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics()}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -122,6 +126,8 @@ func (s *Server) registerAPI(a huma.API) {
 	audit.Register(a, s.pool)
 	s.models.Register(a)
 	s.doctor.Register(a)
+	s.sync.Register(a)
+	content.Register(a, s.pool)
 }
 
 func (s *Server) build(ctx context.Context) error {
@@ -135,7 +141,8 @@ func (s *Server) build(ctx context.Context) error {
 	if s.river, err = s.newRiver(); err != nil {
 		return err
 	}
-	s.metrics = newMetrics(s.pool)
+	s.sync.River = s.river
+	s.metrics = newMetrics(s.pool, s.sync.Metrics.Collectors()...)
 	if s.tracer, err = tracing(ctx); err != nil {
 		return err
 	}
@@ -159,6 +166,9 @@ func (s *Server) Doctor() *doctor.Doctor { return s.doctor }
 
 // Models is the model gateway.
 func (s *Server) Models() *models.Gateway { return s.models }
+
+// Sync runs the connections.
+func (s *Server) Sync() *syncer.Service { return s.sync }
 
 // Pool is the database pool.
 func (s *Server) Pool() *pgxpool.Pool { return s.pool }

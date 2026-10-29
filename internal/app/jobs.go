@@ -14,6 +14,7 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/settings"
+	syncer "github.com/alternayte/assay/internal/sync"
 )
 
 // RetentionConfig is the retention setting, in days per record kind.
@@ -67,7 +68,11 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 		if _, err := models.New(tx).DeleteRefusalsBefore(ctx, now.AddDate(0, 0, -cfg.ModelUsageDays)); err != nil {
 			return err
 		}
-		w.log.Info("retention applied", "audit_deleted", auditN, "model_usage_deleted", usageN)
+		runsN, err := syncer.New(tx).DeleteRunsBefore(ctx, now.AddDate(0, 0, -cfg.SyncRunsDays))
+		if err != nil {
+			return err
+		}
+		w.log.Info("retention applied", "audit_deleted", auditN, "model_usage_deleted", usageN, "sync_runs_deleted", runsN)
 		return nil
 	})
 }
@@ -77,6 +82,7 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
+	s.sync.Workers(workers)
 	if s.opts.workers != nil {
 		s.opts.workers(workers)
 	}
@@ -91,6 +97,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 				return RetentionArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}
 			}, &river.PeriodicJobOpts{RunOnStart: true, ID: "retention"}),
 		}
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sync.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
 }

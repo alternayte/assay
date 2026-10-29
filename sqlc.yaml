@@ -11,6 +11,7 @@ sql:
         sql_package: pgx/v5
         output_db_file_name: db.gen.go
         output_models_file_name: models.gen.go
+        output_copyfrom_file_name: copyfrom.gen.go
         output_files_suffix: .gen
         omit_unused_structs: true
         emit_pointers_for_null_types: true
@@ -64,3 +65,17 @@ sql:
         <<: *go
         package: visibility
         out: internal/visibility
+  - <<: *pkg
+    queries: internal/content/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: content
+        out: internal/content
+  - <<: *pkg
+    queries: internal/sync/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: sync
+        out: internal/sync

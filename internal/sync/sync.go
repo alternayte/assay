@@ -1,0 +1,173 @@
+// Package sync owns connections and their sync runs: incremental sync,
+// reconciliation, pause, resume and purge. Every run reads through a
+// connector and writes through the content package.
+package sync
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/riverqueue/river"
+
+	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/connectors/confluence"
+	"github.com/alternayte/assay/internal/connectors/jira"
+	"github.com/alternayte/assay/internal/outbound"
+	"github.com/alternayte/assay/internal/secrets"
+	"github.com/alternayte/assay/internal/settings"
+)
+
+// RulesConfig is the connector rules setting.
+type RulesConfig struct {
+	InitiativeTypes []string `json:"initiativeTypes" doc:"Jira issue types that become initiatives."`
+	BlockLinkType   string   `json:"blockLinkType" doc:"The Jira link type that creates blocks claims."`
+	DecisionLabels  []string `json:"decisionLabels" doc:"Confluence labels that make a page a decision."`
+	GlossaryLabels  []string `json:"glossaryLabels" doc:"Confluence labels of glossary pages."`
+	DefaultGlobs    []string `json:"defaultGlobs" doc:"Include globs of a new repository connection."`
+	MaxFileKB       int      `json:"maxFileKb" minimum:"1" doc:"Items larger than this are skipped."`
+	MaxFilesPerRepo int      `json:"maxFilesPerRepo" minimum:"1"`
+}
+
+// DefaultGlobs are the default repository include globs (SDD section 8).
+var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/decisions/**/*.md", "CODEOWNERS", ".github/CODEOWNERS",
+	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
+	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml"}
+
+// Rules is the definition of the connector rules setting.
+var Rules = settings.Define("connectors", "Rules that connectors use to read sources.",
+	RulesConfig{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks", DecisionLabels: []string{"decision", "adr"},
+		GlossaryLabels: []string{"glossary"}, DefaultGlobs: DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000},
+	func(c RulesConfig) error {
+		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 {
+			return errors.New("the limits must be 1 or more")
+		}
+		if c.BlockLinkType == "" {
+			return errors.New("set the block link type")
+		}
+		return nil
+	})
+
+// Metrics are the sync metrics.
+type Metrics struct {
+	Runs  *prometheus.CounterVec
+	Items *prometheus.CounterVec
+}
+
+// NewMetrics returns the sync metrics.
+func NewMetrics() *Metrics {
+	return &Metrics{
+		Runs: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "assay_sync_runs_total",
+			Help: "Finished sync runs by kind and status."}, []string{"kind", "status"}),
+		Items: prometheus.NewCounterVec(prometheus.CounterOpts{Name: "assay_sync_items_total",
+			Help: "Items that sync runs handled, by outcome."}, []string{"outcome"}),
+	}
+}
+
+// Collectors returns the metrics to register.
+func (m *Metrics) Collectors() []prometheus.Collector { return []prometheus.Collector{m.Runs, m.Items} }
+
+// Service runs connections.
+type Service struct {
+	Pool     *pgxpool.Pool
+	Secrets  *secrets.Store
+	Outbound outbound.Settings
+	Log      *slog.Logger
+	Now      func() time.Time
+	Metrics  *Metrics
+	// River inserts the run jobs. It is set after the client exists.
+	River *river.Client[pgx.Tx]
+	// Backoff is the first retry delay of the connector clients. Zero
+	// means 1 second. Tests set it.
+	Backoff time.Duration
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+// Kinds are the connection kinds that an admin can create.
+var Kinds = []string{"confluence", "jira"}
+
+// source is what a connector needs to read a source.
+type source struct {
+	Kind        string
+	BaseURL     string
+	Token       string
+	Scope       json.RawMessage
+	Options     json.RawMessage
+	Concurrency int
+	PerSecond   float64
+}
+
+// open returns the connector of a source.
+func (s *Service) open(ctx context.Context, src source) (connectors.Connector, error) {
+	rules, err := settings.Read[RulesConfig](ctx, s.Pool, Rules)
+	if err != nil {
+		return nil, err
+	}
+	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: "Bearer " + src.Token,
+		Concurrency: src.Concurrency, PerSecond: src.PerSecond})
+	if err != nil {
+		return nil, err
+	}
+	if s.Backoff > 0 {
+		c.Backoff = s.Backoff
+	}
+	r := connectors.Rules{InitiativeTypes: rules.InitiativeTypes, BlockLinkType: rules.BlockLinkType,
+		DecisionLabels: rules.DecisionLabels, GlossaryLabels: rules.GlossaryLabels}
+	limits := connectors.Limits{MaxItemBytes: rules.MaxFileKB << 10, MaxFilesPerRepo: rules.MaxFilesPerRepo}
+	switch src.Kind {
+	case "confluence":
+		return confluence.New(c, src.Scope, r, limits)
+	case "jira":
+		return jira.New(c, src.Scope, r, limits)
+	}
+	return nil, fmt.Errorf("sync: connections of kind %s cannot sync", src.Kind)
+}
+
+func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id) }
+
+// sourceOf returns the source of a stored connection with its token.
+func (s *Service) sourceOf(ctx context.Context, c Connection) (source, error) {
+	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options,
+		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond}
+	if c.SecretID != nil {
+		tok, err := s.Secrets.GetByID(ctx, s.Pool, *c.SecretID)
+		if err != nil {
+			return src, fmt.Errorf("sync: read the token of the connection: %w", err)
+		}
+		src.Token = string(tok)
+	}
+	return src, nil
+}
+
+// sourceError turns a connector error into a message for people. It never
+// contains the token.
+func sourceError(err error) string {
+	var se *connectors.StatusError
+	var skip *connectors.SkipError
+	switch {
+	case errors.Is(err, connectors.ErrUnauthorized) && errors.As(err, &se):
+		return fmt.Sprintf("The source refused the token with status %d. Check the token and its permissions.", se.Status)
+	case errors.Is(err, connectors.ErrNotFound):
+		return "The source returned 404. Check the base URL."
+	case errors.As(err, &se):
+		return fmt.Sprintf("The source answered %d (%s).", se.Status, http.StatusText(se.Status))
+	case errors.As(err, &skip):
+		return "Skipped: " + skip.Reason
+	case errors.Is(err, outbound.ErrForeignHost):
+		return "The source sent a redirect to another host. Assay does not follow it."
+	}
+	return err.Error()
+}

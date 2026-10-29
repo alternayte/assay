@@ -205,7 +205,7 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
-		return nil, -1, fmt.Errorf("%w (%d)", ErrUnauthorized, resp.StatusCode)
+		return nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, -1, ErrNotFound
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:

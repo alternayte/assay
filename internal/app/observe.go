@@ -29,7 +29,7 @@ type metrics struct {
 	duration *prometheus.HistogramVec
 }
 
-func newMetrics(pool *pgxpool.Pool) *metrics {
+func newMetrics(pool *pgxpool.Pool, extra ...prometheus.Collector) *metrics {
 	m := &metrics{
 		registry: prometheus.NewRegistry(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -43,6 +43,7 @@ func newMetrics(pool *pgxpool.Pool) *metrics {
 	m.registry.MustRegister(m.requests, m.duration,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		&riverCollector{pool: pool})
+	m.registry.MustRegister(extra...)
 	return m
 }
 

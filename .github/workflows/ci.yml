@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - uses: extractions/setup-just@v3
+        with:
+          just-version: 1.58.0
+      - name: Install tools
+        run: just setup
+      - name: Install browser libraries
+        run: cd web && bunx playwright install-deps chromium
+      - name: Gate
+        run: just ci
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: tmp/reports
+          if-no-files-found: ignore

@@ -2395,6 +2395,85 @@
         ],
         "type": "object"
       },
+      "Predicate": {
+        "additionalProperties": false,
+        "properties": {
+          "defaultPriority": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "multi": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "objects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "subjects": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timeScoped": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "subjects",
+          "objects",
+          "multi",
+          "timeScoped",
+          "defaultPriority"
+        ],
+        "type": "object"
+      },
+      "PredicatesOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/PredicatesOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "entityTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "predicates": {
+            "items": {
+              "$ref": "#/components/schemas/Predicate"
+            },
+            "type": "array"
+          },
+          "sourceTypes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "predicates",
+          "entityTypes",
+          "sourceTypes"
+        ],
+        "type": "object"
+      },
       "PutInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -6339,6 +6418,38 @@
         "summary": "Set a new password with a reset link",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/predicates": {
+      "get": {
+        "description": "The registry is code. Source priority per predicate is a setting.",
+        "operationId": "listPredicates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredicatesOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the predicate registry",
+        "tags": [
+          "entities"
         ]
       }
     },

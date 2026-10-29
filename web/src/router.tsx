@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { AskPage } from "@/routes/ask";
+import { ExplorePage } from "@/routes/explore";
 import { ProfilePage } from "@/routes/profile";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
 import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
@@ -69,6 +70,7 @@ const authed = createRoute({
 const home = createRoute({ getParentRoute: () => authed, path: "/", component: AskPage });
 const question = createRoute({ getParentRoute: () => authed, path: "/questions/$id", component: AskPage });
 
+const explore = createRoute({ getParentRoute: () => authed, path: "/explore", component: ExplorePage });
 const profile = createRoute({ getParentRoute: () => authed, path: "/profile", component: ProfilePage });
 
 const settings = createRoute({
@@ -122,6 +124,7 @@ const routeTree = root.addChildren([
   authed.addChildren([
     home,
     question,
+    explore,
     profile,
     settings.addChildren([
       settingsIndex,

@@ -71,6 +71,9 @@ export function Shell() {
             <Link to="/" className={navLink} activeOptions={{ exact: true, includeSearch: false }}>
               {t("nav.ask")}
             </Link>
+            <Link to="/explore" className={navLink} activeOptions={{ includeSearch: false }}>
+              {t("nav.explore")}
+            </Link>
             {atLeast(me, "admin") && (
               <Link to="/settings/users" className={navLink} activeOptions={{ includeSearch: false }}>
                 {t("nav.settings")}

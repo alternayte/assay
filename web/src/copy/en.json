@@ -21,7 +21,8 @@
     "themeSystem": "Use system theme",
     "menu": "Open menu",
     "account": "Account",
-    "ask": "Ask"
+    "ask": "Ask",
+    "explore": "Explore"
   },
   "palette": {
     "title": "Search and go",
@@ -511,5 +512,72 @@
       "review": "Review"
     },
     "asked": "Asked {when}"
+  },
+  "entityTypes": {
+    "person": "Person",
+    "team": "Team",
+    "service": "Service",
+    "api": "API",
+    "system": "System",
+    "resource": "Resource",
+    "repository": "Repository",
+    "project": "Project",
+    "initiative": "Initiative",
+    "issue": "Issue",
+    "document": "Document",
+    "decision": "Decision",
+    "environment": "Environment",
+    "term": "Term"
+  },
+  "explore": {
+    "title": "Explore",
+    "body": "Things, people and terms that your sources name. Select two or more to merge them.",
+    "search": "Search names",
+    "type": "Type",
+    "domain": "Domain",
+    "status": "Status",
+    "all": "All",
+    "active": "Active",
+    "proposed": "Proposed",
+    "colName": "Name",
+    "colType": "Type",
+    "colDomain": "Domain",
+    "colStatus": "Status",
+    "colChanged": "Last change",
+    "select": "Select {name}",
+    "selectAll": "Select all rows",
+    "selected": "{count} selected",
+    "merge": "Merge selected",
+    "mergeTitle": "Merge {count} entities",
+    "mergeBody": "The registry entity wins, else the oldest. All aliases stay. You can split the merge later.",
+    "canonical": "Canonical name",
+    "canonicalHint": "Optional. People see this name for the merged entity.",
+    "mergeAction": "Merge",
+    "merged": "The entities are merged.",
+    "clear": "Clear the selection",
+    "empty": "No entity matches. Clear a filter, or add a connection and run a sync.",
+    "noDomain": "None",
+    "cancel": "Cancel"
+  },
+  "priority": {
+    "title": "Source priority",
+    "body": "When sources disagree, the claim from the first source type wins. Write source types in order, with commas. Leave a row empty to use the default.",
+    "colPredicate": "Predicate",
+    "colOrder": "Order",
+    "save": "Save the source priority",
+    "saved": "The source priority is saved as revision {revision}.",
+    "types": "Source types: {types}. Use others for the remaining types."
+  },
+  "extraction": {
+    "title": "Extraction",
+    "body": "Extraction asks the extract model for claims in each passage. Results stay in a cache.",
+    "estimate": "Estimate the extraction",
+    "estimating": "Counting passages",
+    "result": "{passages} passages have no extraction. The estimate is {tokens} tokens and {cost} USD.",
+    "off": "The extract function is off. Turn it on in Models first.",
+    "none": "All passages have an extraction.",
+    "start": "Extract {passages} passages",
+    "queued": "{count} passages are in the queue.",
+    "changed": "The estimate changed. Check the estimate again."
   }
 }

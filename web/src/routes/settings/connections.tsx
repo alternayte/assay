@@ -602,6 +602,7 @@ export function ConnectionPage() {
         <>
           <VisibilitySheet key={`v${c.id}`} c={c} />
           <ConfigurationSheet key={`c${c.id}`} c={c} />
+          <ExtractionSheet c={c} />
           <RunsSheet c={c} />
         </>
       )}
@@ -1004,6 +1005,70 @@ function RunsSheet({ c }: { c: Connection }) {
           </Table>
         </div>
       )}
+    </Sheet>
+  );
+}
+
+const usd = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 });
+
+/** The admin extraction trigger: the estimate first, then the start. */
+function ExtractionSheet({ c }: { c: Connection }) {
+  const estimate = useMutation({
+    mutationFn: async () =>
+      unwrap(await api.GET("/api/v1/connections/{id}/extraction", { params: { path: { id: c.id } } })),
+  });
+  const start = useMutation({
+    mutationFn: async (passages: number) =>
+      unwrap(
+        await api.POST("/api/v1/connections/{id}/extraction", {
+          params: { path: { id: c.id } },
+          body: { passages },
+        }),
+      ),
+  });
+  const e = estimate.data;
+  return (
+    <Sheet title={t("extraction.title")} description={t("extraction.body")}>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Button
+            disabled={estimate.isPending}
+            onClick={() => {
+              start.reset();
+              estimate.mutate();
+            }}
+          >
+            {estimate.isPending ? t("extraction.estimating") : t("extraction.estimate")}
+          </Button>
+          {e?.on && e.passages > 0 && !start.isSuccess && (
+            <Button variant="primary" disabled={start.isPending} onClick={() => start.mutate(e.passages)}>
+              {t("extraction.start", { passages: e.passages })}
+            </Button>
+          )}
+        </div>
+        {estimate.isError && <Notice tone="danger">{messageOf(estimate.error)}</Notice>}
+        {e && e.passages === 0 && <Notice>{t("extraction.none")}</Notice>}
+        {e && e.passages > 0 && (
+          <Notice>
+            {t("extraction.result", {
+              passages: e.passages,
+              tokens: e.tokensIn + e.tokensOut,
+              cost: usd.format(e.costUsd),
+            })}
+          </Notice>
+        )}
+        {e && !e.on && <Notice tone="danger">{t("extraction.off")}</Notice>}
+        {start.isSuccess && (
+          <Notice tone="success">{t("extraction.queued", { count: start.data.queued })}</Notice>
+        )}
+        {start.isError && (
+          <Notice tone="danger">
+            {start.error instanceof ApiError && start.error.code === "estimate_changed"
+              ? t("extraction.changed")
+              : messageOf(start.error)}
+          </Notice>
+        )}
+      </div>
     </Sheet>
   );
 }

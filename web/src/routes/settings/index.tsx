@@ -130,7 +130,93 @@ export function GeneralPage() {
         </form>
       </Sheet>
       <History settingKey="retention" />
+      <PrioritySheet />
+      <History settingKey="priority" />
     </div>
+  );
+}
+
+type PriorityValue = { predicates: Record<string, string[]> };
+
+/** The source priority per predicate (REQ-CLM-004). */
+function PrioritySheet() {
+  const setting = useSetting("priority");
+  const registry = useQuery({
+    queryKey: ["predicates"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/predicates")),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const [orders, setOrders] = useState<Record<string, string>>();
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
+  useEffect(() => {
+    if (!setting.data) return;
+    const v = setting.data.value as PriorityValue;
+    const out: Record<string, string> = {};
+    for (const [k, order] of Object.entries(v.predicates ?? {})) out[k] = order.join(", ");
+    setOrders(out);
+  }, [setting.data]);
+  const save = useSaveSetting(
+    "priority",
+    (s) => setMsg({ tone: "success", text: t("priority.saved", { revision: s.revision }) }),
+    (text) => setMsg({ tone: "danger", text }),
+  );
+  if (setting.isPending || registry.isPending || !orders) return <SkeletonRows label={t("app.loading")} />;
+  if (setting.isError || registry.isError || !setting.data)
+    return <Notice tone="danger">{t("app.error")}</Notice>;
+  const revision = setting.data.revision;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setMsg(undefined);
+    const predicates: Record<string, string[]> = {};
+    for (const [k, v] of Object.entries(orders)) {
+      const list = v
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (list.length > 0) predicates[k] = list;
+    }
+    save.mutate({ value: { predicates }, revision });
+  };
+  return (
+    <Sheet title={t("priority.title")} description={t("priority.body")}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        <p className="text-sm text-ink-muted">
+          {t("priority.types", { types: registry.data.sourceTypes.join(", ") })}
+        </p>
+        <Table>
+          <thead>
+            <tr>
+              <Th>{t("priority.colPredicate")}</Th>
+              <Th>{t("priority.colOrder")}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {registry.data.predicates
+              .filter((p) => !p.multi)
+              .map((p) => (
+                <tr key={p.name}>
+                  <Td className="font-mono text-sm whitespace-nowrap">{p.name}</Td>
+                  <Td>
+                    <Input
+                      aria-label={`${t("priority.colOrder")}: ${p.name}`}
+                      className="font-mono text-sm"
+                      placeholder={p.defaultPriority.join(", ")}
+                      value={orders[p.name] ?? ""}
+                      onChange={(e) => setOrders({ ...orders, [p.name]: e.target.value })}
+                    />
+                  </Td>
+                </tr>
+              ))}
+          </tbody>
+        </Table>
+        <div>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            {t("priority.save")}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
   );
 }
 

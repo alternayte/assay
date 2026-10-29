@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -124,6 +125,42 @@ func (s *Service) Register(a huma.API) {
 			return nil, notFound(err)
 		}
 		return &traceOut{Body: *t}, nil
+	})
+
+	type predicate struct {
+		Name            string   `json:"name"`
+		Subjects        []string `json:"subjects"`
+		Objects         []string `json:"objects"`
+		Multi           bool     `json:"multi"`
+		TimeScoped      bool     `json:"timeScoped"`
+		DefaultPriority []string `json:"defaultPriority"`
+	}
+	type predicatesOut struct {
+		Body struct {
+			Predicates  []predicate `json:"predicates"`
+			EntityTypes []string    `json:"entityTypes"`
+			SourceTypes []string    `json:"sourceTypes"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "listPredicates", Method: http.MethodGet, Path: "/api/v1/predicates", Tags: tags,
+		Summary: "List the predicate registry", Description: "The registry is code. Source priority per predicate is a setting.",
+		Middlewares: members,
+	}, func(context.Context, *struct{}) (*predicatesOut, error) {
+		out := &predicatesOut{}
+		names := make([]string, 0, len(claims.Registry))
+		for n := range claims.Registry {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		for _, n := range names {
+			p := claims.Registry[n]
+			out.Body.Predicates = append(out.Body.Predicates, predicate{Name: n, Subjects: p.Subjects, Objects: p.Objects, Multi: p.Multi,
+				TimeScoped: p.TimeScoped, DefaultPriority: p.Priority})
+		}
+		out.Body.EntityTypes = claims.EntityTypes
+		out.Body.SourceTypes = claims.SourceTypes
+		return out, nil
 	})
 
 	type mergeIn struct {

@@ -864,6 +864,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/predicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the predicate registry
+         * @description The registry is code. Source priority per predicate is a setting.
+         */
+        get: operations["listPredicates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/questions": {
         parameters: {
             query?: never;
@@ -1951,6 +1971,25 @@ export interface components {
             readonly $schema?: string;
             /** @description True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation. */
             paused: boolean;
+        };
+        Predicate: {
+            defaultPriority: string[];
+            multi: boolean;
+            name: string;
+            objects: string[];
+            subjects: string[];
+            timeScoped: boolean;
+        };
+        PredicatesOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PredicatesOutBody.json
+             */
+            readonly $schema?: string;
+            entityTypes: string[];
+            predicates: components["schemas"]["Predicate"][];
+            sourceTypes: string[];
         };
         PutInputBody: {
             /**
@@ -4358,6 +4397,35 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listPredicates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PredicatesOutBody"];
+                };
             };
             /** @description Error */
             default: {

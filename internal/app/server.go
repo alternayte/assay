@@ -25,6 +25,7 @@ import (
 	"github.com/alternayte/assay/internal/settings"
 	syncer "github.com/alternayte/assay/internal/sync"
 	"github.com/alternayte/assay/internal/users"
+	"github.com/alternayte/assay/internal/vocab"
 	"github.com/alternayte/assay/web"
 )
 
@@ -128,6 +129,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.doctor.Register(a)
 	s.sync.Register(a)
 	content.Register(a, s.pool)
+	vocab.RegisterDomains(a, s.pool)
 }
 
 func (s *Server) build(ctx context.Context) error {

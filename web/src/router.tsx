@@ -13,7 +13,9 @@ import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { ProfilePage } from "@/routes/profile";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
+import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
 import { DiagnosticsPage } from "@/routes/settings/diagnostics";
+import { DomainsPage } from "@/routes/settings/domains";
 import { GroupsPage } from "@/routes/settings/groups";
 import { AuditPage, EmailPage, GeneralPage, SettingsLayout } from "@/routes/settings/index";
 import { ModelsPage } from "@/routes/settings/models";
@@ -90,6 +92,22 @@ const settingsIndex = createRoute({
 });
 const users = createRoute({ getParentRoute: () => settings, path: "/users", component: UsersPage });
 const groups = createRoute({ getParentRoute: () => settings, path: "/groups", component: GroupsPage });
+const connections = createRoute({
+  getParentRoute: () => settings,
+  path: "/connections",
+  component: ConnectionsPage,
+});
+const newConnection = createRoute({
+  getParentRoute: () => settings,
+  path: "/connections/new",
+  component: NewConnectionPage,
+});
+const connection = createRoute({
+  getParentRoute: () => settings,
+  path: "/connections/$id",
+  component: ConnectionPage,
+});
+const domains = createRoute({ getParentRoute: () => settings, path: "/domains", component: DomainsPage });
 const general = createRoute({ getParentRoute: () => settings, path: "/general", component: GeneralPage });
 const email = createRoute({ getParentRoute: () => settings, path: "/email", component: EmailPage });
 const audit = createRoute({ getParentRoute: () => settings, path: "/audit", component: AuditPage });
@@ -108,7 +126,20 @@ const routeTree = root.addChildren([
   authed.addChildren([
     home,
     profile,
-    settings.addChildren([settingsIndex, users, groups, general, modelsRoute, email, diagnostics, audit]),
+    settings.addChildren([
+      settingsIndex,
+      users,
+      groups,
+      connections,
+      newConnection,
+      connection,
+      domains,
+      general,
+      modelsRoute,
+      email,
+      diagnostics,
+      audit,
+    ]),
   ]),
 ]);
 

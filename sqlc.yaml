@@ -79,3 +79,10 @@ sql:
         <<: *go
         package: sync
         out: internal/sync
+  - <<: *pkg
+    queries: internal/vocab/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: vocab
+        out: internal/vocab

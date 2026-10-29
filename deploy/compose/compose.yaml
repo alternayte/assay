@@ -29,5 +29,13 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # The demo profile adds the fixture server: the fake Acme sources and the
+  # fake model API.
+  fixtures:
+    image: ${ASSAY_IMAGE:-ghcr.io/alternayte/assay:${ASSAY_VERSION:-latest}}
+    command: ["fixtures", "serve", "--addr", ":8090"]
+    profiles: ["demo"]
+    restart: unless-stopped
+
 volumes:
   db:

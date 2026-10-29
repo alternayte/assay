@@ -143,6 +143,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List connections with their health */
+        get: operations["listConnections"];
+        put?: never;
+        /**
+         * Create a connection
+         * @description A new connection is visible only to its owner, the admin who creates it.
+         */
+        post: operations["createConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/scopes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * List the scope options of a source
+         * @description Spaces for Confluence, projects for Jira.
+         */
+        post: operations["listConnectionScopes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a source
+         * @description Shows the source user of the token and the number of items in scope.
+         */
+        post: operations["testConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a connection with its health */
+        get: operations["getConnection"];
+        /**
+         * Change a connection
+         * @description The kind cannot change. An empty token keeps the stored token.
+         */
+        put: operations["updateConnection"];
+        post?: never;
+        /**
+         * Purge a connection
+         * @description Deletes the connection and all its data. The registry cannot be purged.
+         */
+        delete: operations["purgeConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/paused": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Pause or resume a connection */
+        put: operations["pauseConnection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a reconciliation now */
+        post: operations["reconcileConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the sync runs of a connection */
+        get: operations["listConnectionRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a sync now */
+        post: operations["syncConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Share a connection with groups */
+        put: operations["setConnectionVisibility"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagnostics": {
         parameters: {
             query?: never;
@@ -155,6 +326,45 @@ export interface paths {
         /** Run the installation checks */
         post: operations["runDiagnostics"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/domains": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List domains */
+        get: operations["listDomains"];
+        put?: never;
+        /** Create a domain */
+        post: operations["createDomain"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/domains/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change a domain */
+        put: operations["updateDomain"];
+        post?: never;
+        /**
+         * Delete a domain
+         * @description Connections and entities with this domain keep no domain.
+         */
+        delete: operations["deleteDomain"];
         options?: never;
         head?: never;
         patch?: never;
@@ -298,6 +508,26 @@ export interface paths {
         post?: never;
         /** Revoke an open invite */
         delete: operations["revokeInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a source item with its passages
+         * @description A hidden item and a missing item give the same 404.
+         */
+        get: operations["getItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -697,6 +927,103 @@ export interface components {
             /** @description What the check found. */
             reason: string;
         };
+        ConnectionBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ConnectionBody.json
+             */
+            readonly $schema?: string;
+            /** Format: uri */
+            baseUrl: string;
+            /** Format: int64 */
+            defaultDomainId?: number;
+            excludeGlobs?: string[];
+            includeGlobs?: string[];
+            /** @enum {string} */
+            kind: "confluence" | "jira";
+            name: string;
+            options?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int32
+             * @default 4
+             */
+            rateConcurrency: number;
+            /**
+             * Format: double
+             * @default 5
+             */
+            ratePerSecond: number;
+            /**
+             * Format: int32
+             * @default 24
+             */
+            reconcileHours: number;
+            scope?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Format: int32
+             * @default 30
+             */
+            syncMinutes: number;
+            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            token?: string;
+        };
+        ConnectionRecord: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ConnectionRecord.json
+             */
+            readonly $schema?: string;
+            baseUrl: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            defaultDomainId: number | null;
+            excludeGlobs: string[];
+            hasToken: boolean;
+            /** Format: int64 */
+            id: number;
+            includeGlobs: string[];
+            /** Format: int64 */
+            items: number;
+            /** @enum {string} */
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo";
+            lastError: string;
+            /** Format: date-time */
+            lastReconcileAt: string | null;
+            /** Format: date-time */
+            lastSyncAt: string | null;
+            name: string;
+            /** Format: date-time */
+            nextSyncAt: string | null;
+            options: {
+                [key: string]: unknown;
+            };
+            ownerEmail: string;
+            ownerId: string | null;
+            /** Format: date-time */
+            permissionsCheckedAt: string | null;
+            /** Format: int32 */
+            rateConcurrency: number;
+            /** Format: double */
+            ratePerSecond: number;
+            /** Format: int32 */
+            reconcileHours: number;
+            scope: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status: "active" | "paused" | "resuming";
+            statusReason: string;
+            /** Format: int32 */
+            syncMinutes: number;
+            visibility: components["schemas"]["GroupRef"][];
+        };
         CreateInputBody: {
             /**
              * Format: uri
@@ -729,6 +1056,22 @@ export interface components {
             role: string;
             /** @description The invite link. It shows only once. */
             url: string;
+        };
+        Domain: {
+            description: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
+        DomainBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DomainBody.json
+             */
+            readonly $schema?: string;
+            description: string;
+            name: string;
         };
         EndpointBody: {
             /**
@@ -879,6 +1222,14 @@ export interface components {
             memberCount: number;
             name: string;
         };
+        GroupRef: {
+            builtin: boolean;
+            /** Format: date-time */
+            confirmedAt: string;
+            /** Format: int64 */
+            id: number;
+            name: string;
+        };
         HistoryOutputBody: {
             /**
              * Format: uri
@@ -909,6 +1260,29 @@ export interface components {
             id: number;
             role: string;
         };
+        ItemRecord: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ItemRecord.json
+             */
+            readonly $schema?: string;
+            author: string;
+            /** Format: int64 */
+            connectionId: number;
+            connectionName: string;
+            /** Format: int64 */
+            id: number;
+            kind: string;
+            passages: components["schemas"]["PassageRecord"][];
+            /** @enum {string} */
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo";
+            title: string;
+            /** Format: date-time */
+            updatedAt: string | null;
+            /** @description The item in its source system. */
+            url: string;
+        };
         LinkOutputBody: {
             /**
              * Format: uri
@@ -938,6 +1312,26 @@ export interface components {
              */
             readonly $schema?: string;
             functions: components["schemas"]["FunctionRecord"][];
+        };
+        ListOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody.json
+             */
+            readonly $schema?: string;
+            connections: components["schemas"]["ConnectionRecord"][];
+            /** @description The kinds that an admin can create. */
+            kinds: string[];
+        };
+        ListOutBody1: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody1.json
+             */
+            readonly $schema?: string;
+            domains: components["schemas"]["Domain"][];
         };
         ListOutputBody: {
             /**
@@ -1034,6 +1428,14 @@ export interface components {
             checks: components["schemas"]["Check"][];
             ok: boolean;
         };
+        PassageRecord: {
+            hash: string;
+            headingPath: string[];
+            kind: string;
+            /** Format: int32 */
+            ordinal: number;
+            text: string;
+        };
         PasswordInputBody: {
             /**
              * Format: uri
@@ -1043,6 +1445,16 @@ export interface components {
             readonly $schema?: string;
             /** @description An empty value removes the password. */
             password: string;
+        };
+        PauseInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PauseInBody.json
+             */
+            readonly $schema?: string;
+            /** @description True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation. */
+            paused: boolean;
         };
         PutInputBody: {
             /**
@@ -1083,6 +1495,66 @@ export interface components {
             readonly $schema?: string;
             /** @enum {string} */
             role: "member" | "reviewer" | "admin";
+        };
+        RunOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RunOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            runId: number;
+        };
+        RunRecord: {
+            /** Format: int32 */
+            created: number;
+            /** Format: int32 */
+            deleted: number;
+            error: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            kind: "sync" | "reconcile";
+            /** Format: date-time */
+            queuedAt: string;
+            /** Format: int32 */
+            seen: number;
+            skipped: components["schemas"]["Skip"][];
+            /** Format: date-time */
+            startedAt: string | null;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** @enum {string} */
+            trigger: "schedule" | "manual";
+            /** Format: int32 */
+            unchanged: number;
+            /** Format: int32 */
+            updated: number;
+        };
+        RunsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RunsOutBody.json
+             */
+            readonly $schema?: string;
+            runs: components["schemas"]["RunRecord"][];
+        };
+        Scope: {
+            id: string;
+            name: string;
+        };
+        ScopesOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ScopesOutBody.json
+             */
+            readonly $schema?: string;
+            scopes: components["schemas"]["Scope"][];
         };
         Session: {
             /** Format: date-time */
@@ -1138,6 +1610,38 @@ export interface components {
             name: string;
             password: string;
             token: string;
+        };
+        Skip: {
+            id: string;
+            reason: string;
+        };
+        SourceBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SourceBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: uri
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test.
+             */
+            baseUrl: string;
+            /**
+             * Format: int64
+             * @description Use the stored token of this connection when token is empty.
+             */
+            connectionId?: number;
+            /** @enum {string} */
+            kind: "confluence" | "jira";
+            options?: {
+                [key: string]: unknown;
+            };
+            scope?: {
+                [key: string]: unknown;
+            };
+            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            token?: string;
         };
         Status: {
             /**
@@ -1232,6 +1736,33 @@ export interface components {
              */
             readonly $schema?: string;
             users: components["schemas"]["UserRecord"][];
+        };
+        Validation: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Validation.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The number of items in the scope, or in the source when no scope is set.
+             */
+            sample: number;
+            /** @description The source user of the token. */
+            user: string;
+        };
+        VisibilityInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VisibilityInBody.json
+             */
+            readonly $schema?: string;
+            /** @description Confirms that all members of the added groups can read this scope in the source system. */
+            confirm: boolean;
+            /** @description The groups that can read the content, in addition to the owner. */
+            groupIds: number[];
         };
     };
     responses: never;
@@ -1575,6 +2106,386 @@ export interface operations {
             };
         };
     };
+    listConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listConnectionScopes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScopesOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Validation"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    purgeConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    pauseConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PauseInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reconcileConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listConnectionRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    syncConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setConnectionVisibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisibilityInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     runDiagnostics: {
         parameters: {
             query?: never;
@@ -1592,6 +2503,130 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OutBody"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDomains: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody1"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DomainBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DomainBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteDomain: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -1966,6 +3001,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemRecord"];
+                };
             };
             /** @description Error */
             default: {

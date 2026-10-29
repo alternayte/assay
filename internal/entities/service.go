@@ -29,6 +29,9 @@ var ErrNotFound = errors.New("entities: the entity does not exist")
 type Service struct {
 	Pool *pgxpool.Pool
 	Now  func() time.Time
+	// Rename gives a registry record a new name in tx. A merge with a
+	// canonical name and a registry winner calls it.
+	Rename func(ctx context.Context, tx pgx.Tx, vis visibility.Set, key, name, userID string) error
 }
 
 func (s *Service) now() time.Time {
@@ -377,6 +380,13 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 	}
 	if err := q.MarkMerged(ctx, MarkMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
 		return 0, "", err
+	}
+	if canonical != "" && slices.Contains(reg, winner.ID) && s.Rename != nil {
+		// The registry name comes first (REQ-ENT-007), so the canonical name
+		// renames the registry record.
+		if err := s.Rename(ctx, tx, vis, winner.Key, canonical, r.By); err != nil {
+			return 0, "", err
+		}
 	}
 	return mergeID, winner.Key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
 		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto}})

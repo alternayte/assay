@@ -128,3 +128,10 @@ sql:
         <<: *go
         package: resolve
         out: internal/resolve
+  - <<: *pkg
+    queries: internal/registry/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: registry
+        out: internal/registry

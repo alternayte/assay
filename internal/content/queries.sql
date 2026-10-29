@@ -153,3 +153,7 @@ SELECT hash, ordinal, kind, heading_path, text
 FROM passages
 WHERE item_id = @item_id AND connection_id = ANY(@visible::bigint[])
 ORDER BY ordinal;
+
+-- name: DeleteStaleItemEvidence :exec
+-- vis:system
+DELETE FROM claim_evidence WHERE item_id = @item_id AND state = 'stale';

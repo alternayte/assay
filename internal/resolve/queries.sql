@@ -138,7 +138,7 @@ ORDER BY p.id
 LIMIT @lim;
 
 -- name: CardForUpdate :one
-SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, d.subject_refs, d.kind AS decision_kind
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id, d.subject_refs, d.kind AS decision_kind
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.id = @id

@@ -25,6 +25,13 @@ type Item struct {
 	Entities []EntityRef
 	// Facts are the deterministic claims of the item.
 	Facts []Fact
+	// Origin is the origin of new claims of the facts. Empty means source.
+	// Registry records set human.
+	Origin string
+	// DropStale deletes the evidence of the item that the new version no
+	// longer supports and retracts claims left without evidence. Registry
+	// records set it: a removed field is no longer a fact.
+	DropStale bool
 }
 
 // EntityRef names an entity by its provider-qualified key.

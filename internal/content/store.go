@@ -151,9 +151,30 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 			return 0, err
 		}
 	}
+	in.origin = it.Origin
+	if in.origin == "" {
+		in.origin = "source"
+	}
+	var before []int64
+	if it.DropStale {
+		if before, err = q.ItemClaims(ctx, itemID); err != nil {
+			return 0, err
+		}
+	}
 	for _, f := range it.Facts {
 		if err := in.fact(ctx, f, ps, it.Updated); err != nil {
 			return 0, err
+		}
+	}
+	if it.DropStale {
+		if err := q.DeleteStaleItemEvidence(ctx, itemID); err != nil {
+			return 0, err
+		}
+		if len(before) > 0 {
+			now := it.Updated
+			if _, err := q.RetractUnsupported(ctx, RetractUnsupportedParams{Now: &now, Ids: before}); err != nil {
+				return 0, err
+			}
 		}
 	}
 	return outcome, nil
@@ -168,6 +189,7 @@ type ingest struct {
 	log          *slog.Logger
 	ids          map[string]int64
 	kind         string // the connection kind, read on first use
+	origin       string
 }
 
 // entity upserts an entity with its source and aliases.
@@ -260,7 +282,7 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		objectText = &text
 		objectNorm = entities.NormalizeAlias(text)
 	}
-	claimID, err := in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, "", "source", at)
+	claimID, err := in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, "", in.origin, at)
 	if err != nil {
 		return err
 	}

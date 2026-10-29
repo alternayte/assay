@@ -134,7 +134,7 @@ func (q *Queries) AddVerdict(ctx context.Context, arg AddVerdictParams) error {
 }
 
 const cardForUpdate = `-- name: CardForUpdate :one
-SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, d.subject_refs, d.kind AS decision_kind
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id, d.subject_refs, d.kind AS decision_kind
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.id = $1
@@ -148,6 +148,7 @@ type CardForUpdateRow struct {
 	Connections  []int64
 	Payload      json.RawMessage
 	DecisionID   *int64
+	ProposerID   *string
 	SubjectRefs  []string
 	DecisionKind *string
 }
@@ -162,6 +163,7 @@ func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow
 		&i.Connections,
 		&i.Payload,
 		&i.DecisionID,
+		&i.ProposerID,
 		&i.SubjectRefs,
 		&i.DecisionKind,
 	)

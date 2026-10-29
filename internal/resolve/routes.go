@@ -185,7 +185,17 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, cano
 				return err
 			}
 		default:
-			return errCardKind
+			apply, ok := s.Apply[c.Kind]
+			if !ok {
+				return errCardKind
+			}
+			proposer := ""
+			if c.ProposerID != nil {
+				proposer = *c.ProposerID
+			}
+			if err := apply(ctx, tx, vis, c.Payload, proposer, by); err != nil {
+				return err
+			}
 		}
 		return s.closeCard(ctx, tx, c, "accepted", "", by)
 	})

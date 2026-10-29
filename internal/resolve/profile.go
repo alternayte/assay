@@ -17,6 +17,7 @@ import (
 
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/visibility"
 )
 
 // MaxProfileTokens is the size limit of a profile (REQ-RES-002).
@@ -29,7 +30,13 @@ type Service struct {
 	Entities *entities.Service
 	Log      *slog.Logger
 	Now      func() time.Time
+	// Apply accepts the cards of kinds that other packages own, such as
+	// term_edit. It gets the payload, the proposer and the reviewer.
+	Apply map[string]ApplyFunc
 }
+
+// ApplyFunc accepts one card in tx for a reviewer with the visible set vis.
+type ApplyFunc func(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string) error
 
 // ProfileText is the deterministic profile of an entity: display name,
 // type, aliases, domain, up to 10 claims and up to 5 source titles, cut to

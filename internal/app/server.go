@@ -25,6 +25,7 @@ import (
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/registry"
 	"github.com/alternayte/assay/internal/resolve"
 	"github.com/alternayte/assay/internal/search"
 	"github.com/alternayte/assay/internal/secrets"
@@ -54,6 +55,7 @@ type Server struct {
 	entities *entities.Service
 	extract  *extract.Service
 	resolve  *resolve.Service
+	registry *registry.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -131,7 +133,10 @@ func (s *Server) services() error {
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
 	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
-	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now}
+	s.registry = &registry.Service{Pool: s.pool, Log: s.log, Now: s.now}
+	s.entities.Rename = s.registry.Rename
+	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
+		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit}}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
@@ -152,6 +157,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.entities.Register(a)
 	s.extract.Register(a)
 	s.resolve.Register(a)
+	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 
@@ -198,6 +204,9 @@ func (s *Server) Extract() *extract.Service { return s.extract }
 
 // Ask answers questions.
 func (s *Server) Ask() *ask.Service { return s.ask }
+
+// Registry returns the registry service.
+func (s *Server) Registry() *registry.Service { return s.registry }
 
 // Resolve returns the resolution service.
 func (s *Server) Resolve() *resolve.Service { return s.resolve }

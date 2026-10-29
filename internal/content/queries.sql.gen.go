@@ -185,6 +185,16 @@ func (q *Queries) DeleteItemPassages(ctx context.Context, itemID int64) error {
 	return err
 }
 
+const deleteStaleItemEvidence = `-- name: DeleteStaleItemEvidence :exec
+DELETE FROM claim_evidence WHERE item_id = $1 AND state = 'stale'
+`
+
+// vis:system
+func (q *Queries) DeleteStaleItemEvidence(ctx context.Context, itemID int64) error {
+	_, err := q.db.Exec(ctx, deleteStaleItemEvidence, itemID)
+	return err
+}
+
 const getItemByExternalID = `-- name: GetItemByExternalID :one
 SELECT id, content_hash, revision FROM source_items
 WHERE connection_id = $1 AND external_id = $2

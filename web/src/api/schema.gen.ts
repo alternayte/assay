@@ -1064,6 +1064,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/registry/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List registry records */
+        get: operations["listRecords"];
+        put?: never;
+        /**
+         * Create a registry record
+         * @description A member creates draft terms. Referenced entities must be visible to you.
+         */
+        post: operations["createRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registry/records/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a registry record with its versions */
+        get: operations["getRecord"];
+        /**
+         * Save a new version of a registry record
+         * @description A member edit of an approved term definition becomes a proposal and gives its ID instead of a version.
+         */
+        put: operations["updateRecord"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registry/records/{key}/revert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revert a registry record
+         * @description Saves the record of an old version as a new version.
+         */
+        post: operations["revertRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/registry/records/{key}/versions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a version of a registry record with its diff */
+        get: operations["getRecordVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -1665,6 +1744,11 @@ export interface components {
             timeline: components["schemas"]["Claim"][];
             type: string;
         };
+        DiffLine: {
+            /** @enum {string} */
+            op: "=" | "+" | "-";
+            text: string;
+        };
         Domain: {
             description: string;
             /** Format: int64 */
@@ -2050,6 +2134,15 @@ export interface components {
              * @example https://example.com/api/v1/schemas/ListOutBody3.json
              */
             readonly $schema?: string;
+            records: components["schemas"]["RecordSummary"][];
+        };
+        ListOutBody4: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody4.json
+             */
+            readonly $schema?: string;
             domains: components["schemas"]["Domain"][];
         };
         ListOutputBody: {
@@ -2275,6 +2368,45 @@ export interface components {
             id: number;
             target: string;
         };
+        RecordRelation: {
+            /** @description The key of a visible entity. */
+            object: string;
+            predicate: string;
+        };
+        RecordSummary: {
+            key: string;
+            kind: string;
+            name: string;
+            status?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        RecordView: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RecordView.json
+             */
+            readonly $schema?: string;
+            key: string;
+            /** @enum {string} */
+            kind: "thing" | "term";
+            term?: components["schemas"]["TermRecord"];
+            thing?: components["schemas"]["ThingRecord"];
+            versions: components["schemas"]["VersionInfo"][];
+        };
+        RegistryRecord: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RegistryRecord.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            kind: "thing" | "term";
+            term?: components["schemas"]["TermRecord"];
+            thing?: components["schemas"]["ThingRecord"];
+        };
         RejectInBody: {
             /**
              * Format: uri
@@ -2329,6 +2461,16 @@ export interface components {
             degraded: boolean;
             entities: components["schemas"]["Entity"][];
             results: components["schemas"]["Result"][];
+        };
+        RevertInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RevertInBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            versionId: number;
         };
         RevokeAllResponse: {
             revoked: number;
@@ -2389,6 +2531,19 @@ export interface components {
              */
             readonly $schema?: string;
             runs: components["schemas"]["RunRecord"][];
+        };
+        SavedRecord: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavedRecord.json
+             */
+            readonly $schema?: string;
+            key: string;
+            /** Format: int64 */
+            proposal?: number;
+            /** Format: int64 */
+            version?: number;
         };
         Scope: {
             id: string;
@@ -2600,6 +2755,24 @@ export interface components {
             status: "active" | "proposed";
             type: string;
         };
+        TermRecord: {
+            definition?: string;
+            /** Format: int64 */
+            domainId?: number;
+            name: string;
+            /** @description The key of a team or person. */
+            owner?: string;
+            /** @description The key of the preferred term. */
+            preferred?: string;
+            /** @description Keys of related entities. */
+            related?: string[];
+            /**
+             * @description Only reviewers approve and deprecate.
+             * @enum {string}
+             */
+            status?: "draft" | "approved" | "deprecated" | "";
+            synonyms?: string[];
+        };
         TestInBody: {
             /**
              * Format: uri
@@ -2633,6 +2806,17 @@ export interface components {
             model: string;
             models: string[];
             ok: boolean;
+        };
+        ThingRecord: {
+            aliases?: string[];
+            description?: string;
+            links?: string[];
+            name: string;
+            /** @description The key of a team or person. */
+            owner?: string;
+            relations?: components["schemas"]["RecordRelation"][];
+            /** @description An entity type other than term. */
+            type: string;
         };
         Trace: {
             /**
@@ -2698,6 +2882,27 @@ export interface components {
             sample: number;
             /** @description The source user of the token. */
             user: string;
+        };
+        VersionInfo: {
+            /** Format: date-time */
+            at: string;
+            editedBy: string;
+            /** Format: int64 */
+            id: number;
+        };
+        VersionOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VersionOutBody.json
+             */
+            readonly $schema?: string;
+            /** @description The change from the version before. */
+            diff: components["schemas"]["DiffLine"][];
+            /** @enum {string} */
+            kind: "thing" | "term";
+            term?: components["schemas"]["TermRecord"];
+            thing?: components["schemas"]["ThingRecord"];
         };
         VisibilityInBody: {
             /**
@@ -3874,7 +4079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody3"];
+                    "application/json": components["schemas"]["ListOutBody4"];
                 };
             };
             /** @description Error */
@@ -4972,6 +5177,207 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Answer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listRecords: {
+        parameters: {
+            query?: {
+                kind?: "thing" | "term" | "";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody3"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistryRecord"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The record key, such as registry:service:card-gateway. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordView"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The record key. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistryRecord"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revertRecord: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The record key. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevertInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getRecordVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The record key. */
+                key: string;
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionOutBody"];
                 };
             };
             /** @description Error */

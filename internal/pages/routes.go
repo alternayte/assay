@@ -75,12 +75,29 @@ func (s *Service) Register(a huma.API, base string) {
 		return &pageOut{Body: *p}, nil
 	})
 
+	// visible gives the 404 of a hidden or missing entity before the stream
+	// starts.
+	visible := func(ctx huma.Context, next func(huma.Context)) {
+		vis, err := visibility.OfCaller(ctx.Context(), s.Pool)
+		if err == nil {
+			_, err = s.Entities.Get(ctx.Context(), vis, keyIn{Key: ctx.Param("key")}.key())
+		}
+		switch {
+		case errors.Is(err, entities.ErrNotFound):
+			api.WriteError(ctx, api.ErrNotFound)
+		case err != nil:
+			s.Log.Error("compile failed", "error", err.Error())
+			api.WriteError(ctx, api.Problem(http.StatusInternalServerError, "internal", "The server cannot complete the request."))
+		default:
+			next(ctx)
+		}
+	}
 	sse.Register(a, huma.Operation{
 		OperationID: "compilePage", Method: http.MethodPost, Path: "/api/v1/entities/{key}/page/compile", Tags: tags,
 		Summary: "Compile the summary of a page",
 		Description: "Streams server-sent events: delta events with the summary text, a retry event when a draft fails a check, " +
 			"then the page. A hidden entity and a missing key give the same 404.",
-		Middlewares: members,
+		Middlewares: huma.Middlewares{api.Require(auth.RoleMember), visible},
 	}, map[string]any{"delta": PageDeltaEvent{}, "retry": PageRetryEvent{}, "page": Page{}, "error": PageErrorEvent{}},
 		func(ctx context.Context, in *keyIn, send sse.Sender) {
 			vis, err := visibility.OfCaller(ctx, s.Pool)

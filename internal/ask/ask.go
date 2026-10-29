@@ -86,8 +86,8 @@ type Context struct {
 	// (REQ-VOC-006). All are the visible terms, for links and the lint.
 	Terms []vocab.Term `json:"terms"`
 	All   []vocab.Term `json:"-"`
-	// Orientation is the fresh page summary of the first entity that the
-	// question names. It is never evidence (REQ-ASK-005).
+	// Orientation is the fresh page summary of one of the first three
+	// entities that the question names. It is never evidence (REQ-ASK-005).
 	Orientation     string `json:"-"`
 	OrientationName string `json:"-"`
 
@@ -140,8 +140,8 @@ func (s *Service) Build(ctx context.Context, vis visibility.Set, question string
 	}
 	slices.Sort(c.Connections)
 	c.conflict = claims.Conflicts(cs)
-	if s.Orientation != nil && len(ids) > 0 {
-		if c.OrientationName, c.Orientation, err = s.Orientation(ctx, vis, ids[0]); err != nil {
+	for i := 0; s.Orientation != nil && i < len(ids) && i < 3 && c.Orientation == ""; i++ {
+		if c.OrientationName, c.Orientation, err = s.Orientation(ctx, vis, ids[i]); err != nil {
 			return nil, err
 		}
 	}

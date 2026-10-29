@@ -285,12 +285,19 @@ func TestSCN_VIS_004_ClaimVisibilityAndStatus(t *testing.T) {
 	}
 }
 
+// routes are the read routes of an entity: the entity, its trace, its page,
+// the compile of the page and the two Markdown forms.
+func routes(key string) [][2]string {
+	return [][2]string{{http.MethodGet, path(key)}, {http.MethodGet, path(key) + "/trace"}, {http.MethodGet, path(key) + "/page"},
+		{http.MethodPost, path(key) + "/page/compile"}, {http.MethodGet, path(key) + "/page.md"}, {http.MethodGet, "/e/" + url.PathEscape(key) + ".md"}}
+}
+
 func TestSCN_VIS_005_RestrictedEntityIsNotFound(t *testing.T) {
 	w := start(t)
 	hidden := "confluence:" + w.host + ":2003"
 	get(t, w.owner, hidden)
-	for _, p := range []string{path(hidden), path(hidden) + "/trace"} {
-		w.member.Must(http.StatusNotFound, http.MethodGet, p, nil)
+	for _, p := range routes(hidden) {
+		w.member.Must(http.StatusNotFound, p[0], p[1], nil)
 	}
 	var list struct {
 		Entities []struct {
@@ -313,8 +320,9 @@ func TestSCN_VIS_005_RestrictedEntityIsNotFound(t *testing.T) {
 	term := "confluence:" + w.host + ":term:falcon-typesetting-charge"
 	get(t, w.owner, term)
 	w.owner.Must(http.StatusOK, http.MethodGet, "/api/v1/terms/"+url.PathEscape(term), nil)
-	for _, p := range []string{path(term), path(term) + "/trace", "/api/v1/terms/" + url.PathEscape(term)} {
-		w.member.Must(http.StatusNotFound, http.MethodGet, p, nil)
+	w.member.Must(http.StatusNotFound, http.MethodGet, "/api/v1/terms/"+url.PathEscape(term), nil)
+	for _, p := range routes(term) {
+		w.member.Must(http.StatusNotFound, p[0], p[1], nil)
 	}
 	terms := string(w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/terms", nil).Body)
 	if strings.Contains(terms, "Falcon") || strings.Contains(terms, "FTC") {
@@ -352,10 +360,13 @@ func TestSCN_VIS_006_TraceStopsAtRestrictedEdge(t *testing.T) {
 
 func TestSCN_VIS_008_HiddenAndMissingEntityGiveSame404(t *testing.T) {
 	w := start(t)
-	a := w.member.Do(http.MethodGet, path("confluence:"+w.host+":2003"), nil)
-	b := w.member.Do(http.MethodGet, path("confluence:"+w.host+":9999"), nil)
-	if a.Status != http.StatusNotFound || a.Status != b.Status || !bytes.Equal(a.Body, b.Body) {
-		t.Fatalf("hidden: %d %s\nmissing: %d %s", a.Status, a.Body, b.Status, b.Body)
+	hidden, missing := routes("confluence:"+w.host+":2003"), routes("confluence:"+w.host+":9999")
+	for i := range hidden {
+		a := w.member.Do(hidden[i][0], hidden[i][1], nil)
+		b := w.member.Do(missing[i][0], missing[i][1], nil)
+		if a.Status != http.StatusNotFound || a.Status != b.Status || !bytes.Equal(a.Body, b.Body) {
+			t.Fatalf("%s hidden: %d %s\nmissing: %d %s", hidden[i][1], a.Status, a.Body, b.Status, b.Body)
+		}
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -93,10 +94,11 @@ func final(t *testing.T, evs []event) answer {
 }
 
 type setup struct {
-	env   *testkit.Env
-	admin *testkit.Client
-	fake  *fixtures.Models
-	conn  int64
+	env      *testkit.Env
+	admin    *testkit.Client
+	fake     *fixtures.Models
+	conn     int64
+	endpoint int64
 }
 
 func start(t *testing.T) setup {
@@ -112,7 +114,18 @@ func start(t *testing.T) setup {
 	fake, openai, _ := testkit.FakeModels(t)
 	ep := testkit.CreateEndpoint(t, admin, "fake", "openai", openai, fixtures.FakeKey, nil)
 	testkit.SetFunction(t, admin, "answer", testkit.Function{Endpoint: ep, Model: "fake-chat"})
-	return setup{env: env, admin: admin, fake: fake, conn: conn}
+	return setup{env: env, admin: admin, fake: fake, conn: conn, endpoint: ep}
+}
+
+// compilePage turns compile on and compiles the page of an entity for the
+// admin, so that Ask has a fresh orientation block.
+func (s setup) compilePage(t *testing.T, key string) {
+	t.Helper()
+	testkit.SetFunction(t, s.admin, "compile", testkit.Function{Endpoint: s.endpoint, Model: "fake-chat"})
+	r := s.admin.Do(http.MethodPost, "/api/v1/entities/"+url.PathEscape(key)+"/page/compile", nil)
+	if r.Status != http.StatusOK || !strings.Contains(string(r.Body), `"state":"fresh"`) {
+		t.Fatalf("compile: %d %s", r.Status, r.Body)
+	}
 }
 
 var marker = regexp.MustCompile(`\[(S|C)\d+\]`)
@@ -121,6 +134,8 @@ func TestSCN_ASK_001_ContextIDsAndEvents(t *testing.T) {
 	s := start(t)
 	s.admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/registry/records", map[string]any{"kind": "term",
 		"term": map[string]any{"name": "Ledger", "status": "approved", "definition": "The system that records each settled payment."}})
+	s.compilePage(t, "backstage:component:default/payments-api")
+	s.fake.Reset()
 	s.fake.OnChat(func(map[string]any) string {
 		return "The payments team owns the Payments API [C1]. The API sends settled payments to the ledger service [S1]."
 	})
@@ -140,7 +155,8 @@ func TestSCN_ASK_001_ContextIDsAndEvents(t *testing.T) {
 	}
 	msgs := reqs[0].Body["messages"].([]any)
 	user := msgs[1].(map[string]any)["content"].(string)
-	for _, want := range []string{`<source id="S1"`, `<claim id="C1">`, "owned by", `<term name="Ledger">The system that records each settled payment.</term>`} {
+	for _, want := range []string{`<source id="S1"`, `<claim id="C1">`, "owned by", `<term name="Ledger">The system that records each settled payment.</term>`,
+		`<orientation id="P1" entity="Payments API">Assay records that Payments API owned by payments-team.`} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("the context has no %q:\n%s", want, user)
 		}
@@ -184,6 +200,26 @@ func TestSCN_ASK_002_ValidationRemovesAndFlags(t *testing.T) {
 	none := final(t, ask(t, s.admin, "Where does the Payments API run?"))
 	if !none.NoEvidence || none.Markdown != "Assay found no evidence for this question." || len(none.Results) == 0 {
 		t.Fatalf("no-evidence answer %+v", none)
+	}
+}
+
+func TestSCN_ASK_004_OrientationIsNotEvidence(t *testing.T) {
+	s := start(t)
+	s.compilePage(t, "backstage:component:default/payments-api")
+	s.fake.OnChat(func(map[string]any) string {
+		return "The payments team owns the Payments API [P1]. The API sends settled payments to the ledger [S1][P1]."
+	})
+	a := final(t, ask(t, s.admin, "Who owns the Payments API?"))
+	reqs := s.fake.RequestsTo("/v1/chat/completions")
+	user := reqs[len(reqs)-1].Body["messages"].([]any)[1].(map[string]any)["content"].(string)
+	if !strings.Contains(user, `<orientation id="P1"`) {
+		t.Fatalf("the context has no orientation block:\n%s", user)
+	}
+	if strings.Contains(a.Markdown, "P1") || slices.Contains(a.Cited, "P1") || !slices.Equal(a.Cited, []string{"S1"}) {
+		t.Fatalf("the orientation citation stays: %q %v", a.Markdown, a.Cited)
+	}
+	if len(a.Uncited) != 1 || !strings.HasPrefix(a.Uncited[0], "The payments team owns") {
+		t.Fatalf("uncited %q", a.Uncited)
 	}
 }
 

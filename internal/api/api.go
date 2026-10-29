@@ -150,18 +150,19 @@ func Require(min string) func(huma.Context, func(huma.Context)) {
 		p := Caller(ctx.Context())
 		switch {
 		case p == nil:
-			writeError(ctx, ErrUnauthorized)
+			WriteError(ctx, ErrUnauthorized)
 		case p.User.MustChangePassword:
-			writeError(ctx, Problem(http.StatusForbidden, "password_change_required", "Change your password to continue."))
+			WriteError(ctx, Problem(http.StatusForbidden, "password_change_required", "Change your password to continue."))
 		case rank[Role(p)] < rank[min]:
-			writeError(ctx, ErrForbidden)
+			WriteError(ctx, ErrForbidden)
 		default:
 			next(ctx)
 		}
 	}
 }
 
-func writeError(ctx huma.Context, e *Error) {
+// WriteError writes the envelope of e. Middlewares use it.
+func WriteError(ctx huma.Context, e *Error) {
 	ctx.SetHeader("Content-Type", "application/json")
 	ctx.SetStatus(e.status)
 	_ = json.NewEncoder(ctx.BodyWriter()).Encode(e)

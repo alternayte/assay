@@ -124,7 +124,7 @@ func (s *Server) services() error {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
-	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting}}
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
@@ -136,7 +136,7 @@ func (s *Server) services() error {
 	s.registry = &registry.Service{Pool: s.pool, Log: s.log, Now: s.now}
 	s.entities.Rename = s.registry.Rename
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
-		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit}}
+		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm}}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil

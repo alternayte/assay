@@ -193,3 +193,87 @@ JOIN connections c ON c.id = a.connection_id WHERE e.key = $1 AND a.alias_norm =
 		t.Error("the linked name is not an alias")
 	}
 }
+
+func TestSCN_VOC_003_WorthyPhraseGivesNewTermCard(t *testing.T) {
+	w := start(t)
+	ctx := context.Background()
+	public := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: w.base,
+		Scope: map[string]any{"spaces": []string{"ENG"}}})
+	testkit.ShareWithEveryone(t, w.env, w.owner, public)
+	// The restricted space uses the phrase too. Its text must not reach a
+	// draft (SI-17).
+	w.src.PutPage(fixtures.Page{ID: "2099", Space: "RST", Title: "Falcon week", Author: "alex.acme",
+		Body: "<p>Open Access Week hides " + fixtures.Canary + " from the board.</p>"})
+	for _, id := range []int64{public, w.restricted} {
+		if r := w.env.RunNow(w.owner, id, "sync"); r.Status != "succeeded" {
+			t.Fatalf("sync: %+v", r)
+		}
+	}
+	fake, openai, decisions := testkit.FakeModels(t)
+	chat := testkit.CreateEndpoint(t, w.owner, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, w.owner, "extract", testkit.Function{Endpoint: chat, Model: "fake-chat"})
+	dec := testkit.CreateEndpoint(t, w.owner, "decide", "decisions", decisions, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, w.owner, "decide", testkit.Function{Endpoint: dec, Model: "fake-decide"})
+	fake.OnDecide(func(_ string, _ map[string]any, state map[string]any) map[string]any {
+		phrase, ok := state["phrase"].(string)
+		if !ok {
+			return nil
+		}
+		p := 0.1
+		if phrase == "Open Access Week" {
+			p = 0.95
+		}
+		return map[string]any{"type": "noul", "noul": p}
+	})
+	fake.OnChat(func(map[string]any) string {
+		return `{"definition":"The week when Acme freezes deploys for the open access campaign.","quote":"Team Hermes freezes deploys during Open Access Week."}`
+	})
+	r := w.env.Server.Resolve()
+	if err := r.Terms(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var term *card
+	cs := cards(t, w.reviewer)
+	for i, c := range cs {
+		if c.Kind == "new_term" {
+			if term != nil {
+				t.Errorf("a second new term card: %+v", c)
+			}
+			term = &cs[i]
+		}
+	}
+	if term == nil {
+		t.Fatal("no new term card")
+	}
+	p := term.Payload.(map[string]any)
+	if p["phrase"] != "Open Access Week" || p["definition"] == "" || p["quote"] != "Team Hermes freezes deploys during Open Access Week." {
+		t.Errorf("payload %+v", p)
+	}
+	for _, req := range fake.Requests() {
+		if strings.Contains(fmt.Sprint(req.Body), fixtures.Canary) {
+			t.Fatal("a model request holds restricted text")
+		}
+	}
+	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'new_term' AND $1 = ANY(connections)", w.restricted); n != 0 {
+		t.Error("the card has restricted input")
+	}
+
+	// A draft whose quote is not in the passages has no definition.
+	if n := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'term_worthy'"); n < 2 {
+		t.Errorf("%d term_worthy decisions", n)
+	}
+
+	// Accepting the card creates an approved registry term with the draft.
+	w.reviewer.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", term.ID), map[string]any{})
+	if n := w.env.Count(`SELECT count(*) FROM claims c JOIN entities e ON e.id = c.subject_id JOIN claim_evidence ev ON ev.claim_id = c.id
+WHERE e.key = 'registry:term:open-access-week' AND c.predicate = 'defined_as' AND ev.source_type = 'confluence'`); n != 1 {
+		t.Error("the accepted term has no definition with the source quote")
+	}
+	before := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'term_worthy'")
+	if err := r.Terms(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if after := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'term_worthy'"); after != before {
+		t.Errorf("a second run asked %d more questions", after-before)
+	}
+}

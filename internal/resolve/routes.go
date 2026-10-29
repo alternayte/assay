@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -162,7 +163,8 @@ var errCardKind = errors.New("resolve: this card kind is decided on its own page
 // with an optional canonical name and stores the verdict same. A link card
 // adds the claim of its mention. An unnamed card makes its entity active,
 // with the canonical name as its name.
-func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, canonical, by string) error {
+func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edits Edits, by string) error {
+	canonical := strings.TrimSpace(edits.Name)
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		c, err := s.openCard(ctx, tx, vis, id)
 		if err != nil {
@@ -193,7 +195,7 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, cano
 			if c.ProposerID != nil {
 				proposer = *c.ProposerID
 			}
-			if err := apply(ctx, tx, vis, c.Payload, proposer, by); err != nil {
+			if err := apply(ctx, tx, vis, c.Payload, proposer, by, edits); err != nil {
 				return err
 			}
 		}
@@ -348,9 +350,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	type acceptIn struct {
 		ID   int64 `path:"id"`
-		Body struct {
-			CanonicalName string `json:"canonicalName,omitempty" maxLength:"200"`
-		}
+		Body Edits
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "acceptCard", Method: http.MethodPost, Path: "/api/v1/cards/{id}/accept", Tags: tags,
@@ -361,7 +361,7 @@ func (s *Service) Register(a huma.API) {
 		if err != nil {
 			return nil, api.Internal(err)
 		}
-		return nil, cardErr(s.Accept(ctx, vis, in.ID, in.Body.CanonicalName, api.Caller(ctx).User.ID))
+		return nil, cardErr(s.Accept(ctx, vis, in.ID, in.Body, api.Caller(ctx).User.ID))
 	})
 	type rejectIn struct {
 		ID   int64 `path:"id"`

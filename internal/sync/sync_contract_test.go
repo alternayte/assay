@@ -66,7 +66,7 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 	conn := publicConnection(t, env, admin, base)
 
 	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != 7 {
+	if first.Status != "succeeded" || first.Created != 8 {
 		t.Fatalf("first sync %+v", first)
 	}
 	second := env.RunNow(admin, conn, "sync")
@@ -74,7 +74,7 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 		t.Fatalf("second sync %+v", second)
 	}
 	versions := env.Count("SELECT count(*) FROM source_versions WHERE connection_id = $1", conn)
-	if versions != 7 {
+	if versions != 8 {
 		t.Fatalf("want 7 versions, got %d", versions)
 	}
 
@@ -260,7 +260,7 @@ func TestSCN_SYN_010_LargeItemIsSkipped(t *testing.T) {
 		Body: "<p>" + strings.Repeat("x", 600<<10) + "</p>"})
 	conn := publicConnection(t, env, admin, base)
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 7 || len(run.Skipped) != 1 {
+	if run.Status != "succeeded" || run.Created != 8 || len(run.Skipped) != 1 {
 		t.Fatalf("run %+v", run)
 	}
 	if run.Skipped[0].ID != "1099" || run.Skipped[0].Reason != "too_large" {
@@ -352,7 +352,7 @@ func TestSCN_CON_008_RetryAfterAndRateLimit(t *testing.T) {
 	src.Fail("/confluence/rest/api/content/1003", http.StatusTooManyRequests, 1, "2")
 	start := time.Now()
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 7 {
+	if run.Status != "succeeded" || run.Created != 8 {
 		t.Fatalf("run %+v", run)
 	}
 	var first, retry time.Time

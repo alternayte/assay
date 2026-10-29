@@ -67,7 +67,7 @@ func TestSCN_OPS_004_WebRunsNoJobWorkerSyncs(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1", conn); n != 7 {
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1", conn); n != 8 {
 		t.Fatalf("the worker stored %d items", n)
 	}
 }

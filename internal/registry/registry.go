@@ -6,6 +6,7 @@ package registry
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/entities"
+	"github.com/alternayte/assay/internal/resolve"
 	"github.com/alternayte/assay/internal/visibility"
 )
 
@@ -473,7 +475,7 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // ApplyTermEdit saves the record of an accepted term_edit proposal as a
 // new version by the proposer.
-func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string) error {
+func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string, _ resolve.Edits) error {
 	var p struct {
 		Key    string          `json:"key"`
 		Record *RegistryRecord `json:"record"`
@@ -529,4 +531,54 @@ func (s *Service) Rename(ctx context.Context, tx pgx.Tx, vis visibility.Set, key
 	}
 	_, err = s.SaveTx(ctx, tx, key, *rec, Editor{UserID: userID, Name: editor, Role: auth.RoleReviewer, Vis: vis})
 	return err
+}
+
+// ApplyNewTerm creates an approved registry term from an accepted new_term
+// card, with the reviewer's name and definition edits. An unchanged draft
+// keeps its source quote as evidence of the definition.
+func (s *Service) ApplyNewTerm(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, _, reviewerID string, edits resolve.Edits) error {
+	var p struct {
+		Phrase       string    `json:"phrase"`
+		Definition   string    `json:"definition"`
+		Quote        string    `json:"quote"`
+		ItemID       int64     `json:"itemId"`
+		PassageHash  string    `json:"passageHash"`
+		ConnectionID int64     `json:"connectionId"`
+		At           time.Time `json:"at"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return err
+	}
+	name, def := p.Phrase, p.Definition
+	if n := strings.TrimSpace(edits.Name); n != "" {
+		name = n
+	}
+	if d := strings.TrimSpace(edits.Definition); d != "" {
+		def = d
+	}
+	editor, err := New(tx).UserName(ctx, reviewerID)
+	if err != nil {
+		return err
+	}
+	rec := RegistryRecord{Kind: KindTerm, Term: &TermRecord{Name: name, Synonyms: []string{p.Phrase}, Definition: def, Status: StatusApproved}}
+	if entities.NormalizeAlias(name) == entities.NormalizeAlias(p.Phrase) {
+		rec.Term.Synonyms = nil
+	}
+	saved, err := s.SaveTx(ctx, tx, "", rec, Editor{UserID: reviewerID, Name: editor, Role: auth.RoleReviewer, Vis: vis})
+	if err != nil {
+		return err
+	}
+	if def != p.Definition || p.Quote == "" || p.ItemID == 0 {
+		return nil
+	}
+	id, err := New(tx).EntityID(ctx, saved.Key)
+	if err != nil {
+		return err
+	}
+	hash, err := hex.DecodeString(p.PassageHash)
+	if err != nil {
+		return err
+	}
+	return content.AddExtracted(ctx, tx, p.ConnectionID, p.ItemID, hash, p.At,
+		[]content.Extracted{{Subject: id, Predicate: "defined_as", Text: def, Stance: "supports", Quote: p.Quote}}, s.Log)
 }

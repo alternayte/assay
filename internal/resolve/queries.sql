@@ -312,3 +312,26 @@ WHERE e.id = @id AND e.state = 'stale'
 -- name: DropStaleEvidence :exec
 -- vis:system
 DELETE FROM claim_evidence WHERE id = @id AND state = 'stale';
+
+-- name: EveryoneConnections :many
+-- The registry and the active connections shared with Everyone.
+SELECT c.id FROM connections c
+WHERE c.kind = 'registry'
+   OR (c.status = 'active' AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+                                       WHERE v.connection_id = c.id AND g.builtin))
+ORDER BY c.id;
+
+-- name: PhrasePassages :many
+-- The text passages of the visible connections.
+SELECT p.item_id, p.connection_id, p.hash, p.norm
+FROM passages p
+WHERE p.connection_id = ANY(@visible::bigint[]) AND p.kind <> 'code'
+ORDER BY p.item_id, p.ordinal;
+
+-- name: KnownAliases :many
+-- Normalized aliases of any entity among the forms.
+-- vis:system
+SELECT DISTINCT a.alias_norm FROM entity_aliases a WHERE a.alias_norm = ANY(@forms::text[]);
+
+-- name: PhraseDecided :one
+SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = 'term_worthy' AND subject_refs @> @refs::text[])::boolean;

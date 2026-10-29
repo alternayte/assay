@@ -22,3 +22,4 @@ q.Push(call)
 Use the existing PostgreSQL queue.
 === comment alex.acme 2026-02-02T10:00:00Z
 Agreed. See {{ADR-001}}.
+Ship before Open Access Week.

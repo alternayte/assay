@@ -446,6 +446,35 @@ func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]Entit
 	return items, nil
 }
 
+const everyoneConnections = `-- name: EveryoneConnections :many
+SELECT c.id FROM connections c
+WHERE c.kind = 'registry'
+   OR (c.status = 'active' AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+                                       WHERE v.connection_id = c.id AND g.builtin))
+ORDER BY c.id
+`
+
+// The registry and the active connections shared with Everyone.
+func (q *Queries) EveryoneConnections(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, everyoneConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCalibration = `-- name: GetCalibration :one
 SELECT kind, bins, reviewed, auto_apply FROM calibration WHERE kind = $1
 `
@@ -573,6 +602,32 @@ func (q *Queries) InsertProposedEntity(ctx context.Context, arg InsertProposedEn
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const knownAliases = `-- name: KnownAliases :many
+SELECT DISTINCT a.alias_norm FROM entity_aliases a WHERE a.alias_norm = ANY($1::text[])
+`
+
+// Normalized aliases of any entity among the forms.
+// vis:system
+func (q *Queries) KnownAliases(ctx context.Context, forms []string) ([]string, error) {
+	rows, err := q.db.Query(ctx, knownAliases, forms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var alias_norm string
+		if err := rows.Scan(&alias_norm); err != nil {
+			return nil, err
+		}
+		items = append(items, alias_norm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCalibration = `-- name: ListCalibration :many
@@ -806,6 +861,57 @@ func (q *Queries) PendingMentions(ctx context.Context) ([]PendingMentionsRow, er
 			&i.Norm,
 			&i.ConnectionID,
 			&i.SourceUpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const phraseDecided = `-- name: PhraseDecided :one
+SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = 'term_worthy' AND subject_refs @> $1::text[])::boolean
+`
+
+func (q *Queries) PhraseDecided(ctx context.Context, refs []string) (bool, error) {
+	row := q.db.QueryRow(ctx, phraseDecided, refs)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const phrasePassages = `-- name: PhrasePassages :many
+SELECT p.item_id, p.connection_id, p.hash, p.norm
+FROM passages p
+WHERE p.connection_id = ANY($1::bigint[]) AND p.kind <> 'code'
+ORDER BY p.item_id, p.ordinal
+`
+
+type PhrasePassagesRow struct {
+	ItemID       int64
+	ConnectionID int64
+	Hash         []byte
+	Norm         string
+}
+
+// The text passages of the visible connections.
+func (q *Queries) PhrasePassages(ctx context.Context, visible []int64) ([]PhrasePassagesRow, error) {
+	rows, err := q.db.Query(ctx, phrasePassages, visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PhrasePassagesRow
+	for rows.Next() {
+		var i PhrasePassagesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.ConnectionID,
+			&i.Hash,
+			&i.Norm,
 		); err != nil {
 			return nil, err
 		}

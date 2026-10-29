@@ -9,3 +9,4 @@ created: 2026-01-05T09:00:00Z
 updated: 2026-02-03T09:00:00Z
 ---
 The reminder service sends a second reminder after seven days.
+Pause second reminders during Open Access Week.

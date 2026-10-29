@@ -301,6 +301,7 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 			"assignee": f.Assignee.display(), "reporter": f.Reporter.display(), "labels": orEmpty(f.Labels),
 			"components": orEmpty(names(f.Components)), "fixVersions": orEmpty(names(f.FixVersions)), "due": f.DueDate, "epic": epic},
 	}
+	it.Entities = connectors.Acronyms(it.Body, "jira", host)
 	if f.Priority != nil {
 		it.Metadata["priority"] = f.Priority.Name
 	}

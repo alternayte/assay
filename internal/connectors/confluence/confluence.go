@@ -250,6 +250,10 @@ func (k *Connector) item(p *pageJSON) (*content.Item, error) {
 			it.URL = k.c.URL(u.Path, u.Query())
 		}
 	}
+	if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(k.rules.GlossaryLabels, l) }) {
+		it.Facts = append(it.Facts, connectors.GlossaryFacts(body, "confluence", k.c.Host())...)
+	}
+	it.Entities = append(it.Entities, connectors.Acronyms(body, "confluence", k.c.Host())...)
 	if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(k.rules.DecisionLabels, l) }) {
 		it.Entity = &content.EntityRef{Type: "decision", Key: "confluence:" + k.c.Host() + ":" + p.ID, Name: p.Title}
 	}

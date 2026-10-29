@@ -177,9 +177,15 @@ func (w *Worker) Work(ctx context.Context, _ *river.Job[Args]) error { return w.
 // Timeout bounds one run.
 func (w *Worker) Timeout(*river.Job[Args]) time.Duration { return time.Hour }
 
-// PeriodicJobs runs resolution every 15 minutes.
+// PeriodicJobs runs resolution every 15 minutes and the term candidates
+// every day.
 func (s *Service) PeriodicJobs() []*river.PeriodicJob {
-	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(15*time.Minute), func() (river.JobArgs, *river.InsertOpts) {
-		return Args{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 15 * time.Minute}}
-	}, &river.PeriodicJobOpts{ID: "resolve"})}
+	return []*river.PeriodicJob{
+		river.NewPeriodicJob(river.PeriodicInterval(15*time.Minute), func() (river.JobArgs, *river.InsertOpts) {
+			return Args{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 15 * time.Minute}}
+		}, &river.PeriodicJobOpts{ID: "resolve"}),
+		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+			return TermArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}
+		}, &river.PeriodicJobOpts{ID: "terms"}),
+	}
 }

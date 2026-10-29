@@ -40,7 +40,7 @@ func TestSCN_CON_003_ConfluenceMarkdownMatchesGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v.User != "Assay Reader" || v.Sample != 7 {
+	if v.User != "Assay Reader" || v.Sample != 8 {
 		t.Fatalf("validation %+v", v)
 	}
 	var ids []string
@@ -48,7 +48,7 @@ func TestSCN_CON_003_ConfluenceMarkdownMatchesGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	slices.Sort(ids)
-	if len(ids) != 7 || slices.Contains(ids, "2001") {
+	if len(ids) != 8 || slices.Contains(ids, "2001") {
 		t.Fatalf("ids %v", ids)
 	}
 	for _, id := range []string{"1001", "1002", "1003", "1005"} {

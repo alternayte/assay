@@ -129,7 +129,7 @@ func TestSCN_INS_006_ConnectionTestThroughProxy(t *testing.T) {
 	}
 	t.Run("with the extra CA", func(t *testing.T) {
 		r, proxy := run(t, outbound.Settings{ExtraCAPEM: caPEM})
-		if r.Status != http.StatusOK || !strings.Contains(string(r.Body), `"sample":7`) {
+		if r.Status != http.StatusOK || !strings.Contains(string(r.Body), `"sample":8`) {
 			t.Fatalf("test: %d %s", r.Status, r.Body)
 		}
 		if len(proxy.Targets()) == 0 {
@@ -159,7 +159,7 @@ func TestSCN_OPS_007_ContentURLsAreNotFetched(t *testing.T) {
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: base,
 		Scope: map[string]any{"spaces": []string{"ENG"}}})
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 8 {
+	if run.Status != "succeeded" || run.Created != 9 {
 		t.Fatalf("run %+v", run)
 	}
 	if n := hits.Load(); n != 0 {

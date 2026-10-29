@@ -242,6 +242,7 @@ type card struct {
 	Reasons    []string  `json:"reasons"`
 	Subjects   []subject `json:"subjects"`
 	DecisionID int64     `json:"decisionId"`
+	Payload    any       `json:"payload"`
 }
 
 func cards(t *testing.T, cl *testkit.Client) []card {

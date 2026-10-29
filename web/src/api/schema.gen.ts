@@ -1367,15 +1367,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        AcceptInBody: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/v1/schemas/AcceptInBody.json
-             */
-            readonly $schema?: string;
-            canonicalName?: string;
-        };
         AcceptInputBody: {
             /**
              * Format: uri
@@ -1775,6 +1766,18 @@ export interface components {
             predicate: string;
             /** @description The object key. */
             to: string;
+        };
+        Edits: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Edits.json
+             */
+            readonly $schema?: string;
+            /** @description The canonical name of a merge, or the name of a new entity or term. */
+            canonicalName?: string;
+            /** @description The definition of a new term. */
+            definition?: string;
         };
         EndpointBody: {
             /**
@@ -3442,7 +3445,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AcceptInBody"];
+                "application/json": components["schemas"]["Edits"];
             };
         };
         responses: {

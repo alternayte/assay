@@ -1,0 +1,152 @@
+{
+  "title": "PAY-2 Add a retry queue to the Payments API",
+  "url": "/jira/browse/PAY-2",
+  "author": "Alex Acme",
+  "metadata": {
+    "assignee": "Priya Acme",
+    "components": [
+      "payments-api"
+    ],
+    "due": "",
+    "epic": "PAY-1",
+    "fixVersions": [],
+    "key": "PAY-2",
+    "labels": [
+      "payments",
+      "queue"
+    ],
+    "priority": "Medium",
+    "reporter": "Alex Acme",
+    "status": "To Do",
+    "type": "Story"
+  },
+  "Entity": {
+    "type": "issue",
+    "key": "jira:fixtures:PAY-2",
+    "name": "Add a retry queue to the Payments API",
+    "aliases": [
+      "PAY-2"
+    ]
+  },
+  "facts": [
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:PAY-2",
+        "name": "Add a retry queue to the Payments API",
+        "aliases": [
+          "PAY-2"
+        ]
+      },
+      "Predicate": "status",
+      "Object": null,
+      "Text": "To Do",
+      "Quote": "Status: To Do"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:PAY-2",
+        "name": "Add a retry queue to the Payments API",
+        "aliases": [
+          "PAY-2"
+        ]
+      },
+      "Predicate": "assigned_to",
+      "Object": {
+        "type": "person",
+        "key": "jira:fixtures:user:priya.acme",
+        "name": "Priya Acme",
+        "aliases": [
+          "priya.acme"
+        ]
+      },
+      "Text": "",
+      "Quote": "Assignee: Priya Acme"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:PAY-2",
+        "name": "Add a retry queue to the Payments API",
+        "aliases": [
+          "PAY-2"
+        ]
+      },
+      "Predicate": "blocks",
+      "Object": {
+        "type": "issue",
+        "key": "jira:fixtures:PAY-3",
+        "name": "Retry dashboard",
+        "aliases": [
+          "PAY-3"
+        ]
+      },
+      "Text": "",
+      "Quote": "Blocks: PAY-3"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:PAY-2",
+        "name": "Add a retry queue to the Payments API",
+        "aliases": [
+          "PAY-2"
+        ]
+      },
+      "Predicate": "part_of",
+      "Object": {
+        "type": "initiative",
+        "key": "jira:fixtures:PAY-1",
+        "name": "",
+        "aliases": [
+          "PAY-1"
+        ]
+      },
+      "Text": "",
+      "Quote": "Epic: PAY-1"
+    }
+  ],
+  "body": [
+    "**Type:** Story",
+    "",
+    "**Status:** To Do",
+    "",
+    "**Priority:** Medium",
+    "",
+    "**Assignee:** Priya Acme",
+    "",
+    "**Reporter:** Alex Acme",
+    "",
+    "**Labels:** payments, queue",
+    "",
+    "**Components:** payments-api",
+    "",
+    "**Epic:** PAY-1",
+    "",
+    "**Blocks:** PAY-3 Retry dashboard",
+    "",
+    "## Description",
+    "",
+    "The queue holds failed calls for up to _one hour_.",
+    "",
+    "| Field | Value |",
+    "|---|---|",
+    "| Max attempts | 3 |",
+    "| Backoff | exponential |",
+    "",
+    "```go",
+    "q.Push(call)",
+    "```",
+    "",
+    "## Comments",
+    "",
+    "### Sam Acme, 2026-02-01 10:00",
+    "",
+    "Use the existing PostgreSQL queue.",
+    "",
+    "### Alex Acme, 2026-02-02 10:00",
+    "",
+    "Agreed. See `ADR-001`."
+  ]
+}

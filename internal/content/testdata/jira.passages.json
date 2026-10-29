@@ -1,0 +1,29 @@
+[
+  {
+    "ordinal": 0,
+    "section": 0,
+    "kind": "paragraph",
+    "headingPath": [],
+    "text": "The queue holds failed calls for up to _one hour_.",
+    "norm": "The queue holds failed calls for up to one hour.",
+    "hash": "71eae8f79addd705"
+  },
+  {
+    "ordinal": 1,
+    "section": 0,
+    "kind": "table",
+    "headingPath": [],
+    "text": "| Field | Value |\n|---|---|\n| Max attempts | 3 |\n| Backoff | exponential |",
+    "norm": "Field Value Max attempts 3 Backoff exponential",
+    "hash": "edb6bd0a99f45992"
+  },
+  {
+    "ordinal": 2,
+    "section": 0,
+    "kind": "code",
+    "headingPath": [],
+    "text": "```go\nq.Push(call)\n```",
+    "norm": "q.Push(call)",
+    "hash": "e34983e81984b51f"
+  }
+]

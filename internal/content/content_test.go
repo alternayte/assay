@@ -6,7 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/connectors/confluence"
+	"github.com/alternayte/assay/internal/connectors/jira"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -44,6 +47,16 @@ func TestSCN_SYN_004_MarkdownPassagesMatchGolden(t *testing.T) {
 	}
 	ps := content.Split(string(src))
 	testkit.Golden(t, "testdata/markdown.passages.json", golden(ps))
+
+	src2 := fixtures.NewSources()
+	page, _ := src2.Page("1001")
+	md, err := confluence.ToMarkdown(page.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testkit.Golden(t, "testdata/confluence.passages.json", golden(content.Split(md)))
+	issue, _ := src2.Issue("PAY-2")
+	testkit.Golden(t, "testdata/jira.passages.json", golden(content.Split(jira.ToMarkdown(issue.Description))))
 
 	// Whitespace and inline formatting changes keep the hashes. A changed
 	// link target is not passage text.

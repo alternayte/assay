@@ -1,0 +1,72 @@
+[
+  {
+    "ordinal": 0,
+    "section": 1,
+    "kind": "paragraph",
+    "headingPath": [
+      "Purpose"
+    ],
+    "text": "The **Payments API** takes card payments for Acme Journals. Team Hermes owns it.",
+    "norm": "The Payments API takes card payments for Acme Journals. Team Hermes owns it.",
+    "hash": "ceca94c11f4f122c"
+  },
+  {
+    "ordinal": 1,
+    "section": 1,
+    "kind": "quote",
+    "headingPath": [
+      "Purpose"
+    ],
+    "text": "\u003e **Info**\n\u003e\n\u003e The API is part of the Billing system.",
+    "norm": "Info The API is part of the Billing system.",
+    "hash": "359a7592c3ee4134"
+  },
+  {
+    "ordinal": 2,
+    "section": 1,
+    "kind": "table",
+    "headingPath": [
+      "Purpose",
+      "Endpoints"
+    ],
+    "text": "| Endpoint | Method | Use |\n|---|---|---|\n| /payments | POST | Take a payment |\n| /payments/{id}/refund | POST | Refund a _settled_ payment |",
+    "norm": "Endpoint Method Use /payments POST Take a payment /payments/{id}/refund POST Refund a settled payment",
+    "hash": "14c518c61e5772bb"
+  },
+  {
+    "ordinal": 3,
+    "section": 1,
+    "kind": "list",
+    "headingPath": [
+      "Purpose",
+      "Dependencies"
+    ],
+    "text": "- The Payments API depends on the Ledger service.\n- It calls the Fraud check API for each payment.\n  - The call times out after 2 seconds.",
+    "norm": "The Payments API depends on the Ledger service. It calls the Fraud check API for each payment. The call times out after 2 seconds.",
+    "hash": "46edaba10461a7ed"
+  },
+  {
+    "ordinal": 4,
+    "section": 1,
+    "kind": "code",
+    "headingPath": [
+      "Purpose",
+      "Dependencies"
+    ],
+    "text": "```json\n{\"amount\": 1200, \"currency\": \"EUR\"}\n```",
+    "norm": "{\"amount\": 1200, \"currency\": \"EUR\"}",
+    "hash": "9b8908d4af7f0b54"
+  },
+  {
+    "ordinal": 5,
+    "section": 1,
+    "kind": "paragraph",
+    "headingPath": [
+      "Purpose",
+      "Dependencies"
+    ],
+    "text": "See Payments API runbook for incidents.",
+    "norm": "See Payments API runbook for incidents.",
+    "hash": "b3aaedb97cfe0785"
+  }
+]

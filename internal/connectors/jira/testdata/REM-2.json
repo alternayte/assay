@@ -1,0 +1,128 @@
+{
+  "title": "REM-2 Move the reminder service to the job queue",
+  "url": "/jira/browse/REM-2",
+  "author": "Jo Acme",
+  "metadata": {
+    "assignee": "Priya Acme",
+    "components": [],
+    "due": "",
+    "epic": "REM-1",
+    "fixVersions": [],
+    "key": "REM-2",
+    "labels": [],
+    "priority": "Medium",
+    "reporter": "Jo Acme",
+    "status": "In Progress",
+    "type": "Task"
+  },
+  "Entity": {
+    "type": "issue",
+    "key": "jira:fixtures:REM-2",
+    "name": "Move the reminder service to the job queue",
+    "aliases": [
+      "REM-2"
+    ]
+  },
+  "facts": [
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-2",
+        "name": "Move the reminder service to the job queue",
+        "aliases": [
+          "REM-2"
+        ]
+      },
+      "Predicate": "status",
+      "Object": null,
+      "Text": "In Progress",
+      "Quote": "Status: In Progress"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-2",
+        "name": "Move the reminder service to the job queue",
+        "aliases": [
+          "REM-2"
+        ]
+      },
+      "Predicate": "assigned_to",
+      "Object": {
+        "type": "person",
+        "key": "jira:fixtures:user:priya.acme",
+        "name": "Priya Acme",
+        "aliases": [
+          "priya.acme"
+        ]
+      },
+      "Text": "",
+      "Quote": "Assignee: Priya Acme"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-2",
+        "name": "Move the reminder service to the job queue",
+        "aliases": [
+          "REM-2"
+        ]
+      },
+      "Predicate": "blocks",
+      "Object": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-3",
+        "name": "Remove the reminder cron job",
+        "aliases": [
+          "REM-3"
+        ]
+      },
+      "Text": "",
+      "Quote": "Blocks: REM-3"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-2",
+        "name": "Move the reminder service to the job queue",
+        "aliases": [
+          "REM-2"
+        ]
+      },
+      "Predicate": "part_of",
+      "Object": {
+        "type": "initiative",
+        "key": "jira:fixtures:REM-1",
+        "name": "",
+        "aliases": [
+          "REM-1"
+        ]
+      },
+      "Text": "",
+      "Quote": "Epic: REM-1"
+    }
+  ],
+  "body": [
+    "**Type:** Task",
+    "",
+    "**Status:** In Progress",
+    "",
+    "**Priority:** Medium",
+    "",
+    "**Assignee:** Priya Acme",
+    "",
+    "**Reporter:** Jo Acme",
+    "",
+    "**Epic:** REM-1",
+    "",
+    "**Blocks:** REM-3 Remove the reminder cron job",
+    "",
+    "## Description",
+    "",
+    "\u003e Follow ADR-001.",
+    "",
+    "- Create the jobs table.",
+    "   - Add an index on run_at.",
+    "- Remove the cron job."
+  ]
+}

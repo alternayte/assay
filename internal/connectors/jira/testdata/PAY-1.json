@@ -1,0 +1,108 @@
+{
+  "title": "PAY-1 Payment retries",
+  "url": "/jira/browse/PAY-1",
+  "author": "Jo Acme",
+  "metadata": {
+    "assignee": "Alex Acme",
+    "components": [
+      "payments-api"
+    ],
+    "due": "2027-03-31",
+    "epic": "",
+    "fixVersions": [
+      "2027.1"
+    ],
+    "key": "PAY-1",
+    "labels": [
+      "payments"
+    ],
+    "priority": "High",
+    "reporter": "Jo Acme",
+    "status": "In Progress",
+    "type": "Epic"
+  },
+  "Entity": {
+    "type": "initiative",
+    "key": "jira:fixtures:PAY-1",
+    "name": "Payment retries",
+    "aliases": [
+      "PAY-1"
+    ]
+  },
+  "facts": [
+    {
+      "Subject": {
+        "type": "initiative",
+        "key": "jira:fixtures:PAY-1",
+        "name": "Payment retries",
+        "aliases": [
+          "PAY-1"
+        ]
+      },
+      "Predicate": "status",
+      "Object": null,
+      "Text": "In Progress",
+      "Quote": "Status: In Progress"
+    },
+    {
+      "Subject": {
+        "type": "initiative",
+        "key": "jira:fixtures:PAY-1",
+        "name": "Payment retries",
+        "aliases": [
+          "PAY-1"
+        ]
+      },
+      "Predicate": "assigned_to",
+      "Object": {
+        "type": "person",
+        "key": "jira:fixtures:user:alex.acme",
+        "name": "Alex Acme",
+        "aliases": [
+          "alex.acme"
+        ]
+      },
+      "Text": "",
+      "Quote": "Assignee: Alex Acme"
+    },
+    {
+      "Subject": {
+        "type": "initiative",
+        "key": "jira:fixtures:PAY-1",
+        "name": "Payment retries",
+        "aliases": [
+          "PAY-1"
+        ]
+      },
+      "Predicate": "target_date",
+      "Object": null,
+      "Text": "2027-03-31",
+      "Quote": "Due date: 2027-03-31"
+    }
+  ],
+  "body": [
+    "**Type:** Epic",
+    "",
+    "**Status:** In Progress",
+    "",
+    "**Priority:** High",
+    "",
+    "**Assignee:** Alex Acme",
+    "",
+    "**Reporter:** Jo Acme",
+    "",
+    "**Labels:** payments",
+    "",
+    "**Components:** payments-api",
+    "",
+    "**Fix versions:** 2027.1",
+    "",
+    "**Due date:** 2027-03-31",
+    "",
+    "## Description",
+    "",
+    "## Goal",
+    "",
+    "Failed card calls retry with **exponential backoff**. See [the decision](https://wiki.acme.test/decision)."
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "title": "REM-3 Remove the reminder cron job",
+  "url": "/jira/browse/REM-3",
+  "author": "Jo Acme",
+  "metadata": {
+    "assignee": "Priya Acme",
+    "components": [],
+    "due": "",
+    "epic": "",
+    "fixVersions": [],
+    "key": "REM-3",
+    "labels": [],
+    "parent": "REM-2",
+    "priority": "Low",
+    "reporter": "Jo Acme",
+    "status": "To Do",
+    "type": "Sub-task"
+  },
+  "Entity": {
+    "type": "issue",
+    "key": "jira:fixtures:REM-3",
+    "name": "Remove the reminder cron job",
+    "aliases": [
+      "REM-3"
+    ]
+  },
+  "facts": [
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-3",
+        "name": "Remove the reminder cron job",
+        "aliases": [
+          "REM-3"
+        ]
+      },
+      "Predicate": "status",
+      "Object": null,
+      "Text": "To Do",
+      "Quote": "Status: To Do"
+    },
+    {
+      "Subject": {
+        "type": "issue",
+        "key": "jira:fixtures:REM-3",
+        "name": "Remove the reminder cron job",
+        "aliases": [
+          "REM-3"
+        ]
+      },
+      "Predicate": "assigned_to",
+      "Object": {
+        "type": "person",
+        "key": "jira:fixtures:user:priya.acme",
+        "name": "Priya Acme",
+        "aliases": [
+          "priya.acme"
+        ]
+      },
+      "Text": "",
+      "Quote": "Assignee: Priya Acme"
+    }
+  ],
+  "body": [
+    "**Type:** Sub-task",
+    "",
+    "**Status:** To Do",
+    "",
+    "**Priority:** Low",
+    "",
+    "**Assignee:** Priya Acme",
+    "",
+    "**Reporter:** Jo Acme",
+    "",
+    "**Parent:** REM-2 Move the reminder service to the job queue",
+    "",
+    "**Is blocks by:** REM-2 Move the reminder service to the job queue",
+    "",
+    "## Description",
+    "",
+    "Delete the cron entry after the queue runs."
+  ]
+}

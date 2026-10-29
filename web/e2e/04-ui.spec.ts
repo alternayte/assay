@@ -3,6 +3,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { owner, signIn } from "./env";
 
 const routes = [
+  "/",
   "/profile",
   "/settings/users",
   "/settings/groups",

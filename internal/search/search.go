@@ -365,7 +365,11 @@ func (s *Service) hits(ctx context.Context, vis visibility.Set, text string, ids
 	if len(ids) == 0 {
 		return []Result{}, nil
 	}
-	rows, err := New(s.Pool).Hits(ctx, HitsParams{Words: words(text), Ids: ids, Visible: vis})
+	hl := contentWords(text)
+	if hl == "" {
+		hl = words(text)
+	}
+	rows, err := New(s.Pool).Hits(ctx, HitsParams{Words: hl, Ids: ids, Visible: vis})
 	if err != nil {
 		return nil, err
 	}

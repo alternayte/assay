@@ -160,6 +160,60 @@
     background-image: linear-gradient(to bottom, transparent calc(1.5rem - 1px), var(--rule) 1.5rem);
     background-size: 100% 1.5rem;
   }
+  /* Markdown of answers and passages, set on the ruled line. */
+  .prose-register > * + * {
+    margin-top: calc(var(--spacing) * 3);
+  }
+  .prose-register ul {
+    list-style: disc;
+    padding-left: calc(var(--spacing) * 5);
+  }
+  .prose-register ol {
+    list-style: decimal;
+    padding-left: calc(var(--spacing) * 5);
+  }
+  .prose-register li + li {
+    margin-top: calc(var(--spacing) * 1);
+  }
+  .prose-register h1,
+  .prose-register h2,
+  .prose-register h3,
+  .prose-register h4 {
+    font-weight: 600;
+  }
+  .prose-register code {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    background: var(--paper-sunk);
+    padding: 0 calc(var(--spacing) * 1);
+    border-radius: var(--radius-sm);
+  }
+  .prose-register pre {
+    overflow-x: auto;
+    background: var(--paper-sunk);
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    border-radius: var(--radius-sm);
+  }
+  .prose-register pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .prose-register table {
+    display: block;
+    overflow-x: auto;
+    border-collapse: collapse;
+  }
+  .prose-register th,
+  .prose-register td {
+    border: 1px solid var(--rule);
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 2);
+    text-align: left;
+  }
+  .prose-register blockquote {
+    border-left: 4px solid var(--rule-strong);
+    padding-left: calc(var(--spacing) * 3);
+    color: var(--ink-muted);
+  }
   .transition-ink {
     transition-property: color, background-color, border-color, opacity, transform;
     transition-duration: 120ms;

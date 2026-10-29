@@ -20,7 +20,8 @@
     "themeDark": "Use dark theme",
     "themeSystem": "Use system theme",
     "menu": "Open menu",
-    "account": "Account"
+    "account": "Account",
+    "ask": "Ask"
   },
   "palette": {
     "title": "Search and go",
@@ -295,7 +296,15 @@
     "fnRerank": "Optional reorder of search results.",
     "fnDecide": "Typed decisions with probabilities.",
     "banner": "The monthly budget of {functions} is used up. Assay refuses these calls until an admin raises the budget.",
-    "bannerAction": "Open models"
+    "bannerAction": "Open models",
+    "spacesTitle": "Embedding spaces",
+    "spacesBody": "Search uses the active space. A new embed model builds a new space. Search changes to it when it is complete.",
+    "noSpaces": "No space exists. Turn on the embed function to start vector search.",
+    "colProgress": "Progress",
+    "dimensions": "{dim} dimensions",
+    "spaceProgress": "{done} of {total} chunks",
+    "spaceActive": "Active",
+    "spaceBuilding": "Building"
   },
   "diagnostics": {
     "title": "Diagnostics",
@@ -451,5 +460,56 @@
     "empty": "No domain exists. Create a domain to group terms and entities.",
     "nameTaken": "A domain with this name exists.",
     "confirmDelete": "Delete the domain {name}? Connections and entities with this domain keep no domain."
+  },
+  "ask": {
+    "title": "Ask",
+    "body": "Ask a question about your systems. Each answer cites its sources.",
+    "label": "Question",
+    "placeholder": "Who owns the Payments API, and what blocks it?",
+    "submit": "Ask",
+    "asking": "Answering",
+    "answer": "Answer",
+    "results": "Sources found",
+    "resultsEmpty": "No source matches the question. Try other words, or check that your connections finished a sync.",
+    "entities": "Things and terms",
+    "degraded": "Vector search is off. Results come from full-text and title search only.",
+    "uncited": "{count} sentences have no citation. Check them against the sources.",
+    "conflicts": "Conflicts",
+    "conflictsBody": "The sources disagree about these facts.",
+    "unknowns": "Unknowns",
+    "unknownsBody": "The sources do not answer these parts of the question.",
+    "howTitle": "How do we know?",
+    "howBody": "The claims and sources that the answer cites.",
+    "howClaims": "Claims",
+    "howSources": "Sources",
+    "howEmpty": "The answer cites no claim or source.",
+    "cite": "Open source {id}",
+    "citeClaim": "Open claim {id}",
+    "history": "Your questions",
+    "historyBody": "Only you see your questions.",
+    "historyEmpty": "You have not asked a question yet. Type a question above to start.",
+    "error": "Assay cannot answer now. Try again.",
+    "drawerClose": "Close",
+    "openSource": "Open in source",
+    "updated": "Updated {when}",
+    "passageLoading": "Loading the passage.",
+    "passageHidden": "You cannot read this item now.",
+    "evidence": "Evidence",
+    "current": "Current",
+    "stale": "Stale",
+    "disputes": "Disputes",
+    "claimText": "{subject} {predicate} {object}",
+    "sourceTypes": {
+      "registry": "Registry",
+      "confluence": "Confluence",
+      "jira": "Jira",
+      "github": "GitHub",
+      "azdo": "Azure DevOps",
+      "catalog": "Catalog",
+      "codeowners": "CODEOWNERS",
+      "repository": "Repository",
+      "review": "Review"
+    },
+    "asked": "Asked {when}"
   }
 }

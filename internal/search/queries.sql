@@ -62,10 +62,11 @@ ORDER BY score DESC, e.id
 LIMIT 5;
 
 -- name: Hits :many
--- The items, headings and highlighted snippets of chunks.
-SELECT c.id AS chunk_id, c.item_id, c.heading_path, c.text, c.passage_hashes, i.title, i.url, i.kind, i.source_updated_at,
+-- The items, headings and highlighted snippets of chunks. The text is the
+-- chunk without its title and heading prefix.
+SELECT c.id AS chunk_id, c.item_id, c.heading_path, substr(c.text, strpos(c.text, E'\n\n') + 2)::text AS text, c.passage_hashes, i.title, i.url, i.kind, i.source_updated_at,
        i.connection_id, k.name AS connection_name, k.kind AS source_type,
-       ts_headline('simple', c.text, to_tsquery('simple', unaccent(@words::text)),
+       ts_headline('simple', substr(c.text, strpos(c.text, E'\n\n') + 2), to_tsquery('simple', unaccent(@words::text)),
                    'StartSel=' || chr(57344) || ', StopSel=' || chr(57345) || ', MaxWords=40, MinWords=15, MaxFragments=2, FragmentDelimiter=" … "')::text AS snippet
 FROM chunks c
 JOIN source_items i ON i.id = c.item_id

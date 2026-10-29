@@ -663,6 +663,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/spaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the embedding spaces
+         * @description The active space serves search. A building space fills with vectors of a new embed model, then becomes active.
+         */
+        get: operations["listEmbeddingSpaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/status": {
         parameters: {
             query?: never;
@@ -1608,6 +1628,15 @@ export interface components {
              * @example https://example.com/api/v1/schemas/OutBody.json
              */
             readonly $schema?: string;
+            spaces: components["schemas"]["SpaceRecord"][];
+        };
+        OutBody1: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/OutBody1.json
+             */
+            readonly $schema?: string;
             checks: components["schemas"]["Check"][];
             ok: boolean;
         };
@@ -1892,6 +1921,30 @@ export interface components {
             };
             /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
             token?: string;
+        };
+        SpaceRecord: {
+            /** Format: date-time */
+            activatedAt: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int32 */
+            dim: number;
+            /**
+             * Format: int32
+             * @description Chunks with a vector.
+             */
+            done: number;
+            error: string;
+            /** Format: int64 */
+            id: number;
+            model: string;
+            /** @enum {string} */
+            status: "building" | "active";
+            /**
+             * Format: int32
+             * @description All chunks.
+             */
+            total: number;
         };
         Status: {
             /**
@@ -2828,7 +2881,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["OutBody"];
+                    "application/json": components["schemas"]["OutBody1"];
                 };
             };
             /** @description Error */
@@ -3609,6 +3662,35 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listEmbeddingSpaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutBody"];
+                };
             };
             /** @description Error */
             default: {

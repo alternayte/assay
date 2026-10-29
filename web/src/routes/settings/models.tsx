@@ -136,6 +136,8 @@ export function ModelsPage() {
         )}
       </Sheet>
 
+      <SpacesSheet />
+
       {editing && (
         <EndpointDialog
           key={editing === "new" ? "new" : editing.id}
@@ -552,5 +554,64 @@ function FunctionDialog({ fn, endpoints, onClose }: { fn: Fn; endpoints: Endpoin
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The embedding spaces: the active one and one that builds for a new model. */
+function SpacesSheet() {
+  const spaces = useQuery({
+    queryKey: ["models", "spaces"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/models/spaces")).spaces,
+    refetchInterval: (q) => (q.state.data?.some((s) => s.status === "building") ? 5_000 : false),
+  });
+  return (
+    <Sheet title={t("models.spacesTitle")} description={t("models.spacesBody")}>
+      {spaces.isPending ? (
+        <SkeletonRows label={t("app.loading")} rows={1} />
+      ) : spaces.isError ? (
+        <Notice tone="danger">{t("app.error")}</Notice>
+      ) : spaces.data.length === 0 ? (
+        <Empty>{t("models.noSpaces")}</Empty>
+      ) : (
+        <Table>
+          <thead>
+            <tr>
+              <Th>{t("models.colModel")}</Th>
+              <Th>{t("models.colProgress")}</Th>
+              <Th>{t("models.colStatus")}</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {spaces.data.map((s) => (
+              <tr key={s.id}>
+                <Td>
+                  <div className="font-mono text-sm">{s.model}</div>
+                  <div className="text-sm text-ink-muted">{t("models.dimensions", { dim: s.dim })}</div>
+                </Td>
+                <Td>
+                  <progress
+                    className="h-2 w-full max-w-48 accent-accent"
+                    value={s.done}
+                    max={Math.max(s.total, 1)}
+                    aria-label={t("models.spaceProgress", { done: s.done, total: s.total })}
+                  />
+                  <div className="font-mono text-sm">
+                    {t("models.spaceProgress", { done: s.done, total: s.total })}
+                  </div>
+                  {s.error && <div className="text-sm text-danger">{s.error}</div>}
+                </Td>
+                <Td>
+                  {s.status === "active" ? (
+                    <Badge tone="supported">{t("models.spaceActive")}</Badge>
+                  ) : (
+                    <Badge tone="stale">{t("models.spaceBuilding")}</Badge>
+                  )}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+    </Sheet>
   );
 }

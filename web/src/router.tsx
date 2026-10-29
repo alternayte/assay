@@ -11,6 +11,7 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
+import { AskPage } from "@/routes/ask";
 import { ProfilePage } from "@/routes/profile";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
 import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
@@ -65,13 +66,8 @@ const authed = createRoute({
   },
 });
 
-const home = createRoute({
-  getParentRoute: () => authed,
-  path: "/",
-  beforeLoad: ({ context }) => {
-    throw redirect({ to: atLeast(context.me, "admin") ? "/settings/users" : "/profile" });
-  },
-});
+const home = createRoute({ getParentRoute: () => authed, path: "/", component: AskPage });
+const question = createRoute({ getParentRoute: () => authed, path: "/questions/$id", component: AskPage });
 
 const profile = createRoute({ getParentRoute: () => authed, path: "/profile", component: ProfilePage });
 
@@ -125,6 +121,7 @@ const routeTree = root.addChildren([
   reset,
   authed.addChildren([
     home,
+    question,
     profile,
     settings.addChildren([
       settingsIndex,

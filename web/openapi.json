@@ -1833,6 +1833,30 @@
             "readOnly": true,
             "type": "string"
           },
+          "spaces": {
+            "items": {
+              "$ref": "#/components/schemas/SpaceRecord"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "spaces"
+        ],
+        "type": "object"
+      },
+      "OutBody1": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OutBody1.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
           "checks": {
             "items": {
               "$ref": "#/components/schemas/Check"
@@ -2682,6 +2706,65 @@
         "required": [
           "kind",
           "baseUrl"
+        ],
+        "type": "object"
+      },
+      "SpaceRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "activatedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dim": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "done": {
+            "description": "Chunks with a vector.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "building",
+              "active"
+            ],
+            "type": "string"
+          },
+          "total": {
+            "description": "All chunks.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "model",
+          "dim",
+          "status",
+          "done",
+          "total",
+          "error",
+          "createdAt",
+          "activatedAt"
         ],
         "type": "object"
       },
@@ -4131,7 +4214,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/OutBody"
+                  "$ref": "#/components/schemas/OutBody1"
                 }
               }
             },
@@ -5128,6 +5211,38 @@
           }
         },
         "summary": "Change a model function",
+        "tags": [
+          "models"
+        ]
+      }
+    },
+    "/api/v1/models/spaces": {
+      "get": {
+        "description": "The active space serves search. A building space fills with vectors of a new embed model, then becomes active.",
+        "operationId": "listEmbeddingSpaces",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the embedding spaces",
         "tags": [
           "models"
         ]

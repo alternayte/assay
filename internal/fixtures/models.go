@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,7 +168,7 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
 		f := m.chat
 		m.mu.Unlock()
-		content := "This is a fake answer."
+		content := fakeContent(body)
 		if f != nil {
 			content = f(body)
 		}
@@ -184,6 +185,45 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": map[string]any{"message": "not found"}})
 	}
+}
+
+var (
+	contextSource = regexp.MustCompile(`(?s)<source id="(S\d+)"[^>]*>\n(.*?)\n</source>`)
+	contextClaim  = regexp.MustCompile(`<claim id="(C\d+)">([^<]*)</claim>`)
+	markdownMark  = regexp.MustCompile("[#*_`>|\\[\\]]+")
+)
+
+// fakeContent is the default chat reply. For an Ask context it cites the
+// first sentence of the first two sources and the first claim. Otherwise it
+// is a fixed text.
+func fakeContent(body map[string]any) string {
+	msgs, _ := body["messages"].([]any)
+	var user string
+	for _, m := range msgs {
+		if mm, ok := m.(map[string]any); ok && mm["role"] == "user" {
+			user, _ = mm["content"].(string)
+		}
+	}
+	var parts []string
+	for _, m := range contextSource.FindAllStringSubmatch(user, 2) {
+		text := strings.Join(strings.Fields(markdownMark.ReplaceAllString(m[2], " ")), " ")
+		if i := strings.IndexAny(text, ".!?"); i > 0 {
+			text = text[:i]
+		}
+		if words := strings.Fields(text); len(words) > 20 {
+			text = strings.Join(words[:20], " ")
+		}
+		if text != "" {
+			parts = append(parts, "The source says: "+text+" ["+m[1]+"].")
+		}
+	}
+	if m := contextClaim.FindStringSubmatch(user); m != nil {
+		parts = append(parts, "The record states: "+strings.TrimSpace(m[2])+" ["+m[1]+"].")
+	}
+	if len(parts) == 0 {
+		return "This is a fake answer."
+	}
+	return strings.Join(parts, " ")
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

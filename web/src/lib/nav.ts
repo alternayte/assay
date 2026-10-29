@@ -6,6 +6,7 @@ export type NavItem = { to: string; label: CopyKey; role: Role; group: "pages" |
 
 /** Every route that the shell and the palette can reach, with its role. */
 export const navItems: NavItem[] = [
+  { to: "/", label: "nav.ask", role: "member", group: "pages" },
   { to: "/settings/users", label: "settings.title", role: "admin", group: "pages" },
   { to: "/profile", label: "nav.profile", role: "member", group: "pages" },
   { to: "/settings/users", label: "settings.users", role: "admin", group: "settings" },

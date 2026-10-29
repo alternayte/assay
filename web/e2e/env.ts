@@ -54,7 +54,7 @@ export async function acceptInvite(page: Page, link: string, who: { name: string
   await page.getByLabel("Your name").fill(who.name);
   await page.getByLabel("Password").fill(who.password);
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/\/profile|\/settings/);
+  await expect(page.getByRole("heading", { name: "Ask", level: 1 })).toBeVisible();
 }
 
 /** The fixture server as the Assay container reaches it. */

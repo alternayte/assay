@@ -293,6 +293,46 @@ func (g *Gateway) Register(a huma.API) {
 		}
 		return &statusOut{Body: *st}, nil
 	})
+	g.registerSpaces(a)
+}
+
+// SpaceRecord is an embedding space with its progress.
+type SpaceRecord struct {
+	ID          int64      `json:"id"`
+	Model       string     `json:"model"`
+	Dim         int32      `json:"dim"`
+	Status      string     `json:"status" enum:"building,active"`
+	Done        int32      `json:"done" doc:"Chunks with a vector."`
+	Total       int32      `json:"total" doc:"All chunks."`
+	Error       string     `json:"error"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ActivatedAt *time.Time `json:"activatedAt"`
+}
+
+func (g *Gateway) registerSpaces(a huma.API) {
+	type out struct {
+		Body struct {
+			Spaces []SpaceRecord `json:"spaces"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "listEmbeddingSpaces", Method: http.MethodGet, Path: "/api/v1/models/spaces", Tags: []string{"models"},
+		Summary:     "List the embedding spaces",
+		Description: "The active space serves search. A building space fills with vectors of a new embed model, then becomes active.",
+		Middlewares: huma.Middlewares{api.Require(auth.RoleAdmin)},
+	}, func(ctx context.Context, _ *struct{}) (*out, error) {
+		rows, err := New(g.Pool).ListSpaces(ctx)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		o := &out{}
+		o.Body.Spaces = []SpaceRecord{}
+		for _, r := range rows {
+			o.Body.Spaces = append(o.Body.Spaces, SpaceRecord{ID: r.ID, Model: r.Model, Dim: r.Dim, Status: r.Status, Done: r.Done,
+				Total: r.Total, Error: r.Error, CreatedAt: r.CreatedAt, ActivatedAt: r.ActivatedAt})
+		}
+		return o, nil
+	})
 }
 
 // Status lists the functions that are off or over budget.

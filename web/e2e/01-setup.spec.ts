@@ -12,7 +12,8 @@ test("SCN-USR-001 setup creates the first admin once", async ({ page, request })
 
   await page.getByLabel("Setup token").fill(setupToken);
   await page.getByRole("button", { name: "Create admin account" }).click();
-  await expect(page).toHaveURL(/\/settings\/users/);
+  await expect(page.getByRole("heading", { name: "Ask", level: 1 })).toBeVisible();
+  await page.goto("/settings/users");
   await expect(page.getByRole("cell", { name: /Olive Owner/ })).toBeVisible();
 
   const res = await request.get("/setup");

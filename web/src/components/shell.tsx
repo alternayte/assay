@@ -68,6 +68,9 @@ export function Shell() {
             <span>{t("app.name")}</span>
           </Link>
           <nav aria-label={t("nav.label")} className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            <Link to="/" className={navLink} activeOptions={{ exact: true, includeSearch: false }}>
+              {t("nav.ask")}
+            </Link>
             {atLeast(me, "admin") && (
               <Link to="/settings/users" className={navLink} activeOptions={{ includeSearch: false }}>
                 {t("nav.settings")}

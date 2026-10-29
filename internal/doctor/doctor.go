@@ -20,6 +20,7 @@ import (
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/secrets"
+	syncer "github.com/alternayte/assay/internal/sync"
 )
 
 // Check is the result of one check.
@@ -34,6 +35,7 @@ type Doctor struct {
 	Pool     *pgxpool.Pool
 	Secrets  *secrets.Store
 	Models   *models.Gateway
+	Sync     *syncer.Service
 	Outbound outbound.Settings
 }
 
@@ -98,6 +100,14 @@ func (d *Doctor) Run(ctx context.Context) []Check {
 		n, err := d.Models.Reach(cctx, e.ID)
 		cancel()
 		add("Endpoint "+e.Name, err, fmt.Sprintf("%s answers and lists %d models", e.BaseURL, n))
+	}
+
+	conns, err := d.Sync.ReachAll(ctx)
+	if err != nil {
+		add("Connections", err, "")
+	}
+	for _, c := range conns {
+		add("Connection "+c.Name, c.Err, fmt.Sprintf("%s answers for %s with %d items in scope", c.BaseURL, c.Result.User, c.Result.Sample))
 	}
 	return out
 }

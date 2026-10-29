@@ -171,3 +171,43 @@ func sourceError(err error) string {
 	}
 	return err.Error()
 }
+
+// Reach is the result of a reachability check of one connection.
+type Reach struct {
+	Name    string
+	BaseURL string
+	Result  connectors.Validation
+	Err     error
+}
+
+// ReachAll tests each connection except the registry: reachability, TLS
+// and the token.
+func (s *Service) ReachAll(ctx context.Context) ([]Reach, error) {
+	rows, err := New(s.Pool).ListConnections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []Reach
+	for _, r := range rows {
+		if r.Kind == "registry" {
+			continue
+		}
+		c := Connection{ID: r.ID, Kind: r.Kind, BaseUrl: r.BaseUrl, SecretID: r.SecretID, Scope: r.Scope, Options: r.Options,
+			RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond}
+		res := Reach{Name: r.Name, BaseURL: r.BaseUrl}
+		src, err := s.sourceOf(ctx, c)
+		if err == nil {
+			var k connectors.Connector
+			if k, err = s.open(ctx, src); err == nil {
+				cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				res.Result, err = k.Validate(cctx)
+				cancel()
+			}
+		}
+		if err != nil {
+			res.Err = errors.New(sourceError(err))
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}

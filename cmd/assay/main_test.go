@@ -103,6 +103,9 @@ func TestSCN_INS_007_Doctor(t *testing.T) {
 	_, openaiURL, _ := testkit.FakeModels(t)
 	testkit.CreateEndpoint(t, admin, "Reachable", "openai", openaiURL, fixtures.FakeKey, nil)
 	testkit.CreateEndpoint(t, admin, "Unreachable", "openai", "http://127.0.0.1:1/v1", "", nil)
+	_, sources := testkit.FakeSources(t)
+	testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: sources,
+		Scope: map[string]any{"spaces": []string{"ENG"}}})
 
 	env := []string{
 		"ASSAY_DATABASE_URL=" + db,
@@ -114,7 +117,8 @@ func TestSCN_INS_007_Doctor(t *testing.T) {
 		t.Fatalf("doctor exits 0 with an unreachable endpoint:\n%s", out.String())
 	}
 	text := out.String()
-	for _, want := range []string{"PASS  Database version", "PASS  Database extensions", "PASS  Secret key", "PASS  Endpoint Reachable", "FAIL  Endpoint Unreachable"} {
+	for _, want := range []string{"PASS  Database version", "PASS  Database extensions", "PASS  Secret key", "PASS  Endpoint Reachable", "FAIL  Endpoint Unreachable",
+		"PASS  Connection acme-public"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("doctor output lacks %q:\n%s", want, text)
 		}
@@ -133,7 +137,7 @@ func TestSCN_INS_007_Doctor(t *testing.T) {
 		} `json:"checks"`
 	}
 	admin.Must(http.StatusOK, http.MethodPost, "/api/v1/diagnostics", nil).JSON(t, &api)
-	if api.OK || len(api.Checks) < 6 {
+	if api.OK || len(api.Checks) < 8 {
 		t.Fatalf("diagnostics route: %+v", api)
 	}
 }

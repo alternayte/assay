@@ -4,6 +4,8 @@ package connectors
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -197,7 +199,7 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	req.Header.Set("Accept", accept)
 	resp, err := c.Do(req)
 	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) {
+		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) || isCertificate(err) {
 			return nil, -1, err
 		}
 		return nil, 0, err
@@ -227,6 +229,15 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		req.Header.Set("Authorization", c.auth)
 	}
 	return c.http.Do(req)
+}
+
+// isCertificate reports a TLS certificate error. A retry cannot fix it.
+func isCertificate(err error) bool {
+	var verify *tls.CertificateVerificationError
+	var unknown x509.UnknownAuthorityError
+	var host x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	return errors.As(err, &verify) || errors.As(err, &unknown) || errors.As(err, &host) || errors.As(err, &invalid)
 }
 
 func retryAfter(v string) time.Duration {

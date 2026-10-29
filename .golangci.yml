@@ -1,0 +1,24 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+    - misspell
+    - nilerr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+  settings:
+    gosec:
+      excludes:
+        - G104
+  exclusions:
+    generated: strict
+    rules:
+      - path: _test\.go
+        linters: [gosec, noctx]

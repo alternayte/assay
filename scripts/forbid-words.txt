@@ -1,0 +1,12 @@
+TODO
+FIXME
+XXX
+HACK
+not implemented
+Not implemented
+unimplemented
+Unimplemented
+t.Skip
+test.skip
+test.only
+.only(

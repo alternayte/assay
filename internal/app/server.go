@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/users"
 )
 
 // Server is one Assay process.
@@ -22,36 +23,57 @@ type Server struct {
 	log     *slog.Logger
 	pool    *pgxpool.Pool
 	auth    *auth.Auth
+	users   *users.Service
 	handler http.Handler
+	now     func() time.Time
 }
 
 // Options change defaults for tests.
 type Options struct {
 	Auth auth.Options
+	// Now is the clock. Nil means time.Now.
+	Now func() time.Time
 }
 
-// New connects to the database, applies the migrations and builds the HTTP
-// handler.
-func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Server, error) {
+// Open connects to the database, builds auth-all and applies the
+// migrations.
+func Open(ctx context.Context, cfg Config, log *slog.Logger, opts auth.Options) (*pgxpool.Pool, *auth.Auth, error) {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("database: %w", err)
+		return nil, nil, fmt.Errorf("database: %w", err)
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("database: %w", err)
+		return nil, nil, fmt.Errorf("database: %w", err)
 	}
-	a, err := auth.New(pool, cfg.BaseURL, log, opts.Auth)
+	a, err := auth.New(pool, cfg.BaseURL, log, opts)
+	if err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
+	if err := Migrate(ctx, pool, a, log); err != nil {
+		pool.Close()
+		return nil, nil, err
+	}
+	return pool, a, nil
+}
+
+// New opens the database and builds the HTTP handler.
+func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Server, error) {
+	pool, a, err := Open(ctx, cfg, log, opts.Auth)
+	if err != nil {
+		return nil, err
+	}
+	s := &Server{cfg: cfg, log: log, pool: pool, auth: a, now: opts.Now}
+	if s.now == nil {
+		s.now = time.Now
+	}
+	h, err := s.routes()
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	if err := Migrate(ctx, pool, a, log); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	s := &Server{cfg: cfg, log: log, pool: pool, auth: a}
-	s.handler = s.routes()
+	s.handler = h
 	return s, nil
 }
 
@@ -64,7 +86,7 @@ func (s *Server) Pool() *pgxpool.Pool { return s.pool }
 // Close releases the database pool.
 func (s *Server) Close() { s.pool.Close() }
 
-func (s *Server) routes() http.Handler {
+func (s *Server) routes() (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -72,7 +94,20 @@ func (s *Server) routes() http.Handler {
 	})
 	r.Get("/readyz", s.ready)
 	r.Handle("/metrics", promhttp.Handler())
-	return r
+	r.Handle(s.auth.BasePath()+"/*", s.authHandler())
+
+	var apiErr error
+	r.Group(func(g chi.Router) {
+		g.Use(s.auth.LoadSession)
+		a, err := s.newAPI(g)
+		if err != nil {
+			apiErr = err
+			return
+		}
+		s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now}
+		s.users.Register(a)
+	})
+	return r, apiErr
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {

@@ -23,7 +23,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: testreport <report.json>")
 		os.Exit(2)
 	}
-	f, err := os.Open(os.Args[1]) //nolint:gosec // The path is the command argument.
+	f, err := os.Open(os.Args[1])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

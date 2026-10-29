@@ -1,0 +1,36 @@
+version: "2"
+sql:
+  - &pkg
+    engine: postgresql
+    schema: [internal/auth/schema, internal/app/migrations]
+    queries: internal/audit/queries.sql
+    gen:
+      go: &go
+        package: audit
+        out: internal/audit
+        sql_package: pgx/v5
+        output_db_file_name: db.gen.go
+        output_models_file_name: models.gen.go
+        output_files_suffix: .gen
+        omit_unused_structs: true
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: uuid
+            go_type: string
+          - db_type: uuid
+            nullable: true
+            go_type: {type: string, pointer: true}
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type: {type: time.Time, pointer: true}
+          - db_type: jsonb
+            go_type: encoding/json.RawMessage
+  - <<: *pkg
+    queries: internal/users/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: users
+        out: internal/users

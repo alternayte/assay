@@ -171,13 +171,16 @@ func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow
 }
 
 const claimsInUse = `-- name: ClaimsInUse :many
-SELECT DISTINCT x.id::bigint AS id
+SELECT x.id::bigint AS id
 FROM questions q
 CROSS JOIN LATERAL jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
 WHERE q.created_at >= $1
+UNION
+SELECT unnest(p.claim_ids)::bigint AS id FROM pages p WHERE p.state = 'fresh'
 `
 
-// Claims in the context of answers since a time.
+// Claims in the context of answers since a time, and in the input of fresh
+// page summaries.
 func (q *Queries) ClaimsInUse(ctx context.Context, since time.Time) ([]int64, error) {
 	rows, err := q.db.Query(ctx, claimsInUse, since)
 	if err != nil {

@@ -31,6 +31,26 @@ SELECT c.id, p.connection_id, p.item_id, p.hash, 'passage', $2, 'confluence' FRO
 }
 
 func TestSCN_RES_008_StaleEvidenceMovesOnHigh(t *testing.T) {
+	// A claim is in use when an answer of the last 30 days or a fresh page
+	// has it in its input.
+	t.Run("answer", func(t *testing.T) {
+		staleEvidenceMoves(t, func(w *world, moved, kept int64) {
+			w.exec(t, `INSERT INTO questions (user_id, text, flags) SELECT id, 'When do reminders go out?', $1::jsonb FROM auth_users LIMIT 1`,
+				fmt.Sprintf(`{"claimIds":[%d,%d]}`, moved, kept))
+		})
+	})
+	t.Run("page", func(t *testing.T) {
+		staleEvidenceMoves(t, func(w *world, moved, kept int64) {
+			w.exec(t, `INSERT INTO pages (entity_id, visibility_key, connections, claim_set_hash, claim_ids, state)
+SELECT subject_id, '\x01', '{}', '\x01', $1, 'fresh' FROM claims WHERE id = $2`, []int64{moved, kept}, moved)
+			// A page that needs an edit does not use its claims.
+			w.exec(t, `INSERT INTO pages (entity_id, visibility_key, connections, claim_set_hash, claim_ids, state)
+SELECT subject_id, '\x02', '{}', '\x02', $1, 'needs_edit' FROM claims WHERE id = $2`, []int64{moved, kept}, moved)
+		})
+	})
+}
+
+func staleEvidenceMoves(t *testing.T, use func(w *world, moved, kept int64)) {
 	w := start(t)
 	ctx := context.Background()
 	page := fixtures.Page{ID: "1099", Space: "ENG", Title: "Reminder timing", Author: "jo.acme",
@@ -48,8 +68,7 @@ func TestSCN_RES_008_StaleEvidenceMovesOnHigh(t *testing.T) {
 	moved := w.stated(t, "sends a reminder after seven days", "The reminder service sends a reminder after seven days.")
 	kept := w.stated(t, "runs at 06:00 UTC", "The reminder service runs at 06:00 UTC.")
 	unused := w.stated(t, "sends reminders", "The reminder service sends a reminder")
-	w.exec(t, `INSERT INTO questions (user_id, text, flags) SELECT id, 'When do reminders go out?', $1::jsonb FROM auth_users LIMIT 1`,
-		fmt.Sprintf(`{"claimIds":[%d,%d]}`, moved, kept))
+	use(w, moved, kept)
 
 	page.Body = "<p>The reminder service sends a reminder after seven days and a second one after fourteen days.</p>" +
 		"<p>The reminder service runs at 07:00 UTC.</p>"

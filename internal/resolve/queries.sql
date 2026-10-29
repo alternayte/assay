@@ -280,11 +280,14 @@ INSERT INTO text_equivalence (a_norm, b_norm, equivalent, decision_id) VALUES (@
 ON CONFLICT (a_norm, b_norm) DO NOTHING;
 
 -- name: ClaimsInUse :many
--- Claims in the context of answers since a time.
-SELECT DISTINCT x.id::bigint AS id
+-- Claims in the context of answers since a time, and in the input of fresh
+-- page summaries.
+SELECT x.id::bigint AS id
 FROM questions q
 CROSS JOIN LATERAL jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
-WHERE q.created_at >= @since;
+WHERE q.created_at >= @since
+UNION
+SELECT unnest(p.claim_ids)::bigint AS id FROM pages p WHERE p.state = 'fresh';
 
 -- name: StaleEvidence :many
 -- Stale passage evidence of the claims, with the claim and the most similar

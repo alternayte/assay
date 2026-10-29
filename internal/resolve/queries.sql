@@ -335,3 +335,13 @@ SELECT DISTINCT a.alias_norm FROM entity_aliases a WHERE a.alias_norm = ANY(@for
 
 -- name: PhraseDecided :one
 SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = 'term_worthy' AND subject_refs @> @refs::text[])::boolean;
+
+-- name: EvalDecisions :many
+-- Decisions with a band of the kinds, for the evaluation report.
+SELECT d.id, d.kind, d.subject_refs, d.probs, d.band::text AS band FROM decisions d
+WHERE d.kind = ANY(@kinds::text[]) AND d.band IS NOT NULL
+ORDER BY d.id;
+
+-- name: ItemExternalIDs :many
+-- vis:system
+SELECT id, external_id FROM source_items WHERE id = ANY(@ids::bigint[]);

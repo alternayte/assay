@@ -192,6 +192,10 @@ func unnamedKey(target string) string {
 	return "registry:unnamed:" + hex.EncodeToString(h[:8])
 }
 
+// mentionRef names the mention of a decision, so the evaluation can match
+// it with the corpus labels.
+func mentionRef(m string) string { return "mention:" + entities.NormalizeAlias(m) }
+
 func passageRef(r PendingMentionsRow) string {
 	return fmt.Sprintf("passage:%d:%x", r.ItemID, r.PassageHash)
 }
@@ -204,7 +208,7 @@ func (s *Service) describe(ctx context.Context, r PendingMentionsRow, target str
 	var best *Decided
 	var bestConns []int64
 	for _, c := range cands {
-		q := Question{Kind: KindDescribes, Refs: []string{c.Key, passageRef(r)}, Connections: append(slices.Clone(c.Connections), r.ConnectionID),
+		q := Question{Kind: KindDescribes, Refs: []string{c.Key, passageRef(r), mentionRef(pl.Mention.Value)}, Connections: append(slices.Clone(c.Connections), r.ConnectionID),
 			Reasons: []string{fmt.Sprintf("word similarity %.2f", c.Score)},
 			Request: models.DecisionRequest{Type: models.YesNo, Instructions: DescribesInstructions,
 				Yes: "The description refers to the candidate.", No: "The description refers to another thing.",
@@ -276,7 +280,7 @@ func (s *Service) linkName(ctx context.Context, r PendingMentionsRow, target str
 	if len(byOption) == 0 {
 		return nil
 	}
-	d, err := s.ask(ctx, Question{Kind: KindMentionLink, Refs: append(refs, passageRef(r)), Connections: conns,
+	d, err := s.ask(ctx, Question{Kind: KindMentionLink, Refs: append(refs, passageRef(r), mentionRef(pl.Mention.Value)), Connections: conns,
 		Reasons: []string{fmt.Sprintf("%d records have the name or a similar alias", len(byOption))},
 		Request: models.DecisionRequest{Type: models.Choice, Instructions: MentionLinkInstructions, Options: options,
 			State: map[string]any{"name": pl.Mention.Value, "passage": cut(r.Norm, MentionPassageTokens)}}})

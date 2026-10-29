@@ -13,5 +13,11 @@
     {"a": "backstage:component:default/reminder-service", "b": "backstage:component:default/ledger-service"},
     {"a": "backstage:component:default/peer-review-service", "b": "backstage:component:default/reminder-service"},
     {"a": "jira:{host}:user:jo.acme", "b": "jira:{host}:user:sam.acme"}
+  ],
+  "links": [
+    {"item": "1007", "mention": "the service that sends reminder emails", "entity": "backstage:component:default/reminder-service"}
+  ],
+  "unnamed": [
+    {"item": "1007", "mention": "the job that exports overdue reviews"}
   ]
 }

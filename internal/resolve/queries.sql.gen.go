@@ -446,6 +446,47 @@ func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]Entit
 	return items, nil
 }
 
+const evalDecisions = `-- name: EvalDecisions :many
+SELECT d.id, d.kind, d.subject_refs, d.probs, d.band::text AS band FROM decisions d
+WHERE d.kind = ANY($1::text[]) AND d.band IS NOT NULL
+ORDER BY d.id
+`
+
+type EvalDecisionsRow struct {
+	ID          int64
+	Kind        string
+	SubjectRefs []string
+	Probs       json.RawMessage
+	Band        string
+}
+
+// Decisions with a band of the kinds, for the evaluation report.
+func (q *Queries) EvalDecisions(ctx context.Context, kinds []string) ([]EvalDecisionsRow, error) {
+	rows, err := q.db.Query(ctx, evalDecisions, kinds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvalDecisionsRow
+	for rows.Next() {
+		var i EvalDecisionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.SubjectRefs,
+			&i.Probs,
+			&i.Band,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const everyoneConnections = `-- name: EveryoneConnections :many
 SELECT c.id FROM connections c
 WHERE c.kind = 'registry'
@@ -602,6 +643,36 @@ func (q *Queries) InsertProposedEntity(ctx context.Context, arg InsertProposedEn
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const itemExternalIDs = `-- name: ItemExternalIDs :many
+SELECT id, external_id FROM source_items WHERE id = ANY($1::bigint[])
+`
+
+type ItemExternalIDsRow struct {
+	ID         int64
+	ExternalID string
+}
+
+// vis:system
+func (q *Queries) ItemExternalIDs(ctx context.Context, ids []int64) ([]ItemExternalIDsRow, error) {
+	rows, err := q.db.Query(ctx, itemExternalIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemExternalIDsRow
+	for rows.Next() {
+		var i ItemExternalIDsRow
+		if err := rows.Scan(&i.ID, &i.ExternalID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const knownAliases = `-- name: KnownAliases :many

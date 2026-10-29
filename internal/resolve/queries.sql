@@ -83,3 +83,102 @@ GROUP BY 1, 2;
 
 -- name: Verdicts :many
 SELECT a_id, b_id FROM pair_verdicts WHERE kind = @kind;
+
+-- name: GetCalibration :one
+SELECT kind, bins, reviewed, auto_apply FROM calibration WHERE kind = @kind;
+
+-- name: ListCalibration :many
+SELECT kind, bins, reviewed, auto_apply, updated_at FROM calibration ORDER BY kind;
+
+-- name: ReviewedOutcomes :many
+-- Reviewed outcomes of a kind, newest first. An undone auto-apply counts
+-- as a rejection.
+SELECT raw_p::float8 AS raw_p, band::text AS band, outcome = 'accepted' AS accepted
+FROM decisions
+WHERE kind = @kind AND outcome IN ('accepted', 'rejected', 'undone') AND raw_p IS NOT NULL AND band IS NOT NULL
+ORDER BY reviewed_at DESC NULLS LAST, id DESC;
+
+-- name: UpsertCalibration :one
+INSERT INTO calibration (kind, bins, reviewed, high_precision, updated_at)
+VALUES (@kind, @bins, @reviewed, @high_precision, now())
+ON CONFLICT (kind) DO UPDATE SET bins = EXCLUDED.bins, reviewed = EXCLUDED.reviewed,
+    high_precision = EXCLUDED.high_precision, updated_at = now()
+RETURNING auto_apply;
+
+-- name: SetAutoApply :exec
+INSERT INTO calibration (kind, auto_apply) VALUES (@kind, @auto_apply)
+ON CONFLICT (kind) DO UPDATE SET auto_apply = EXCLUDED.auto_apply, updated_at = now();
+
+-- name: InsertDecision :one
+INSERT INTO decisions (kind, subject_refs, input_hash, model, probs, raw_p, band, connections, outcome, reasons, at)
+VALUES (@kind, @subject_refs, @input_hash, @model, @probs, @raw_p, @band, @connections, @outcome, @reasons, @at)
+RETURNING id;
+
+-- name: DecidedInput :one
+-- Whether a decision of the same kind and input exists.
+SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = @kind AND input_hash = @input_hash)::boolean;
+
+-- name: OpenPairCard :one
+SELECT EXISTS (SELECT 1 FROM proposals p JOIN decisions d ON d.id = p.decision_id
+               WHERE p.status = 'open' AND p.kind = 'merge' AND d.subject_refs @> @refs::text[])::boolean;
+
+-- name: InsertDecisionCard :one
+INSERT INTO proposals (kind, target, payload, via, connections, decision_id)
+VALUES (@kind, @target, @payload, 'system', @connections, @decision_id)
+RETURNING id;
+
+-- name: VisibleCards :many
+-- Open cards whose inputs are all visible (SI-18, REQ-REV-002).
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.connections <@ @visible::bigint[]
+  AND (sqlc.narg(kind)::text IS NULL OR p.kind = sqlc.narg(kind))
+ORDER BY p.id
+LIMIT @lim;
+
+-- name: CardForUpdate :one
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, d.subject_refs, d.kind AS decision_kind
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.id = @id
+FOR UPDATE OF p;
+
+-- name: DecideCard :exec
+UPDATE proposals SET status = @status, reviewer_id = @reviewer_id, reason = @reason, decided_at = @decided_at WHERE id = @id;
+
+-- name: SetOutcome :exec
+UPDATE decisions SET outcome = @outcome, reviewed_at = @reviewed_at WHERE id = @id;
+
+-- name: AddVerdict :exec
+INSERT INTO pair_verdicts (a_id, b_id, kind, verdict, by)
+VALUES (least(@x::bigint, @y::bigint), greatest(@x::bigint, @y::bigint), @kind, @verdict, @by)
+ON CONFLICT (a_id, b_id, kind) DO UPDATE SET verdict = EXCLUDED.verdict, by = EXCLUDED.by, at = now();
+
+-- name: VisibleDecisions :many
+-- Decisions with an outcome whose inputs are all visible, newest first.
+SELECT d.id, d.kind, d.subject_refs, d.raw_p, d.band, d.outcome, d.reasons, d.at, d.reviewed_at
+FROM decisions d
+WHERE d.outcome = @outcome AND d.connections <@ @visible::bigint[]
+ORDER BY d.at DESC, d.id DESC
+LIMIT @lim;
+
+-- name: DecisionForUpdate :one
+SELECT id, kind, outcome, connections, subject_refs, merge_id FROM decisions WHERE id = @id FOR UPDATE;
+
+-- name: SetDecisionMerge :exec
+UPDATE decisions SET merge_id = @merge_id WHERE id = @id;
+
+-- name: EntityRefs :many
+-- Keys, types and display names of entities that are visible.
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+FROM entities e
+WHERE e.key = ANY(@keys::text[])
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY(@visible::bigint[]));
+
+-- name: SourcesOfKeys :many
+SELECT id FROM entities WHERE key = ANY(@keys::text[]) ORDER BY id;
+
+-- name: ProfilesOf :many
+SELECT p.entity_id, e.key, p.text, p.connections FROM entity_profiles p JOIN entities e ON e.id = p.entity_id
+WHERE p.entity_id = ANY(@ids::bigint[]);

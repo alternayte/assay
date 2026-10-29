@@ -25,7 +25,8 @@ CREATE TABLE decisions (
     outcome text NOT NULL DEFAULT 'open' CHECK (outcome IN ('open', 'accepted', 'rejected', 'auto', 'undone')),
     reasons jsonb NOT NULL DEFAULT '[]',
     at timestamptz NOT NULL DEFAULT now(),
-    reviewed_at timestamptz
+    reviewed_at timestamptz,
+    merge_id bigint REFERENCES merges (id) ON DELETE SET NULL
 );
 CREATE INDEX decisions_kind ON decisions (kind, outcome, reviewed_at);
 CREATE INDEX decisions_input ON decisions (kind, input_hash);

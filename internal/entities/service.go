@@ -309,6 +309,15 @@ type MergeRequest struct {
 // is the registry entity when one exists, else the oldest (REQ-RES-010).
 // All entities must be visible to the reviewer.
 func (s *Service) Merge(ctx context.Context, vis visibility.Set, r MergeRequest) (mergeID int64, winnerKey string, err error) {
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		mergeID, winnerKey, err = s.MergeTx(ctx, tx, vis, r)
+		return err
+	})
+	return mergeID, winnerKey, err
+}
+
+// MergeTx merges in the transaction tx.
+func (s *Service) MergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, r MergeRequest) (int64, string, error) {
 	if len(r.Keys) < 2 {
 		return 0, "", errors.New("entities: a merge needs two entities or more")
 	}
@@ -325,51 +334,52 @@ func (s *Service) Merge(ctx context.Context, vis visibility.Set, r MergeRequest)
 	if len(ids) < 2 {
 		return 0, "", errors.New("entities: the entities are already one")
 	}
-	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		q := New(tx)
-		reg, err := q.HasRegistrySource(ctx, HasRegistrySourceParams{Ids: ids, Visible: vis})
-		if err != nil {
-			return err
+	return s.mergeTx(ctx, tx, vis, ids, r)
+}
+
+func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, ids []int64, r MergeRequest) (int64, string, error) {
+	q := New(tx)
+	reg, err := q.HasRegistrySource(ctx, HasRegistrySourceParams{Ids: ids, Visible: vis})
+	if err != nil {
+		return 0, "", err
+	}
+	rows, err := q.GetEntitiesByID(ctx, ids)
+	if err != nil {
+		return 0, "", err
+	}
+	slices.SortFunc(rows, func(a, b GetEntitiesByIDRow) int {
+		ar, br := slices.Contains(reg, a.ID), slices.Contains(reg, b.ID)
+		if ar != br {
+			return boolFirst(ar)
 		}
-		rows, err := q.GetEntitiesByID(ctx, ids)
-		if err != nil {
-			return err
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
 		}
-		slices.SortFunc(rows, func(a, b GetEntitiesByIDRow) int {
-			ar, br := slices.Contains(reg, a.ID), slices.Contains(reg, b.ID)
-			if ar != br {
-				return boolFirst(ar)
-			}
-			if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
-				return c
-			}
-			return int(a.ID - b.ID)
-		})
-		winner := rows[0]
-		losers := []int64{}
-		for _, e := range rows[1:] {
-			losers = append(losers, e.ID)
-		}
-		canonical := strings.TrimSpace(r.Canonical)
-		var by *string
-		if r.By != "" {
-			by = &r.By
-		}
-		if mergeID, err = q.InsertMerge(ctx, InsertMergeParams{WinnerID: winner.ID, LoserIds: losers, CanonicalName: canonical,
-			By: by, Auto: r.Auto}); err != nil {
-			return err
-		}
-		if err := q.RepointMerged(ctx, RepointMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
-			return err
-		}
-		if err := q.MarkMerged(ctx, MarkMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
-			return err
-		}
-		winnerKey = winner.Key
-		return audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
-			Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto}})
+		return int(a.ID - b.ID)
 	})
-	return mergeID, winnerKey, err
+	winner := rows[0]
+	losers := []int64{}
+	for _, e := range rows[1:] {
+		losers = append(losers, e.ID)
+	}
+	canonical := strings.TrimSpace(r.Canonical)
+	var by *string
+	if r.By != "" {
+		by = &r.By
+	}
+	mergeID, err := q.InsertMerge(ctx, InsertMergeParams{WinnerID: winner.ID, LoserIds: losers, CanonicalName: canonical,
+		By: by, Auto: r.Auto})
+	if err != nil {
+		return 0, "", err
+	}
+	if err := q.RepointMerged(ctx, RepointMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
+		return 0, "", err
+	}
+	if err := q.MarkMerged(ctx, MarkMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
+		return 0, "", err
+	}
+	return mergeID, winner.Key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
+		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto}})
 }
 
 func boolFirst(b bool) int {
@@ -384,7 +394,12 @@ var ErrMergeUndone = errors.New("entities: the merge is already split")
 
 // Split undoes a merge: the losers become active again.
 func (s *Service) Split(ctx context.Context, mergeID int64) error {
-	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.SplitTx(ctx, tx, mergeID) })
+}
+
+// SplitTx splits a merge in the transaction tx.
+func (s *Service) SplitTx(ctx context.Context, tx pgx.Tx, mergeID int64) error {
+	{
 		q := New(tx)
 		m, err := q.GetMerge(ctx, mergeID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -405,7 +420,7 @@ func (s *Service) Split(ctx context.Context, mergeID int64) error {
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "entities.split", Target: fmt.Sprintf("merge:%d", mergeID),
 			Details: map[string]any{"winner": m.WinnerID, "losers": m.LoserIds}})
-	})
+	}
 }
 
 func ptr[T any](v T) *T { return &v }

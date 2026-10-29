@@ -163,6 +163,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calibration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the calibration of each decision kind
+         * @description Before 50 reviewed outcomes the default thresholds apply and calibrated is false.
+         */
+        get: operations["listCalibration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calibration/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Turn auto-apply of a decision kind on or off
+         * @description Auto-apply needs 50 reviewed outcomes and High precision of 0.95 or more over the last 200. Assay turns it off when precision drops.
+         */
+        put: operations["setAutoApply"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List open review cards
+         * @description A card shows only when all its inputs are visible to you.
+         */
+        get: operations["listCards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept a card
+         * @description A merge card merges its entities. The canonical name is optional.
+         */
+        post: operations["acceptCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a card
+         * @description A reason is required. A rejected merge card stores the verdict that the pair is not the same.
+         */
+        post: operations["rejectCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/claims/{id}/resolution": {
         parameters: {
             query?: never;
@@ -372,6 +472,46 @@ export interface paths {
         /** Share a connection with groups */
         put: operations["setConnectionVisibility"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List decisions by outcome
+         * @description outcome=auto lists the auto-applied decisions. A decision shows only when all its inputs are visible to you.
+         */
+        get: operations["listDecisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/decisions/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo an auto-applied decision
+         * @description An auto merge is split. Calibration counts the decision as rejected.
+         */
+        post: operations["undoDecision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1148,6 +1288,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AcceptInBody.json
+             */
+            readonly $schema?: string;
+            canonicalName?: string;
+        };
         AcceptInputBody: {
             /**
              * Format: uri
@@ -1209,6 +1358,59 @@ export interface components {
             mfaToken?: string;
             session: components["schemas"]["Session"];
             user: components["schemas"]["User"];
+        };
+        AutoInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AutoInBody.json
+             */
+            readonly $schema?: string;
+            autoApply: boolean;
+        };
+        Bin: {
+            /** Format: int64 */
+            accepted: number;
+            /** Format: int64 */
+            reviewed: number;
+        };
+        CalOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CalOutBody.json
+             */
+            readonly $schema?: string;
+            kinds: components["schemas"]["KindCalibration"][];
+        };
+        Card: {
+            /** @description Empty when the decide function was off. */
+            band?: string;
+            calibrated: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            decisionId?: number;
+            /** Format: int64 */
+            id: number;
+            kind: string;
+            /** Format: double */
+            p?: number;
+            payload: unknown;
+            /** @description The measured precision of the band. */
+            precision?: components["schemas"]["Precision"];
+            reasons: string[];
+            subjects: components["schemas"]["Subject"][];
+            target: string;
+        };
+        CardsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CardsOutBody.json
+             */
+            readonly $schema?: string;
+            cards: components["schemas"]["Card"][];
         };
         Change: {
             newValue: unknown;
@@ -1409,6 +1611,30 @@ export interface components {
             role: string;
             /** @description The invite link. It shows only once. */
             url: string;
+        };
+        DecisionView: {
+            /** Format: date-time */
+            at: string;
+            band?: string;
+            /** Format: int64 */
+            id: number;
+            kind: string;
+            outcome: string;
+            /** Format: double */
+            p?: number;
+            reasons: string[];
+            /** Format: date-time */
+            reviewedAt?: string;
+            subjects: components["schemas"]["Subject"][];
+        };
+        DecisionsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DecisionsOutBody.json
+             */
+            readonly $schema?: string;
+            decisions: components["schemas"]["DecisionView"][];
         };
         DeltaEvent: {
             text: string;
@@ -1738,6 +1964,24 @@ export interface components {
             /** @description The item in its source system. */
             url: string;
         };
+        KindCalibration: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/KindCalibration.json
+             */
+            readonly $schema?: string;
+            autoApply: boolean;
+            bins: components["schemas"]["Bin"][];
+            calibrated: boolean;
+            canAutoApply: boolean;
+            kind: string;
+            precision: {
+                [key: string]: components["schemas"]["Precision"];
+            };
+            /** Format: int64 */
+            reviewed: number;
+        };
         LinkOutputBody: {
             /**
              * Format: uri
@@ -1972,6 +2216,12 @@ export interface components {
             /** @description True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation. */
             paused: boolean;
         };
+        Precision: {
+            /** Format: int64 */
+            reviewed: number;
+            /** Format: double */
+            value: number;
+        };
         Predicate: {
             defaultPriority: string[];
             multi: boolean;
@@ -2024,6 +2274,15 @@ export interface components {
             /** Format: int64 */
             id: number;
             target: string;
+        };
+        RejectInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RejectInBody.json
+             */
+            readonly $schema?: string;
+            reason: string;
         };
         ResolveOutBody: {
             /**
@@ -2320,6 +2579,11 @@ export interface components {
              */
             readonly $schema?: string;
             required: boolean;
+        };
+        Subject: {
+            key: string;
+            name: string;
+            type: string;
         };
         SuccessResponse: {
             success: boolean;
@@ -2866,6 +3130,168 @@ export interface operations {
             };
         };
     };
+    listCalibration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setAutoApply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "same_entity" | "mention_link" | "describes" | "equivalent" | "still_supports" | "term_worthy";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AutoInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KindCalibration"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listCards: {
+        parameters: {
+            query?: {
+                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    acceptCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    rejectCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     resolveClaim: {
         parameters: {
             query?: never;
@@ -3324,6 +3750,67 @@ export interface operations {
                 "application/json": components["schemas"]["VisibilityInBody"];
             };
         };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDecisions: {
+        parameters: {
+            query?: {
+                outcome?: "open" | "accepted" | "rejected" | "auto" | "undone";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    undoDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description No Content */
             204: {

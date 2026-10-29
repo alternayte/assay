@@ -131,7 +131,7 @@ func (s *Server) services() error {
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
 	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
-	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Log: s.log, Now: s.now}
+	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
@@ -151,6 +151,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.ask.Register(a)
 	s.entities.Register(a)
 	s.extract.Register(a)
+	s.resolve.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 

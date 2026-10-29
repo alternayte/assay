@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
 )
 
@@ -23,10 +24,11 @@ const MaxProfileTokens = 1500
 
 // Service runs resolution.
 type Service struct {
-	Pool   *pgxpool.Pool
-	Models *models.Gateway
-	Log    *slog.Logger
-	Now    func() time.Time
+	Pool     *pgxpool.Pool
+	Models   *models.Gateway
+	Entities *entities.Service
+	Log      *slog.Logger
+	Now      func() time.Time
 }
 
 // ProfileText is the deterministic profile of an entity: display name,

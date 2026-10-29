@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "AcceptInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AcceptInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "canonicalName": {
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "AcceptInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -200,6 +219,155 @@
         "required": [
           "user",
           "session"
+        ],
+        "type": "object"
+      },
+      "AutoInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AutoInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "autoApply": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "autoApply"
+        ],
+        "type": "object"
+      },
+      "Bin": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reviewed": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reviewed",
+          "accepted"
+        ],
+        "type": "object"
+      },
+      "CalOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CalOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "$ref": "#/components/schemas/KindCalibration"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "kinds"
+        ],
+        "type": "object"
+      },
+      "Card": {
+        "additionalProperties": false,
+        "properties": {
+          "band": {
+            "description": "Empty when the decide function was off.",
+            "type": "string"
+          },
+          "calibrated": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decisionId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "p": {
+            "format": "double",
+            "type": "number"
+          },
+          "payload": {},
+          "precision": {
+            "$ref": "#/components/schemas/Precision",
+            "description": "The measured precision of the band."
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/Subject"
+            },
+            "type": "array"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "target",
+          "payload",
+          "calibrated",
+          "reasons",
+          "subjects",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "CardsOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CardsOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/Card"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cards"
         ],
         "type": "object"
       },
@@ -816,6 +984,81 @@
           "createdBy",
           "createdAt",
           "expiresAt"
+        ],
+        "type": "object"
+      },
+      "DecisionView": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "band": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "p": {
+            "format": "double",
+            "type": "number"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reviewedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "subjects": {
+            "items": {
+              "$ref": "#/components/schemas/Subject"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "outcome",
+          "reasons",
+          "subjects",
+          "at"
+        ],
+        "type": "object"
+      },
+      "DecisionsOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DecisionsOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionView"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "decisions"
         ],
         "type": "object"
       },
@@ -1757,6 +2000,58 @@
         ],
         "type": "object"
       },
+      "KindCalibration": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/KindCalibration.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "autoApply": {
+            "type": "boolean"
+          },
+          "bins": {
+            "items": {
+              "$ref": "#/components/schemas/Bin"
+            },
+            "type": "array"
+          },
+          "calibrated": {
+            "type": "boolean"
+          },
+          "canAutoApply": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "precision": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Precision"
+            },
+            "type": "object"
+          },
+          "reviewed": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "reviewed",
+          "calibrated",
+          "autoApply",
+          "canAutoApply",
+          "bins",
+          "precision"
+        ],
+        "type": "object"
+      },
       "LinkOutputBody": {
         "additionalProperties": false,
         "properties": {
@@ -2395,6 +2690,24 @@
         ],
         "type": "object"
       },
+      "Precision": {
+        "additionalProperties": false,
+        "properties": {
+          "reviewed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "reviewed",
+          "value"
+        ],
+        "type": "object"
+      },
       "Predicate": {
         "additionalProperties": false,
         "properties": {
@@ -2555,6 +2868,29 @@
           "action",
           "target",
           "details"
+        ],
+        "type": "object"
+      },
+      "RejectInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RejectInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -3409,6 +3745,26 @@
         },
         "required": [
           "required"
+        ],
+        "type": "object"
+      },
+      "Subject": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "type"
         ],
         "type": "object"
       },
@@ -4394,6 +4750,256 @@
         ]
       }
     },
+    "/api/v1/calibration": {
+      "get": {
+        "description": "Before 50 reviewed outcomes the default thresholds apply and calibrated is false.",
+        "operationId": "listCalibration",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the calibration of each decision kind",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/calibration/{kind}": {
+      "put": {
+        "description": "Auto-apply needs 50 reviewed outcomes and High precision of 0.95 or more over the last 200. Assay turns it off when precision drops.",
+        "operationId": "setAutoApply",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "same_entity",
+                "mention_link",
+                "describes",
+                "equivalent",
+                "still_supports",
+                "term_worthy"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutoInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KindCalibration"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Turn auto-apply of a decision kind on or off",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/cards": {
+      "get": {
+        "description": "A card shows only when all its inputs are visible to you.",
+        "operationId": "listCards",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "enum": [
+                "correction",
+                "finding",
+                "merge",
+                "mention_link",
+                "unnamed",
+                "new_term",
+                "term_edit",
+                "conflict",
+                "needs_edit",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 200,
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardsOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List open review cards",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/cards/{id}/accept": {
+      "post": {
+        "description": "A merge card merges its entities. The canonical name is optional.",
+        "operationId": "acceptCard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Accept a card",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/cards/{id}/reject": {
+      "post": {
+        "description": "A reason is required. A rejected merge card stores the verdict that the pair is not the same.",
+        "operationId": "rejectCard",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Reject a card",
+        "tags": [
+          "review"
+        ]
+      }
+    },
     "/api/v1/claims/{id}/resolution": {
       "post": {
         "description": "The other claims of the subject, predicate and scope become Superseded. New support for a loser reopens the resolution.",
@@ -5019,6 +5625,104 @@
         "summary": "Share a connection with groups",
         "tags": [
           "connections"
+        ]
+      }
+    },
+    "/api/v1/decisions": {
+      "get": {
+        "description": "outcome=auto lists the auto-applied decisions. A decision shows only when all its inputs are visible to you.",
+        "operationId": "listDecisions",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "default": "auto",
+              "enum": [
+                "open",
+                "accepted",
+                "rejected",
+                "auto",
+                "undone"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 200,
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionsOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List decisions by outcome",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/decisions/{id}/undo": {
+      "post": {
+        "description": "An auto merge is split. Calibration counts the decision as rejected.",
+        "operationId": "undoDecision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Undo an auto-applied decision",
+        "tags": [
+          "review"
         ]
       }
     },

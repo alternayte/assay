@@ -10,6 +10,8 @@
   "different": [
     {"a": "backstage:group:default/payments-team", "b": "backstage:group:default/platform-team"},
     {"a": "backstage:api:default/payments-rest", "b": "backstage:api:default/ledger-rest"},
-    {"a": "backstage:component:default/reminder-service", "b": "backstage:component:default/ledger-service"}
+    {"a": "backstage:component:default/reminder-service", "b": "backstage:component:default/ledger-service"},
+    {"a": "backstage:component:default/peer-review-service", "b": "backstage:component:default/reminder-service"},
+    {"a": "jira:{host}:user:jo.acme", "b": "jira:{host}:user:sam.acme"}
   ]
 }

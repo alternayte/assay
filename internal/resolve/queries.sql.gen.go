@@ -7,6 +7,8 @@ package resolve
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 )
 
 const acronymPairs = `-- name: AcronymPairs :many
@@ -53,6 +55,133 @@ func (q *Queries) AcronymPairs(ctx context.Context) ([]AcronymPairsRow, error) {
 	return items, nil
 }
 
+const addVerdict = `-- name: AddVerdict :exec
+INSERT INTO pair_verdicts (a_id, b_id, kind, verdict, by)
+VALUES (least($1::bigint, $2::bigint), greatest($1::bigint, $2::bigint), $3, $4, $5)
+ON CONFLICT (a_id, b_id, kind) DO UPDATE SET verdict = EXCLUDED.verdict, by = EXCLUDED.by, at = now()
+`
+
+type AddVerdictParams struct {
+	X       int64
+	Y       int64
+	Kind    string
+	Verdict string
+	By      *string
+}
+
+func (q *Queries) AddVerdict(ctx context.Context, arg AddVerdictParams) error {
+	_, err := q.db.Exec(ctx, addVerdict,
+		arg.X,
+		arg.Y,
+		arg.Kind,
+		arg.Verdict,
+		arg.By,
+	)
+	return err
+}
+
+const cardForUpdate = `-- name: CardForUpdate :one
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, d.subject_refs, d.kind AS decision_kind
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.id = $1
+FOR UPDATE OF p
+`
+
+type CardForUpdateRow struct {
+	ID           int64
+	Kind         string
+	Status       string
+	Connections  []int64
+	Payload      json.RawMessage
+	DecisionID   *int64
+	SubjectRefs  []string
+	DecisionKind *string
+}
+
+func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, cardForUpdate, id)
+	var i CardForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Status,
+		&i.Connections,
+		&i.Payload,
+		&i.DecisionID,
+		&i.SubjectRefs,
+		&i.DecisionKind,
+	)
+	return i, err
+}
+
+const decideCard = `-- name: DecideCard :exec
+UPDATE proposals SET status = $1, reviewer_id = $2, reason = $3, decided_at = $4 WHERE id = $5
+`
+
+type DecideCardParams struct {
+	Status     string
+	ReviewerID *string
+	Reason     string
+	DecidedAt  *time.Time
+	ID         int64
+}
+
+func (q *Queries) DecideCard(ctx context.Context, arg DecideCardParams) error {
+	_, err := q.db.Exec(ctx, decideCard,
+		arg.Status,
+		arg.ReviewerID,
+		arg.Reason,
+		arg.DecidedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const decidedInput = `-- name: DecidedInput :one
+SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = $1 AND input_hash = $2)::boolean
+`
+
+type DecidedInputParams struct {
+	Kind      string
+	InputHash []byte
+}
+
+// Whether a decision of the same kind and input exists.
+func (q *Queries) DecidedInput(ctx context.Context, arg DecidedInputParams) (bool, error) {
+	row := q.db.QueryRow(ctx, decidedInput, arg.Kind, arg.InputHash)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const decisionForUpdate = `-- name: DecisionForUpdate :one
+SELECT id, kind, outcome, connections, subject_refs, merge_id FROM decisions WHERE id = $1 FOR UPDATE
+`
+
+type DecisionForUpdateRow struct {
+	ID          int64
+	Kind        string
+	Outcome     string
+	Connections []int64
+	SubjectRefs []string
+	MergeID     *int64
+}
+
+func (q *Queries) DecisionForUpdate(ctx context.Context, id int64) (DecisionForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, decisionForUpdate, id)
+	var i DecisionForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Outcome,
+		&i.Connections,
+		&i.SubjectRefs,
+		&i.MergeID,
+	)
+	return i, err
+}
+
 const deleteStaleProfiles = `-- name: DeleteStaleProfiles :exec
 DELETE FROM entity_profiles p
 WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = p.entity_id AND e.status <> 'merged')
@@ -61,6 +190,178 @@ WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = p.entity_id AND e.status
 func (q *Queries) DeleteStaleProfiles(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, deleteStaleProfiles)
 	return err
+}
+
+const entityRefs = `-- name: EntityRefs :many
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+FROM entities e
+WHERE e.key = ANY($2::text[])
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY($1::bigint[]))
+`
+
+type EntityRefsParams struct {
+	Visible []int64
+	Keys    []string
+}
+
+type EntityRefsRow struct {
+	ID   int64
+	Key  string
+	Type string
+	Name string
+}
+
+// Keys, types and display names of entities that are visible.
+func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]EntityRefsRow, error) {
+	rows, err := q.db.Query(ctx, entityRefs, arg.Visible, arg.Keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EntityRefsRow
+	for rows.Next() {
+		var i EntityRefsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Type,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getCalibration = `-- name: GetCalibration :one
+SELECT kind, bins, reviewed, auto_apply FROM calibration WHERE kind = $1
+`
+
+type GetCalibrationRow struct {
+	Kind      string
+	Bins      json.RawMessage
+	Reviewed  int32
+	AutoApply bool
+}
+
+func (q *Queries) GetCalibration(ctx context.Context, kind string) (GetCalibrationRow, error) {
+	row := q.db.QueryRow(ctx, getCalibration, kind)
+	var i GetCalibrationRow
+	err := row.Scan(
+		&i.Kind,
+		&i.Bins,
+		&i.Reviewed,
+		&i.AutoApply,
+	)
+	return i, err
+}
+
+const insertDecision = `-- name: InsertDecision :one
+INSERT INTO decisions (kind, subject_refs, input_hash, model, probs, raw_p, band, connections, outcome, reasons, at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id
+`
+
+type InsertDecisionParams struct {
+	Kind        string
+	SubjectRefs []string
+	InputHash   []byte
+	Model       string
+	Probs       json.RawMessage
+	RawP        *float64
+	Band        *string
+	Connections []int64
+	Outcome     string
+	Reasons     json.RawMessage
+	At          time.Time
+}
+
+func (q *Queries) InsertDecision(ctx context.Context, arg InsertDecisionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertDecision,
+		arg.Kind,
+		arg.SubjectRefs,
+		arg.InputHash,
+		arg.Model,
+		arg.Probs,
+		arg.RawP,
+		arg.Band,
+		arg.Connections,
+		arg.Outcome,
+		arg.Reasons,
+		arg.At,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertDecisionCard = `-- name: InsertDecisionCard :one
+INSERT INTO proposals (kind, target, payload, via, connections, decision_id)
+VALUES ($1, $2, $3, 'system', $4, $5)
+RETURNING id
+`
+
+type InsertDecisionCardParams struct {
+	Kind        string
+	Target      string
+	Payload     json.RawMessage
+	Connections []int64
+	DecisionID  *int64
+}
+
+func (q *Queries) InsertDecisionCard(ctx context.Context, arg InsertDecisionCardParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertDecisionCard,
+		arg.Kind,
+		arg.Target,
+		arg.Payload,
+		arg.Connections,
+		arg.DecisionID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const listCalibration = `-- name: ListCalibration :many
+SELECT kind, bins, reviewed, auto_apply, updated_at FROM calibration ORDER BY kind
+`
+
+type ListCalibrationRow struct {
+	Kind      string
+	Bins      json.RawMessage
+	Reviewed  int32
+	AutoApply bool
+	UpdatedAt time.Time
+}
+
+func (q *Queries) ListCalibration(ctx context.Context) ([]ListCalibrationRow, error) {
+	rows, err := q.db.Query(ctx, listCalibration)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCalibrationRow
+	for rows.Next() {
+		var i ListCalibrationRow
+		if err := rows.Scan(
+			&i.Kind,
+			&i.Bins,
+			&i.Reviewed,
+			&i.AutoApply,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const neighbourPairs = `-- name: NeighbourPairs :many
@@ -100,6 +401,18 @@ func (q *Queries) NeighbourPairs(ctx context.Context) ([]NeighbourPairsRow, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const openPairCard = `-- name: OpenPairCard :one
+SELECT EXISTS (SELECT 1 FROM proposals p JOIN decisions d ON d.id = p.decision_id
+               WHERE p.status = 'open' AND p.kind = 'merge' AND d.subject_refs @> $1::text[])::boolean
+`
+
+func (q *Queries) OpenPairCard(ctx context.Context, refs []string) (bool, error) {
+	row := q.db.QueryRow(ctx, openPairCard, refs)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const profileHashes = `-- name: ProfileHashes :many
@@ -202,6 +515,146 @@ func (q *Queries) ProfileInputs(ctx context.Context) ([]ProfileInputsRow, error)
 	return items, nil
 }
 
+const profilesOf = `-- name: ProfilesOf :many
+SELECT p.entity_id, e.key, p.text, p.connections FROM entity_profiles p JOIN entities e ON e.id = p.entity_id
+WHERE p.entity_id = ANY($1::bigint[])
+`
+
+type ProfilesOfRow struct {
+	EntityID    int64
+	Key         string
+	Text        string
+	Connections []int64
+}
+
+func (q *Queries) ProfilesOf(ctx context.Context, ids []int64) ([]ProfilesOfRow, error) {
+	rows, err := q.db.Query(ctx, profilesOf, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProfilesOfRow
+	for rows.Next() {
+		var i ProfilesOfRow
+		if err := rows.Scan(
+			&i.EntityID,
+			&i.Key,
+			&i.Text,
+			&i.Connections,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reviewedOutcomes = `-- name: ReviewedOutcomes :many
+SELECT raw_p::float8 AS raw_p, band::text AS band, outcome = 'accepted' AS accepted
+FROM decisions
+WHERE kind = $1 AND outcome IN ('accepted', 'rejected', 'undone') AND raw_p IS NOT NULL AND band IS NOT NULL
+ORDER BY reviewed_at DESC NULLS LAST, id DESC
+`
+
+type ReviewedOutcomesRow struct {
+	RawP     float64
+	Band     string
+	Accepted bool
+}
+
+// Reviewed outcomes of a kind, newest first. An undone auto-apply counts
+// as a rejection.
+func (q *Queries) ReviewedOutcomes(ctx context.Context, kind string) ([]ReviewedOutcomesRow, error) {
+	rows, err := q.db.Query(ctx, reviewedOutcomes, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReviewedOutcomesRow
+	for rows.Next() {
+		var i ReviewedOutcomesRow
+		if err := rows.Scan(&i.RawP, &i.Band, &i.Accepted); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setAutoApply = `-- name: SetAutoApply :exec
+INSERT INTO calibration (kind, auto_apply) VALUES ($1, $2)
+ON CONFLICT (kind) DO UPDATE SET auto_apply = EXCLUDED.auto_apply, updated_at = now()
+`
+
+type SetAutoApplyParams struct {
+	Kind      string
+	AutoApply bool
+}
+
+func (q *Queries) SetAutoApply(ctx context.Context, arg SetAutoApplyParams) error {
+	_, err := q.db.Exec(ctx, setAutoApply, arg.Kind, arg.AutoApply)
+	return err
+}
+
+const setDecisionMerge = `-- name: SetDecisionMerge :exec
+UPDATE decisions SET merge_id = $1 WHERE id = $2
+`
+
+type SetDecisionMergeParams struct {
+	MergeID *int64
+	ID      int64
+}
+
+func (q *Queries) SetDecisionMerge(ctx context.Context, arg SetDecisionMergeParams) error {
+	_, err := q.db.Exec(ctx, setDecisionMerge, arg.MergeID, arg.ID)
+	return err
+}
+
+const setOutcome = `-- name: SetOutcome :exec
+UPDATE decisions SET outcome = $1, reviewed_at = $2 WHERE id = $3
+`
+
+type SetOutcomeParams struct {
+	Outcome    string
+	ReviewedAt *time.Time
+	ID         int64
+}
+
+func (q *Queries) SetOutcome(ctx context.Context, arg SetOutcomeParams) error {
+	_, err := q.db.Exec(ctx, setOutcome, arg.Outcome, arg.ReviewedAt, arg.ID)
+	return err
+}
+
+const sourcesOfKeys = `-- name: SourcesOfKeys :many
+SELECT id FROM entities WHERE key = ANY($1::text[]) ORDER BY id
+`
+
+func (q *Queries) SourcesOfKeys(ctx context.Context, keys []string) ([]int64, error) {
+	rows, err := q.db.Query(ctx, sourcesOfKeys, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const trigramPairs = `-- name: TrigramPairs :many
 SELECT a.entity_id AS a_id, b.entity_id AS b_id, max(similarity(a.alias_norm, b.alias_norm))::float8 AS score
 FROM entity_aliases a
@@ -239,6 +692,33 @@ func (q *Queries) TrigramPairs(ctx context.Context, minScore float64) ([]Trigram
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertCalibration = `-- name: UpsertCalibration :one
+INSERT INTO calibration (kind, bins, reviewed, high_precision, updated_at)
+VALUES ($1, $2, $3, $4, now())
+ON CONFLICT (kind) DO UPDATE SET bins = EXCLUDED.bins, reviewed = EXCLUDED.reviewed,
+    high_precision = EXCLUDED.high_precision, updated_at = now()
+RETURNING auto_apply
+`
+
+type UpsertCalibrationParams struct {
+	Kind          string
+	Bins          json.RawMessage
+	Reviewed      int32
+	HighPrecision *float64
+}
+
+func (q *Queries) UpsertCalibration(ctx context.Context, arg UpsertCalibrationParams) (bool, error) {
+	row := q.db.QueryRow(ctx, upsertCalibration,
+		arg.Kind,
+		arg.Bins,
+		arg.Reviewed,
+		arg.HighPrecision,
+	)
+	var auto_apply bool
+	err := row.Scan(&auto_apply)
+	return auto_apply, err
 }
 
 const upsertProfile = `-- name: UpsertProfile :exec
@@ -284,6 +764,124 @@ func (q *Queries) Verdicts(ctx context.Context, kind string) ([]VerdictsRow, err
 	for rows.Next() {
 		var i VerdictsRow
 		if err := rows.Scan(&i.AID, &i.BID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const visibleCards = `-- name: VisibleCards :many
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.connections <@ $1::bigint[]
+  AND ($2::text IS NULL OR p.kind = $2)
+ORDER BY p.id
+LIMIT $3
+`
+
+type VisibleCardsParams struct {
+	Visible []int64
+	Kind    *string
+	Lim     int32
+}
+
+type VisibleCardsRow struct {
+	ID          int64
+	Kind        string
+	Target      string
+	Payload     json.RawMessage
+	CreatedAt   time.Time
+	DecisionID  *int64
+	RawP        *float64
+	Band        *string
+	Reasons     []byte
+	SubjectRefs []string
+}
+
+// Open cards whose inputs are all visible (SI-18, REQ-REV-002).
+func (q *Queries) VisibleCards(ctx context.Context, arg VisibleCardsParams) ([]VisibleCardsRow, error) {
+	rows, err := q.db.Query(ctx, visibleCards, arg.Visible, arg.Kind, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VisibleCardsRow
+	for rows.Next() {
+		var i VisibleCardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Target,
+			&i.Payload,
+			&i.CreatedAt,
+			&i.DecisionID,
+			&i.RawP,
+			&i.Band,
+			&i.Reasons,
+			&i.SubjectRefs,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const visibleDecisions = `-- name: VisibleDecisions :many
+SELECT d.id, d.kind, d.subject_refs, d.raw_p, d.band, d.outcome, d.reasons, d.at, d.reviewed_at
+FROM decisions d
+WHERE d.outcome = $1 AND d.connections <@ $2::bigint[]
+ORDER BY d.at DESC, d.id DESC
+LIMIT $3
+`
+
+type VisibleDecisionsParams struct {
+	Outcome string
+	Visible []int64
+	Lim     int32
+}
+
+type VisibleDecisionsRow struct {
+	ID          int64
+	Kind        string
+	SubjectRefs []string
+	RawP        *float64
+	Band        *string
+	Outcome     string
+	Reasons     json.RawMessage
+	At          time.Time
+	ReviewedAt  *time.Time
+}
+
+// Decisions with an outcome whose inputs are all visible, newest first.
+func (q *Queries) VisibleDecisions(ctx context.Context, arg VisibleDecisionsParams) ([]VisibleDecisionsRow, error) {
+	rows, err := q.db.Query(ctx, visibleDecisions, arg.Outcome, arg.Visible, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VisibleDecisionsRow
+	for rows.Next() {
+		var i VisibleDecisionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.SubjectRefs,
+			&i.RawP,
+			&i.Band,
+			&i.Outcome,
+			&i.Reasons,
+			&i.At,
+			&i.ReviewedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

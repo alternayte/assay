@@ -48,11 +48,12 @@ fmt-check:
     if [ -n "$out" ]; then echo "fmt-check: format these files:"; echo "$out" | sort -u; exit 1; fi
     cd web && bunx biome format .
 
-# golangci-lint, Biome, tsc and the copy lint.
+# golangci-lint, Biome, tsc, vischeck and the copy lint.
 lint: web-build
     golangci-lint run ./...
     cd web && bunx biome lint --error-on-warnings .
     cd web && bunx tsc --noEmit
+    go run ./tools/vischeck .
     go run ./tools/copylint web/src/copy/en.json
 
 # Layers U and I with a real PostgreSQL.

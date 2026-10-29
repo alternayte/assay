@@ -1,0 +1,84 @@
+[
+  {
+    "ordinal": 0,
+    "section": 1,
+    "kind": "paragraph",
+    "headingPath": [
+      "Reminder service"
+    ],
+    "text": "The reminder service sends **reminder emails** to reviewers. It runs in the\n`acme-prod` cluster.",
+    "norm": "The reminder service sends reminder emails to reviewers. It runs in the acme-prod cluster.",
+    "hash": "ea9fe51c7c8411e8"
+  },
+  {
+    "ordinal": 1,
+    "section": 1,
+    "kind": "list",
+    "headingPath": [
+      "Reminder service",
+      "Owners"
+    ],
+    "text": "- Team Hermes owns the service.\n- On-call rota: see [the rota](https://wiki.acme.test/rota).\n  - Nested item with _emphasis_.",
+    "norm": "Team Hermes owns the service. On-call rota: see the rota. Nested item with emphasis.",
+    "hash": "f14f73f9dfcd8b49"
+  },
+  {
+    "ordinal": 2,
+    "section": 1,
+    "kind": "table",
+    "headingPath": [
+      "Reminder service",
+      "Interfaces"
+    ],
+    "text": "| Endpoint | Method | Purpose |\n|---|---|---|\n| /reminders | POST | Schedule a reminder |\n| /reminders/{id} | DELETE | Cancel a reminder |",
+    "norm": "Endpoint Method Purpose /reminders POST Schedule a reminder /reminders/{id} DELETE Cancel a reminder",
+    "hash": "c07bf065bbde0fc8"
+  },
+  {
+    "ordinal": 3,
+    "section": 1,
+    "kind": "code",
+    "headingPath": [
+      "Reminder service",
+      "Interfaces"
+    ],
+    "text": "```go\nfunc Send(r Reminder) error {\n\treturn mailer.Send(r)\n}\n```",
+    "norm": "func Send(r Reminder) error { return mailer.Send(r) }",
+    "hash": "c3bac86ee81284a5"
+  },
+  {
+    "ordinal": 4,
+    "section": 1,
+    "kind": "quote",
+    "headingPath": [
+      "Reminder service",
+      "Interfaces"
+    ],
+    "text": "\u003e The service must not send more than one reminder per day.",
+    "norm": "The service must not send more than one reminder per day.",
+    "hash": "4f865d94d63b7669"
+  },
+  {
+    "ordinal": 5,
+    "section": 1,
+    "kind": "paragraph",
+    "headingPath": [
+      "Reminder service",
+      "Interfaces"
+    ],
+    "text": "\u003cdiv\u003eRaw \u003cb\u003eHTML\u003c/b\u003e block\u003c/div\u003e",
+    "norm": "Raw HTML block",
+    "hash": "d4bb06cffea3b74e"
+  },
+  {
+    "ordinal": 6,
+    "section": 2,
+    "kind": "paragraph",
+    "headingPath": [
+      "Operations"
+    ],
+    "text": "Deploy with `make deploy`.",
+    "norm": "Deploy with make deploy.",
+    "hash": "c079cecb89332099"
+  }
+]

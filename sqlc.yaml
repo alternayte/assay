@@ -57,3 +57,10 @@ sql:
         <<: *go
         package: models
         out: internal/models
+  - <<: *pkg
+    queries: internal/visibility/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: visibility
+        out: internal/visibility

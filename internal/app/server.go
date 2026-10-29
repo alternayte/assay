@@ -10,22 +10,30 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/riverqueue/river"
 
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/secrets"
+	"github.com/alternayte/assay/internal/settings"
 	"github.com/alternayte/assay/internal/users"
 )
 
 // Server is one Assay process.
 type Server struct {
-	cfg     Config
-	log     *slog.Logger
-	pool    *pgxpool.Pool
-	auth    *auth.Auth
-	users   *users.Service
-	handler http.Handler
-	now     func() time.Time
+	cfg      Config
+	log      *slog.Logger
+	pool     *pgxpool.Pool
+	auth     *auth.Auth
+	users    *users.Service
+	settings *settings.Service
+	secrets  *secrets.Store
+	mailer   *settings.Mailer
+	river    *river.Client[pgx.Tx]
+	handler  http.Handler
+	now      func() time.Time
 }
 
 // Options change defaults for tests.
@@ -68,13 +76,30 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Serv
 	if s.now == nil {
 		s.now = time.Now
 	}
-	h, err := s.routes()
-	if err != nil {
+	if err := s.build(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
-	s.handler = h
 	return s, nil
+}
+
+func (s *Server) build(ctx context.Context) error {
+	box, err := secrets.NewBox(s.cfg.SecretKey)
+	if err != nil {
+		return err
+	}
+	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention}}
+	if err := s.settings.Seed(ctx); err != nil {
+		return err
+	}
+	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
+	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
+	if s.river, err = s.newRiver(); err != nil {
+		return err
+	}
+	s.handler, err = s.routes()
+	return err
 }
 
 // Handler is the HTTP handler of the process.
@@ -94,6 +119,9 @@ func (s *Server) routes() (http.Handler, error) {
 	})
 	r.Get("/readyz", s.ready)
 	r.Handle("/metrics", promhttp.Handler())
+	if s.cfg.Role == RoleWorker {
+		return r, nil
+	}
 	r.Handle(s.auth.BasePath()+"/*", s.authHandler())
 
 	var apiErr error
@@ -104,8 +132,9 @@ func (s *Server) routes() (http.Handler, error) {
 			apiErr = err
 			return
 		}
-		s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now}
 		s.users.Register(a)
+		s.settings.Register(a)
+		s.mailer.RegisterSMTP(a)
 	})
 	return r, apiErr
 }
@@ -128,7 +157,9 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ready\n"))
 }
 
-// Run serves HTTP until ctx ends, then shuts down within 30 seconds.
+// Run serves HTTP and works jobs until ctx ends. Then it stops new work,
+// finishes open requests, releases running jobs and returns within 30
+// seconds.
 func (s *Server) Run(ctx context.Context) error {
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", s.cfg.Listen)
@@ -138,16 +169,46 @@ func (s *Server) Run(ctx context.Context) error {
 	srv := &http.Server{Handler: s.handler, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	if s.cfg.Role != RoleWeb {
+		if err := s.river.Start(ctx); err != nil {
+			_ = srv.Close()
+			return err
+		}
+	}
 	s.log.Info("listening", "address", ln.Addr().String(), "role", s.cfg.Role)
 	select {
 	case err := <-errc:
 		return err
 	case <-ctx.Done():
 	}
-	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 25*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(shutdown); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-	return nil
+	s.log.Info("shutting down")
+	base := context.WithoutCancel(ctx)
+	done := make(chan error, 2)
+	go func() {
+		c, cancel := context.WithTimeout(base, 25*time.Second)
+		defer cancel()
+		err := srv.Shutdown(c)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		done <- err
+	}()
+	go func() {
+		if s.cfg.Role == RoleWeb {
+			done <- nil
+			return
+		}
+		// Running jobs get 20 seconds to finish. Then River cancels them,
+		// and they return to the queue.
+		soft, cancel := context.WithTimeout(base, 20*time.Second)
+		defer cancel()
+		if err := s.river.Stop(soft); err == nil {
+			done <- nil
+			return
+		}
+		hard, cancel2 := context.WithTimeout(base, 5*time.Second)
+		defer cancel2()
+		done <- s.river.StopAndCancel(hard)
+	}()
+	return errors.Join(<-done, <-done)
 }

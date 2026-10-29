@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/testkit"
 )
 
@@ -51,4 +53,44 @@ func generatedPassword(t *testing.T, out string) string {
 		t.Fatalf("no generated password in %q", out)
 	}
 	return p
+}
+
+func TestSCN_SET_003_Rekey(t *testing.T) {
+	db := testkit.DB(t)
+	keyA := bytes.Repeat([]byte{7}, 32)
+	keyB := bytes.Repeat([]byte{9}, 32)
+	srv := testkit.StartOn(t, db)
+	pool := srv.Server.Pool()
+	boxA, _ := secrets.NewBox(keyA)
+	boxB, _ := secrets.NewBox(keyB)
+	storeA := &secrets.Store{Pool: pool, Box: boxA}
+	storeB := &secrets.Store{Pool: pool, Box: boxB}
+	ctx := context.Background()
+	for _, n := range []string{"one", "two", "three"} {
+		if err := storeA.Put(ctx, pool, n, []byte("value-"+n)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	env := []string{
+		"ASSAY_DATABASE_URL=" + db,
+		"ASSAY_SECRET_KEY=" + base64.StdEncoding.EncodeToString(keyA),
+		"ASSAY_SECRET_KEY_NEW=" + base64.StdEncoding.EncodeToString(keyB),
+	}
+	var out, errOut bytes.Buffer
+	if code := run([]string{"secrets", "rekey"}, env, &out, &errOut); code != 0 {
+		t.Fatalf("rekey: exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "Encrypted 3 secrets") {
+		t.Fatalf("output %q", out.String())
+	}
+	for _, n := range []string{"one", "two", "three"} {
+		v, err := storeB.Get(ctx, n)
+		if err != nil || string(v) != "value-"+n {
+			t.Fatalf("%s with key B: %q %v", n, v, err)
+		}
+		if _, err := storeA.Get(ctx, n); err == nil {
+			t.Fatalf("%s still decrypts with key A", n)
+		}
+	}
 }

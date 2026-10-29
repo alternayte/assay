@@ -13,6 +13,7 @@ import (
 
 	"github.com/alternayte/assay/internal/app"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/users"
 )
 
@@ -26,6 +27,8 @@ Commands:
   migrate                Apply the database migrations and exit.
   admin create           Create an admin: --email, --name, optional --password.
   admin reset-password   Set the password of a user: --email, optional --password.
+  secrets rekey          Encrypt all secrets again with ASSAY_SECRET_KEY_NEW.
+                         Then set ASSAY_SECRET_KEY to that key and restart.
   version                Print the version.
 
 Without --password, the command prints a generated password once.
@@ -48,7 +51,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)
 		return 0
-	case "serve", "migrate", "admin":
+	case "serve", "migrate", "admin", "secrets":
 	default:
 		fmt.Fprintf(stderr, "assay: unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -68,6 +71,8 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "admin":
 		return admin(ctx, cfg, log, args[1:], stdout, stderr)
+	case "secrets":
+		return rekey(ctx, cfg, log, args[1:], stdout, stderr)
 	case "migrate":
 		pool, _, err := app.Open(ctx, cfg, log, auth.Options{})
 		if err != nil {
@@ -131,5 +136,39 @@ func admin(ctx context.Context, cfg app.Config, log *slog.Logger, args []string,
 	} else {
 		fmt.Fprintf(stdout, "Done for %s.\n", *email)
 	}
+	return 0
+}
+
+func rekey(ctx context.Context, cfg app.Config, log *slog.Logger, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 || args[0] != "rekey" {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	if cfg.SecretKeyNew == nil {
+		fmt.Fprintln(stderr, "assay: ASSAY_SECRET_KEY_NEW is not set. Set it to the new key: 32 random bytes in base64.")
+		return 2
+	}
+	current, err := secrets.NewBox(cfg.SecretKey)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: %v\n", err)
+		return 1
+	}
+	next, err := secrets.NewBox(cfg.SecretKeyNew)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: %v\n", err)
+		return 1
+	}
+	pool, _, err := app.Open(ctx, cfg, log, auth.Options{})
+	if err != nil {
+		log.Error("start failed", "error", err.Error())
+		return 1
+	}
+	defer pool.Close()
+	n, err := secrets.Rekey(ctx, pool, current, next)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: rekey failed. No secret changed: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Encrypted %d secrets with the new key. Set ASSAY_SECRET_KEY to the value of ASSAY_SECRET_KEY_NEW, remove ASSAY_SECRET_KEY_NEW and restart.\n", n)
 	return 0
 }

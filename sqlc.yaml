@@ -34,3 +34,17 @@ sql:
         <<: *go
         package: users
         out: internal/users
+  - <<: *pkg
+    queries: internal/settings/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: settings
+        out: internal/settings
+  - <<: *pkg
+    queries: internal/secrets/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: secrets
+        out: internal/secrets

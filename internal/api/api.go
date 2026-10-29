@@ -69,9 +69,9 @@ func FromAuth(err error) error {
 	return Problem(ae.Status, strings.ToLower(string(ae.Code)), ae.Message)
 }
 
-// Install makes huma use the Assay envelope for its own errors, such as a
-// validation failure.
-func Install() {
+// init makes huma use the Assay envelope for its own errors, such as a
+// validation failure. huma.NewError is a global, so it is set once.
+func init() {
 	huma.NewError = func(status int, message string, errs ...error) huma.StatusError {
 		e := Problem(status, codeFor(status), message)
 		for _, err := range errs {

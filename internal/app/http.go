@@ -9,7 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
 
-	"github.com/alternayte/assay/internal/api"
+	_ "github.com/alternayte/assay/internal/api" // Sets the huma error envelope.
 )
 
 // Version is the build version. cmd/assay sets it.
@@ -40,7 +40,6 @@ func authRouteAllowed(method, path string) bool {
 // newAPI builds the huma API on r and merges the allowed auth-all operations
 // into its document.
 func (s *Server) newAPI(r chi.Router) (huma.API, error) {
-	api.Install()
 	cfg := huma.DefaultConfig("Assay", Version)
 	cfg.OpenAPIPath = "/api/v1/openapi"
 	cfg.DocsPath = "/api/docs"

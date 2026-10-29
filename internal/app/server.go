@@ -179,6 +179,9 @@ func (s *Server) Doctor() *doctor.Doctor { return s.doctor }
 // Models is the model gateway.
 func (s *Server) Models() *models.Gateway { return s.models }
 
+// Ask answers questions.
+func (s *Server) Ask() *ask.Service { return s.ask }
+
 // Embedder fills the embedding spaces.
 func (s *Server) Embedder() *content.Embedder { return s.embedder }
 

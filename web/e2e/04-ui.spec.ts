@@ -77,7 +77,7 @@ test("SCN-UI-003 main routes pass axe in both themes; badges have text; reduced 
   for (const badge of await page
     .locator("span.font-mono.uppercase, span[class*='uppercase'][class*='border']")
     .all()) {
-    expect((await badge.textContent()).trim().length).toBeGreaterThan(0);
+    expect(((await badge.textContent()) ?? "").trim().length).toBeGreaterThan(0);
   }
 
   await page.emulateMedia({ reducedMotion: "reduce" });

@@ -69,6 +69,9 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
+	if s.opts.workers != nil {
+		s.opts.workers(workers)
+	}
 	cfg := &river.Config{
 		Workers: workers,
 		Logger:  s.log.With("component", "river"),

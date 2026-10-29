@@ -12,8 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/riverqueue/river"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/secrets"
@@ -32,8 +32,12 @@ type Server struct {
 	secrets  *secrets.Store
 	mailer   *settings.Mailer
 	river    *river.Client[pgx.Tx]
+	metrics  *metrics
+	tracer   *sdktrace.TracerProvider
 	handler  http.Handler
 	now      func() time.Time
+	opts     Options
+	addr     chan string
 }
 
 // Options change defaults for tests.
@@ -41,6 +45,11 @@ type Options struct {
 	Auth auth.Options
 	// Now is the clock. Nil means time.Now.
 	Now func() time.Time
+
+	// workers adds job workers. Only package tests set it.
+	workers func(*river.Workers)
+	// jobGrace is the time that running jobs get to finish at shutdown.
+	jobGrace time.Duration
 }
 
 // Open connects to the database, builds auth-all and applies the
@@ -72,7 +81,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{cfg: cfg, log: log, pool: pool, auth: a, now: opts.Now}
+	s := &Server{cfg: cfg, log: log, pool: pool, auth: a, now: opts.Now, opts: opts}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -98,8 +107,20 @@ func (s *Server) build(ctx context.Context) error {
 	if s.river, err = s.newRiver(); err != nil {
 		return err
 	}
-	s.handler, err = s.routes()
-	return err
+	s.metrics = newMetrics(s.pool)
+	if s.tracer, err = tracing(ctx); err != nil {
+		return err
+	}
+	h, err := s.routes()
+	if err != nil {
+		return err
+	}
+	if s.tracer != nil {
+		s.handler = traced(h, s.tracer)
+	} else {
+		s.handler = h
+	}
+	return nil
 }
 
 // Handler is the HTTP handler of the process.
@@ -108,17 +129,25 @@ func (s *Server) Handler() http.Handler { return s.handler }
 // Pool is the database pool.
 func (s *Server) Pool() *pgxpool.Pool { return s.pool }
 
-// Close releases the database pool.
-func (s *Server) Close() { s.pool.Close() }
+// Close flushes the spans and releases the database pool.
+func (s *Server) Close() {
+	if s.tracer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.tracer.Shutdown(ctx)
+	}
+	s.pool.Close()
+}
 
 func (s *Server) routes() (http.Handler, error) {
 	r := chi.NewRouter()
+	r.Use(s.metrics.middleware)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	r.Get("/readyz", s.ready)
-	r.Handle("/metrics", promhttp.Handler())
+	r.Handle("/metrics", s.metrics.handler())
 	if s.cfg.Role == RoleWorker {
 		return r, nil
 	}
@@ -176,6 +205,9 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}
 	s.log.Info("listening", "address", ln.Addr().String(), "role", s.cfg.Role)
+	if s.addr != nil {
+		s.addr <- ln.Addr().String()
+	}
 	select {
 	case err := <-errc:
 		return err
@@ -200,7 +232,11 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 		// Running jobs get 20 seconds to finish. Then River cancels them,
 		// and they return to the queue.
-		soft, cancel := context.WithTimeout(base, 20*time.Second)
+		grace := 20 * time.Second
+		if s.opts.jobGrace > 0 {
+			grace = s.opts.jobGrace
+		}
+		soft, cancel := context.WithTimeout(base, grace)
 		defer cancel()
 		if err := s.river.Stop(soft); err == nil {
 			done <- nil

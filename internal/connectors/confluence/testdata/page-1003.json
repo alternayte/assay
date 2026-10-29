@@ -1,0 +1,36 @@
+{
+  "externalId": "1003",
+  "kind": "page",
+  "title": "ADR-001 Use PostgreSQL for job queues",
+  "url": "/confluence/pages/viewpage.action?pageId=1003",
+  "author": "Alex Acme",
+  "editedBy": "Alex Acme",
+  "updated": "2026-01-20T09:00:00Z",
+  "metadata": {
+    "ancestors": [],
+    "labels": [
+      "adr"
+    ],
+    "space": "ENG",
+    "spaceName": "Acme Engineering",
+    "version": 1
+  },
+  "entity": {
+    "type": "decision",
+    "key": "confluence:fixtures:1003",
+    "name": "ADR-001 Use PostgreSQL for job queues"
+  },
+  "body": [
+    "## Status",
+    "",
+    "**Accepted**",
+    "",
+    "## Decision",
+    "",
+    "The reminder service uses PostgreSQL for its job queue. It does not use a separate message broker.",
+    "",
+    "## Rationale",
+    "",
+    "One datastore is easier to operate. The queue load is below 50 jobs per second."
+  ]
+}

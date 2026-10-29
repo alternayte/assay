@@ -1,0 +1,15 @@
+type: Epic
+summary: Payment retries
+status: In Progress
+assignee: alex.acme
+reporter: jo.acme
+priority: High
+labels: payments
+components: payments-api
+fixVersions: 2027.1
+due: 2027-03-31
+created: 2026-01-10T09:00:00Z
+updated: 2026-02-01T09:00:00Z
+---
+h2. Goal
+Failed card calls retry with *exponential backoff*. See [the decision|https://wiki.acme.test/decision].

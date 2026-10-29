@@ -1,0 +1,48 @@
+{
+  "externalId": "1001",
+  "kind": "page",
+  "title": "Payments API overview",
+  "url": "/confluence/pages/viewpage.action?pageId=1001",
+  "author": "Alex Acme",
+  "editedBy": "Alex Acme",
+  "updated": "2026-02-01T10:00:00Z",
+  "metadata": {
+    "ancestors": [],
+    "labels": [
+      "architecture",
+      "payments"
+    ],
+    "space": "ENG",
+    "spaceName": "Acme Engineering",
+    "version": 1
+  },
+  "entity": null,
+  "body": [
+    "# Purpose",
+    "",
+    "The **Payments API** takes card payments for Acme Journals. Team Hermes owns it.",
+    "",
+    "\u003e **Info**",
+    "\u003e",
+    "\u003e The API is part of the Billing system.",
+    "",
+    "## Endpoints",
+    "",
+    "| Endpoint | Method | Use |",
+    "|---|---|---|",
+    "| /payments | POST | Take a payment |",
+    "| /payments/{id}/refund | POST | Refund a _settled_ payment |",
+    "",
+    "## Dependencies",
+    "",
+    "- The Payments API depends on the Ledger service.",
+    "- It calls the Fraud check API for each payment.",
+    "  - The call times out after 2 seconds.",
+    "",
+    "```json",
+    "{\"amount\": 1200, \"currency\": \"EUR\"}",
+    "```",
+    "",
+    "See Payments API runbook for incidents."
+  ]
+}

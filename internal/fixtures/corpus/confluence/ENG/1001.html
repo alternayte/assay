@@ -1,0 +1,20 @@
+title: Payments API overview
+labels: architecture, payments
+author: alex.acme
+created: 2026-01-10T09:00:00Z
+updated: 2026-02-01T10:00:00Z
+---
+<h1>Purpose</h1>
+<p>The <strong>Payments API</strong> takes card payments for Acme Journals. Team Hermes owns it.</p>
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body><p>The API is part of the Billing system.</p></ac:rich-text-body></ac:structured-macro>
+<h2>Endpoints</h2>
+<table><tbody>
+<tr><th>Endpoint</th><th>Method</th><th>Use</th></tr>
+<tr><td>/payments</td><td>POST</td><td>Take a payment</td></tr>
+<tr><td>/payments/{id}/refund</td><td>POST</td><td>Refund a <em>settled</em> payment</td></tr>
+</tbody></table>
+<h2>Dependencies</h2>
+<ul><li>The Payments API depends on the Ledger service.</li><li>It calls the Fraud check API for each payment.<ul><li>The call times out after 2 seconds.</li></ul></li></ul>
+<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">json</ac:parameter><ac:plain-text-body><![CDATA[{"amount": 1200, "currency": "EUR"}]]></ac:plain-text-body></ac:structured-macro>
+<ac:structured-macro ac:name="toc" ac:schema-version="1"/>
+<p>See <ac:link><ri:page ri:content-title="Payments API runbook"/></ac:link> for incidents.</p>

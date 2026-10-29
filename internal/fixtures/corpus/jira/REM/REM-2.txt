@@ -1,0 +1,15 @@
+type: Task
+summary: Move the reminder service to the job queue
+status: In Progress
+assignee: priya.acme
+reporter: jo.acme
+priority: Medium
+epic: REM-1
+links: Blocks REM-3
+created: 2026-01-06T09:00:00Z
+updated: 2026-02-04T09:00:00Z
+---
+bq. Follow ADR-001.
+* Create the jobs table.
+** Add an index on run_at.
+* Remove the cron job.

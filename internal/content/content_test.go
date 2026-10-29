@@ -1,17 +1,15 @@
-package content
+package content_test
 
 import (
 	"encoding/hex"
-	"encoding/json"
-	"flag"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/testkit"
 )
-
-var update = flag.Bool("update", false, "rewrite the golden files")
 
 type goldenPassage struct {
 	Ordinal     int      `json:"ordinal"`
@@ -23,7 +21,7 @@ type goldenPassage struct {
 	Hash        string   `json:"hash"`
 }
 
-func golden(ps []Passage) []goldenPassage {
+func golden(ps []content.Passage) []goldenPassage {
 	out := make([]goldenPassage, len(ps))
 	for i, p := range ps {
 		out[i] = goldenPassage{p.Ordinal, p.Section, p.Kind, p.HeadingPath, p.Text, p.Norm, hex.EncodeToString(p.Hash)[:16]}
@@ -31,30 +29,7 @@ func golden(ps []Passage) []goldenPassage {
 	return out
 }
 
-// CheckGolden compares v with the golden file path. -update rewrites it.
-func CheckGolden(t *testing.T, path string, v any) {
-	t.Helper()
-	got, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got = append(got, '\n')
-	if *update {
-		if err := os.WriteFile(path, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("%v (run go test -update to create it)", err)
-	}
-	if string(got) != string(want) {
-		t.Fatalf("%s differs from the output:\n%s", path, got)
-	}
-}
-
-func hashes(ps []Passage) []string {
+func hashes(ps []content.Passage) []string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = hex.EncodeToString(p.Hash)
@@ -67,8 +42,8 @@ func TestSCN_SYN_004_MarkdownPassagesMatchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ps := Split(string(src))
-	CheckGolden(t, "testdata/markdown.passages.json", golden(ps))
+	ps := content.Split(string(src))
+	testkit.Golden(t, "testdata/markdown.passages.json", golden(ps))
 
 	// Whitespace and inline formatting changes keep the hashes. A changed
 	// link target is not passage text.
@@ -76,18 +51,18 @@ func TestSCN_SYN_004_MarkdownPassagesMatchGolden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a, b := hashes(ps), hashes(Split(string(re))); strings.Join(a, ",") != strings.Join(b, ",") {
+	if a, b := hashes(ps), hashes(content.Split(string(re))); strings.Join(a, ",") != strings.Join(b, ",") {
 		t.Fatalf("hashes changed after reformatting:\n%v\n%v", a, b)
 	}
 
 	// A block above 1,500 characters splits, and each part keeps the heading path.
 	long := "# Big\n\n" + strings.Repeat("This sentence fills the long paragraph. ", 100)
-	parts := Split(long)
+	parts := content.Split(long)
 	if len(parts) < 3 {
 		t.Fatalf("want 3 or more parts, got %d", len(parts))
 	}
 	for _, p := range parts {
-		if n := len([]rune(p.Text)); n > MaxPassageChars {
+		if n := len([]rune(p.Text)); n > content.MaxPassageChars {
 			t.Fatalf("part of %d characters", n)
 		}
 		if len(p.HeadingPath) != 1 || p.HeadingPath[0] != "Big" {
@@ -106,8 +81,8 @@ func TestSCN_SYN_005_ChunksStayInSectionsAndLimit(t *testing.T) {
 			b.WriteString(strings.Repeat("Words about the payments API and its owners. ", 12) + "\n\n")
 		}
 	}
-	ps := Split(b.String())
-	chunks := Chunks("Payments handbook", ps)
+	ps := content.Split(b.String())
+	chunks := content.Chunks("Payments handbook", ps)
 	if len(chunks) < 6 {
 		t.Fatalf("want several chunks, got %d", len(chunks))
 	}
@@ -116,7 +91,7 @@ func TestSCN_SYN_005_ChunksStayInSectionsAndLimit(t *testing.T) {
 		bySection[hex.EncodeToString(p.Hash)] = p.Section
 	}
 	for _, c := range chunks {
-		if c.Tokens > MaxChunkTokens || models.EstimateTokens(c.Text) > MaxChunkTokens {
+		if c.Tokens > content.MaxChunkTokens || models.EstimateTokens(c.Text) > content.MaxChunkTokens {
 			t.Fatalf("chunk %d has %d tokens", c.Ordinal, c.Tokens)
 		}
 		want := strings.Join(append([]string{"Payments handbook"}, c.HeadingPath...), " > ")
@@ -134,9 +109,9 @@ func TestSCN_SYN_005_ChunksStayInSectionsAndLimit(t *testing.T) {
 	}
 
 	// One passage above the limit is cut into chunks that fit.
-	huge := []Passage{{Section: 1, Kind: "list", HeadingPath: []string{"H"}, Text: strings.Repeat("a b c d ", 400), Hash: []byte{1}}}
-	for _, c := range Chunks("T", huge) {
-		if c.Tokens > MaxChunkTokens {
+	huge := []content.Passage{{Section: 1, Kind: "list", HeadingPath: []string{"H"}, Text: strings.Repeat("a b c d ", 400), Hash: []byte{1}}}
+	for _, c := range content.Chunks("T", huge) {
+		if c.Tokens > content.MaxChunkTokens {
 			t.Fatalf("cut chunk has %d tokens", c.Tokens)
 		}
 	}

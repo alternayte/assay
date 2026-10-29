@@ -1,0 +1,15 @@
+type: Bug
+summary: Duplicate charge on timeout
+status: Done
+assignee: sam.acme
+reporter: priya.acme
+priority: Highest
+labels: incident
+components: payments-api
+created: 2026-01-08T09:00:00Z
+updated: 2026-01-28T09:00:00Z
+---
+h3. Steps
+# Send a payment.
+# Let the Fraud check API time out.
+# See two charges.

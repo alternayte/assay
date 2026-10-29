@@ -1,0 +1,12 @@
+title: Payments API runbook
+parent: 1001
+labels: runbook, payments
+author: priya.acme
+created: 2026-01-12T09:00:00Z
+updated: 2026-02-02T11:00:00Z
+---
+<h1>Alerts</h1>
+<p>When the error rate is above 2 percent, page the Team Hermes on-call engineer.</p>
+<ac:structured-macro ac:name="warning" ac:schema-version="1"><ac:parameter ac:name="title">Refunds</ac:parameter><ac:rich-text-body><p>Do not retry a refund by hand.</p></ac:rich-text-body></ac:structured-macro>
+<h1>Restart</h1>
+<ol><li>Drain the queue.</li><li>Restart the pods in the <code>payments</code> namespace.</li></ol>

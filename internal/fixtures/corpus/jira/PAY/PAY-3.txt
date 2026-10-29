@@ -1,0 +1,10 @@
+type: Story
+summary: Retry dashboard
+status: To Do
+reporter: alex.acme
+priority: Low
+epic: PAY-1
+created: 2026-01-12T09:00:00Z
+updated: 2026-01-12T09:00:00Z
+---
+A dashboard shows the retry count per hour.

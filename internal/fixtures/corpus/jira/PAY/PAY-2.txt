@@ -1,0 +1,24 @@
+type: Story
+summary: Add a retry queue to the Payments API
+status: To Do
+assignee: priya.acme
+reporter: alex.acme
+priority: Medium
+labels: payments, queue
+components: payments-api
+epic: PAY-1
+links: Blocks PAY-3
+created: 2026-01-11T09:00:00Z
+updated: 2026-02-02T09:00:00Z
+---
+The queue holds failed calls for up to _one hour_.
+||Field||Value||
+|Max attempts|3|
+|Backoff|exponential|
+{code:go}
+q.Push(call)
+{code}
+=== comment sam.acme 2026-02-01T10:00:00Z
+Use the existing PostgreSQL queue.
+=== comment alex.acme 2026-02-02T10:00:00Z
+Agreed. See {{ADR-001}}.

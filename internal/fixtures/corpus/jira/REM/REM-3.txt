@@ -1,0 +1,11 @@
+type: Sub-task
+summary: Remove the reminder cron job
+status: To Do
+assignee: priya.acme
+reporter: jo.acme
+priority: Low
+parent: REM-2
+created: 2026-01-07T09:00:00Z
+updated: 2026-01-07T09:00:00Z
+---
+Delete the cron entry after the queue runs.

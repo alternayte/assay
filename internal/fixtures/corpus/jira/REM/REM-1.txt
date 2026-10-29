@@ -1,0 +1,11 @@
+type: Epic
+summary: Reminder emails v2
+status: In Progress
+assignee: jo.acme
+reporter: jo.acme
+priority: Medium
+due: 2027-06-30
+created: 2026-01-05T09:00:00Z
+updated: 2026-02-03T09:00:00Z
+---
+The reminder service sends a second reminder after seven days.

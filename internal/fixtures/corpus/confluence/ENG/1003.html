@@ -1,0 +1,12 @@
+title: ADR-001 Use PostgreSQL for job queues
+labels: adr
+author: alex.acme
+created: 2026-01-15T09:00:00Z
+updated: 2026-01-20T09:00:00Z
+---
+<h2>Status</h2>
+<p><ac:structured-macro ac:name="status" ac:schema-version="1"><ac:parameter ac:name="title">Accepted</ac:parameter><ac:parameter ac:name="colour">Green</ac:parameter></ac:structured-macro></p>
+<h2>Decision</h2>
+<p>The reminder service uses PostgreSQL for its job queue. It does not use a separate message broker.</p>
+<h2>Rationale</h2>
+<p>One datastore is easier to operate. The queue load is below 50 jobs per second.</p>

@@ -1,0 +1,36 @@
+{
+  "externalId": "1002",
+  "kind": "page",
+  "title": "Payments API runbook",
+  "url": "/confluence/pages/viewpage.action?pageId=1002",
+  "author": "Priya Acme",
+  "editedBy": "Priya Acme",
+  "updated": "2026-02-02T11:00:00Z",
+  "metadata": {
+    "ancestors": [
+      "Payments API overview"
+    ],
+    "labels": [
+      "runbook",
+      "payments"
+    ],
+    "space": "ENG",
+    "spaceName": "Acme Engineering",
+    "version": 1
+  },
+  "entity": null,
+  "body": [
+    "# Alerts",
+    "",
+    "When the error rate is above 2 percent, page the Team Hermes on-call engineer.",
+    "",
+    "\u003e **Warning: Refunds**",
+    "\u003e",
+    "\u003e Do not retry a refund by hand.",
+    "",
+    "# Restart",
+    "",
+    "1. Drain the queue.",
+    "2. Restart the pods in the `payments` namespace."
+  ]
+}

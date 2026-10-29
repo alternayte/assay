@@ -1,0 +1,38 @@
+{
+  "externalId": "1005",
+  "kind": "page",
+  "title": "On-call handbook",
+  "url": "/confluence/pages/viewpage.action?pageId=1005",
+  "author": "Sam Acme",
+  "editedBy": "Sam Acme",
+  "updated": "2026-02-05T09:00:00Z",
+  "metadata": {
+    "ancestors": [],
+    "labels": [
+      "oncall"
+    ],
+    "space": "ENG",
+    "spaceName": "Acme Engineering",
+    "version": 1
+  },
+  "entity": null,
+  "body": [
+    "# Rota",
+    "",
+    "The on-call week starts on Monday at 09:00.\\",
+    "Swap shifts in the rota tool.",
+    "",
+    "**Escalation**",
+    "",
+    "Escalate to the engineering manager after 30 minutes.",
+    "",
+    "- [x] Read the runbooks",
+    "- [ ] Join the on-call channel",
+    "",
+    "\u003e Never deploy on a Friday afternoon.",
+    "",
+    "PAY-4 is the open incident.",
+    "",
+    "Bad link and [the status page](https://status.acme.test/)."
+  ]
+}

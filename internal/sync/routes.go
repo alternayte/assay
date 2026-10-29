@@ -95,14 +95,14 @@ type connectionBody struct {
 	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
 	Options         map[string]any `json:"options,omitempty"`
-	Name            string   `json:"name" minLength:"1" maxLength:"100"`
-	IncludeGlobs    []string `json:"includeGlobs,omitempty"`
-	ExcludeGlobs    []string `json:"excludeGlobs,omitempty"`
-	SyncMinutes     int32    `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
-	ReconcileHours  int32    `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
-	RateConcurrency int32    `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
-	RatePerSecond   float64  `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
-	DefaultDomainID *int64   `json:"defaultDomainId,omitempty"`
+	Name            string         `json:"name" minLength:"1" maxLength:"100"`
+	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
+	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
+	SyncMinutes     int32          `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
+	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
+	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
+	RatePerSecond   float64        `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
+	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
 }
 
 func checkURL(raw string) error {

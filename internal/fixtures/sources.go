@@ -208,6 +208,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	authorized := s.tokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
 	s.mu.Unlock()
+	if r.URL.Path == "/manifest.json" && r.Method == http.MethodGet {
+		s.serveManifest(w, r)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, `{"message":"read-only fixture"}`, http.StatusMethodNotAllowed)
 		return

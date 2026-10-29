@@ -151,7 +151,7 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if rep.Content != "" && path == "/v1/chat/completions" {
-			writeJSON(w, http.StatusOK, chatReply(body, rep.Content))
+			writeChat(w, body, rep.Content)
 			return
 		}
 	}
@@ -171,7 +171,7 @@ func (m *Models) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if f != nil {
 			content = f(body)
 		}
-		writeJSON(w, http.StatusOK, chatReply(body, content))
+		writeChat(w, body, content)
 	case r.Method == http.MethodPost && path == "/v1/embeddings":
 		writeJSON(w, http.StatusOK, embedReply(body))
 	case r.Method == http.MethodPost && path == "/v1/rerank":
@@ -197,6 +197,35 @@ func EstimateTokens(s string) int {
 	runes := (utf8.RuneCountInString(s) + 3) / 4
 	words := len(strings.Fields(s))
 	return max(runes, words)
+}
+
+// writeChat answers a chat completion, as server-sent events when the
+// request sets stream. The stream sends the content word by word, then the
+// usage.
+func writeChat(w http.ResponseWriter, body map[string]any, content string) {
+	reply := chatReply(body, content)
+	if stream, _ := body["stream"].(bool); !stream {
+		writeJSON(w, http.StatusOK, reply)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	send := func(v any) {
+		b, _ := json.Marshal(v)
+		_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	model := reply["model"]
+	for _, piece := range strings.SplitAfter(content, " ") {
+		send(map[string]any{"id": "fake-chat-1", "object": "chat.completion.chunk", "model": model,
+			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"content": piece}}}})
+	}
+	send(map[string]any{"id": "fake-chat-1", "object": "chat.completion.chunk", "model": model, "choices": []any{},
+		"usage": reply["usage"]})
+	_, _ = w.Write([]byte("data: [DONE]\n\n"))
 }
 
 func chatReply(body map[string]any, content string) map[string]any {

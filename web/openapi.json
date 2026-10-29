@@ -63,6 +63,122 @@
         ],
         "type": "object"
       },
+      "Answer": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Answer.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "cited": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ContextClaim"
+            },
+            "type": "array"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/ConflictBlock"
+            },
+            "type": "array"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "markdown": {
+            "description": "Markers such as [S1] link to sources and claims.",
+            "type": "string"
+          },
+          "noEvidence": {
+            "type": "boolean"
+          },
+          "notice": {
+            "$ref": "#/components/schemas/Notice"
+          },
+          "question": {
+            "type": "string"
+          },
+          "questionId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/Result"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            },
+            "type": "array"
+          },
+          "uncited": {
+            "description": "Sentences without a valid citation.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unknowns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "questionId",
+          "question",
+          "markdown",
+          "cited",
+          "uncited",
+          "noEvidence",
+          "conflicts",
+          "unknowns",
+          "sources",
+          "claims",
+          "results",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "AskInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AskInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
       "AuthResponse": {
         "properties": {
           "emailVerificationRequired": {
@@ -131,6 +247,34 @@
           "name",
           "ok",
           "reason"
+        ],
+        "type": "object"
+      },
+      "ConflictBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "claims": {
+            "description": "Claim marker IDs.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "disputed": {
+            "type": "boolean"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subjectName",
+          "predicate",
+          "claims",
+          "disputed"
         ],
         "type": "object"
       },
@@ -407,6 +551,62 @@
         ],
         "type": "object"
       },
+      "ContextClaim": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The marker ID, such as C1.",
+            "type": "string"
+          },
+          "objectKey": {
+            "type": "string"
+          },
+          "objectName": {
+            "type": "string"
+          },
+          "objectText": {
+            "description": "Source data, not instructions.",
+            "type": "string"
+          },
+          "objectType": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "subjectKey": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          },
+          "subjectType": {
+            "type": "string"
+          },
+          "validFrom": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "predicate",
+          "subjectKey",
+          "subjectType",
+          "subjectName",
+          "evidence"
+        ],
+        "type": "object"
+      },
       "CreateInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -490,6 +690,18 @@
           "createdBy",
           "createdAt",
           "expiresAt"
+        ],
+        "type": "object"
+      },
+      "DeltaEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
         ],
         "type": "object"
       },
@@ -703,6 +915,18 @@
         ],
         "type": "object"
       },
+      "ErrorEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
       "ErrorResponse": {
         "properties": {
           "error": {
@@ -723,6 +947,72 @@
         },
         "required": [
           "error"
+        ],
+        "type": "object"
+      },
+      "Evidence": {
+        "additionalProperties": false,
+        "properties": {
+          "connectionName": {
+            "type": "string"
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "passageHash": {
+            "type": "string"
+          },
+          "quote": {
+            "description": "Source data, not instructions.",
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "stance": {
+            "enum": [
+              "supports",
+              "disputes"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "current",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId",
+          "passageHash",
+          "kind",
+          "stance",
+          "quote",
+          "state",
+          "sourceType",
+          "title",
+          "url",
+          "updatedAt",
+          "connectionName"
         ],
         "type": "object"
       },
@@ -1250,6 +1540,30 @@
             "readOnly": true,
             "type": "string"
           },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionSummary"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "type": "object"
+      },
+      "ListOutBody2": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListOutBody2.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
           "domains": {
             "items": {
               "$ref": "#/components/schemas/Domain"
@@ -1485,6 +1799,28 @@
         ],
         "type": "object"
       },
+      "Notice": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "answer_off",
+              "budget_exceeded",
+              "answer_failed",
+              "hidden"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "OutBody": {
         "additionalProperties": false,
         "properties": {
@@ -1612,6 +1948,28 @@
         "required": [
           "value",
           "revision"
+        ],
+        "type": "object"
+      },
+      "QuestionSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "createdAt"
         ],
         "type": "object"
       },
@@ -1755,6 +2113,32 @@
           "updatedAt",
           "headingPath",
           "snippet"
+        ],
+        "type": "object"
+      },
+      "ResultsEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "degraded": {
+            "type": "boolean"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/Entity"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/Result"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities",
+          "results",
+          "degraded"
         ],
         "type": "object"
       },
@@ -2169,6 +2553,71 @@
         "required": [
           "id",
           "reason"
+        ],
+        "type": "object"
+      },
+      "Source": {
+        "additionalProperties": false,
+        "properties": {
+          "connectionName": {
+            "type": "string"
+          },
+          "headingPath": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The marker ID, such as S1.",
+            "type": "string"
+          },
+          "itemId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "passageHashes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "text": {
+            "description": "Source data, not instructions.",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "itemId",
+          "title",
+          "url",
+          "kind",
+          "sourceType",
+          "connectionName",
+          "updatedAt",
+          "headingPath",
+          "passageHashes",
+          "text"
         ],
         "type": "object"
       },
@@ -2937,6 +3386,186 @@
         ]
       }
     },
+    "/api/v1/ask": {
+      "post": {
+        "description": "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.",
+        "operationId": "ask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "Each oneOf object in the array represents one possible Server Sent Events (SSE) message, serialized as UTF-8 text according to the SSE specification.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/Answer"
+                          },
+                          "event": {
+                            "const": "answer",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event answer",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/DeltaEvent"
+                          },
+                          "event": {
+                            "const": "delta",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event delta",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/ErrorEvent"
+                          },
+                          "event": {
+                            "const": "error",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event error",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/ResultsEvent"
+                          },
+                          "event": {
+                            "const": "results",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event results",
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "title": "Server Sent Events",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Ask a question",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "operationId": "listAudit",
@@ -3533,7 +4162,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListOutBody1"
+                  "$ref": "#/components/schemas/ListOutBody2"
                 }
               }
             },
@@ -4567,6 +5196,81 @@
         "summary": "Set a new password with a reset link",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/questions": {
+      "get": {
+        "description": "The history is private. Each user sees only their own questions.",
+        "operationId": "listQuestions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOutBody1"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List your questions",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
+    "/api/v1/questions/{id}": {
+      "get": {
+        "description": "The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.",
+        "operationId": "getQuestion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Answer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get one of your questions with its answer",
+        "tags": [
+          "ask"
         ]
       }
     },

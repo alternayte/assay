@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/models"
@@ -73,7 +74,12 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 		if err != nil {
 			return err
 		}
-		w.log.Info("retention applied", "audit_deleted", auditN, "model_usage_deleted", usageN, "sync_runs_deleted", runsN)
+		questionsN, err := ask.New(tx).DeleteQuestionsBefore(ctx, now.AddDate(0, 0, -cfg.QuestionsDays))
+		if err != nil {
+			return err
+		}
+		w.log.Info("retention applied", "audit_deleted", auditN, "model_usage_deleted", usageN, "sync_runs_deleted", runsN,
+			"questions_deleted", questionsN)
 		return nil
 	})
 }
@@ -103,4 +109,9 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.embedder.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
+}
+
+// ApplyRetention runs one retention pass now.
+func (s *Server) ApplyRetention(ctx context.Context) error {
+	return (&RetentionWorker{pool: s.pool, log: s.log, now: s.now}).Work(ctx, nil)
 }

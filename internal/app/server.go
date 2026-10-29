@@ -16,6 +16,7 @@ import (
 	"github.com/riverqueue/river"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/content"
@@ -45,6 +46,7 @@ type Server struct {
 	sync     *syncer.Service
 	embedder *content.Embedder
 	search   *search.Service
+	ask      *ask.Service
 	river    *river.Client[pgx.Tx]
 	metrics  *metrics
 	tracer   *sdktrace.TracerProvider
@@ -120,6 +122,7 @@ func (s *Server) services() error {
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics()}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Log: s.log}
+	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Log: s.log, Now: s.now}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -135,6 +138,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.sync.Register(a)
 	content.Register(a, s.pool)
 	s.search.Register(a)
+	s.ask.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 }
 

@@ -3,6 +3,7 @@
 package models
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -331,4 +332,97 @@ func (t *target) withParams(body map[string]any) map[string]any {
 	}
 	body["model"] = t.model
 	return body
+}
+
+// stream sends a streaming request and calls onData with the data of each
+// server-sent event until [DONE]. It retries 429 and 5xx answers, but only
+// before the stream starts.
+func (g *Gateway) stream(ctx context.Context, t *target, path string, body map[string]any, onData func([]byte) error) error {
+	for k, v := range t.extra.Body {
+		if _, set := body[k]; !set {
+			body[k] = v
+		}
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	timeout := defaultTimeouts[t.function]
+	if d, ok := g.Timeouts[t.function]; ok {
+		timeout = d
+	}
+	client, err := outbound.New(g.Outbound, outbound.Options{BaseURL: t.baseURL})
+	if err != nil {
+		return err
+	}
+	backoff := g.Backoff
+	if backoff == 0 {
+		backoff = 500 * time.Millisecond
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	var resp *http.Response
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(cctx, http.MethodPost, t.baseURL+path, bytes.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "text/event-stream")
+		for k, v := range t.extra.Headers {
+			req.Header.Set(k, v)
+		}
+		if t.key != "" {
+			req.Header.Set("Authorization", "Bearer "+t.key)
+		}
+		resp, err = client.Do(req)
+		if err != nil {
+			if errors.Is(cctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+				return fmt.Errorf("models: %s did not answer within %s", t.function, timeout)
+			}
+			return err
+		}
+		if resp.StatusCode < 400 {
+			break
+		}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		callErr := &CallError{Status: resp.StatusCode, Message: errorMessage(b)}
+		if (resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode < 500) || attempt >= retries {
+			return callErr
+		}
+		wait := backoff << attempt
+		if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 && s <= 30 {
+			wait = max(wait, time.Duration(s)*time.Second)
+		}
+		select {
+		case <-cctx.Done():
+			return cctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		data, ok := strings.CutPrefix(line, "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if data == "[DONE]" {
+			return nil
+		}
+		if err := onData([]byte(data)); err != nil {
+			return err
+		}
+	}
+	if err := sc.Err(); err != nil {
+		if errors.Is(cctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			return fmt.Errorf("models: %s did not finish within %s", t.function, timeout)
+		}
+		return err
+	}
+	return nil
 }

@@ -79,6 +79,50 @@ func (q *Queries) FullText(ctx context.Context, arg FullTextParams) ([]FullTextR
 	return items, nil
 }
 
+const fullTextAny = `-- name: FullTextAny :many
+SELECT c.id AS chunk_id, c.item_id
+FROM chunks c
+JOIN source_items i ON i.id = c.item_id,
+     to_tsquery('simple', unaccent($1::text)) q
+WHERE c.connection_id = ANY($2::bigint[]) AND i.connection_id = ANY($2::bigint[])
+  AND c.tsv @@ q
+ORDER BY ts_rank_cd(c.tsv, q, 32) DESC, c.id
+LIMIT $3
+`
+
+type FullTextAnyParams struct {
+	Words   string
+	Visible []int64
+	Lim     int32
+}
+
+type FullTextAnyRow struct {
+	ChunkID int64
+	ItemID  int64
+}
+
+// Chunks that match any of the words, ranked by cover density, for the
+// questions of Ask.
+func (q *Queries) FullTextAny(ctx context.Context, arg FullTextAnyParams) ([]FullTextAnyRow, error) {
+	rows, err := q.db.Query(ctx, fullTextAny, arg.Words, arg.Visible, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FullTextAnyRow
+	for rows.Next() {
+		var i FullTextAnyRow
+		if err := rows.Scan(&i.ChunkID, &i.ItemID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const hits = `-- name: Hits :many
 SELECT c.id AS chunk_id, c.item_id, c.heading_path, c.text, c.passage_hashes, i.title, i.url, i.kind, i.source_updated_at,
        i.connection_id, k.name AS connection_name, k.kind AS source_type,

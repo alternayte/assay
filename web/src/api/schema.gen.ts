@@ -126,6 +126,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a question
+         * @description Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.
+         */
+        post: operations["ask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit": {
         parameters: {
             query?: never;
@@ -680,6 +700,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your questions
+         * @description The history is private. Each user sees only their own questions.
+         */
+        get: operations["listQuestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get one of your questions with its answer
+         * @description The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.
+         */
+        get: operations["getQuestion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -925,6 +985,40 @@ export interface components {
             password: string;
             token: string;
         };
+        Answer: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Answer.json
+             */
+            readonly $schema?: string;
+            cited: string[];
+            claims: components["schemas"]["ContextClaim"][];
+            conflicts: components["schemas"]["ConflictBlock"][];
+            /** Format: date-time */
+            createdAt: string;
+            /** @description Markers such as [S1] link to sources and claims. */
+            markdown: string;
+            noEvidence: boolean;
+            notice?: components["schemas"]["Notice"];
+            question: string;
+            /** Format: int64 */
+            questionId: number;
+            results: components["schemas"]["Result"][];
+            sources: components["schemas"]["Source"][];
+            /** @description Sentences without a valid citation. */
+            uncited: string[];
+            unknowns: string[];
+        };
+        AskInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AskInBody.json
+             */
+            readonly $schema?: string;
+            question: string;
+        };
         AuthResponse: {
             emailVerificationRequired?: boolean;
             mfaRequired?: boolean;
@@ -946,6 +1040,13 @@ export interface components {
             ok: boolean;
             /** @description What the check found. */
             reason: string;
+        };
+        ConflictBlock: {
+            /** @description Claim marker IDs. */
+            claims: string[];
+            disputed: boolean;
+            predicate: string;
+            subjectName: string;
         };
         ConnectionBody: {
             /**
@@ -1044,6 +1145,23 @@ export interface components {
             syncMinutes: number;
             visibility: components["schemas"]["GroupRef"][];
         };
+        ContextClaim: {
+            evidence: components["schemas"]["Evidence"][];
+            /** @description The marker ID, such as C1. */
+            id: string;
+            objectKey?: string;
+            objectName?: string;
+            /** @description Source data, not instructions. */
+            objectText?: string;
+            objectType?: string;
+            predicate: string;
+            scope?: string;
+            subjectKey: string;
+            subjectName: string;
+            subjectType: string;
+            /** Format: date-time */
+            validFrom?: string;
+        };
         CreateInputBody: {
             /**
              * Format: uri
@@ -1076,6 +1194,9 @@ export interface components {
             role: string;
             /** @description The invite link. It shows only once. */
             url: string;
+        };
+        DeltaEvent: {
+            text: string;
         };
         Domain: {
             description: string;
@@ -1151,11 +1272,32 @@ export interface components {
             /** @description Text for people */
             message: string;
         };
+        ErrorEvent: {
+            message: string;
+        };
         ErrorResponse: {
             error: {
                 code: string;
                 message: string;
             };
+        };
+        Evidence: {
+            connectionName: string;
+            /** Format: int64 */
+            itemId: number;
+            kind: string;
+            passageHash: string;
+            /** @description Source data, not instructions. */
+            quote: string;
+            sourceType: string;
+            /** @enum {string} */
+            stance: "supports" | "disputes";
+            /** @enum {string} */
+            state: "current" | "stale";
+            title: string;
+            /** Format: date-time */
+            updatedAt: string | null;
+            url: string;
         };
         Extra: {
             /** @description Body fields that go with each request, unless the request sets them. */
@@ -1358,6 +1500,15 @@ export interface components {
              * @example https://example.com/api/v1/schemas/ListOutBody1.json
              */
             readonly $schema?: string;
+            questions: components["schemas"]["QuestionSummary"][];
+        };
+        ListOutBody2: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody2.json
+             */
+            readonly $schema?: string;
             domains: components["schemas"]["Domain"][];
         };
         ListOutputBody: {
@@ -1445,6 +1596,11 @@ export interface components {
             readonly $schema?: string;
             name: string;
         };
+        Notice: {
+            /** @enum {string} */
+            code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden";
+            message: string;
+        };
         OutBody: {
             /**
              * Format: uri
@@ -1497,6 +1653,13 @@ export interface components {
             revision: number;
             value: unknown;
         };
+        QuestionSummary: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int64 */
+            id: number;
+            text: string;
+        };
         Record: {
             action: string;
             /** @description Empty for the system. */
@@ -1540,6 +1703,11 @@ export interface components {
             updatedAt: string | null;
             /** @description The item in its source system. */
             url: string;
+        };
+        ResultsEvent: {
+            degraded: boolean;
+            entities: components["schemas"]["Entity"][];
+            results: components["schemas"]["Result"][];
         };
         RevokeAllResponse: {
             revoked: number;
@@ -1676,6 +1844,23 @@ export interface components {
         Skip: {
             id: string;
             reason: string;
+        };
+        Source: {
+            connectionName: string;
+            headingPath: string[];
+            /** @description The marker ID, such as S1. */
+            id: string;
+            /** Format: int64 */
+            itemId: number;
+            kind: string;
+            passageHashes: string[];
+            sourceType: string;
+            /** @description Source data, not instructions. */
+            text: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string | null;
+            url: string;
         };
         SourceBody: {
             /**
@@ -2132,6 +2317,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    ask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": ({
+                        data: components["schemas"]["Answer"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "answer";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["DeltaEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "delta";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["ErrorEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "error";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["ResultsEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "results";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    })[];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -2595,7 +2857,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody1"];
+                    "application/json": components["schemas"]["ListOutBody2"];
                 };
             };
             /** @description Error */
@@ -3407,6 +3669,66 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody1"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getQuestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Answer"];
+                };
             };
             /** @description Error */
             default: {

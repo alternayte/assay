@@ -509,3 +509,79 @@ func weighted(p map[string]float64) float64 {
 	}
 	return v
 }
+
+// ChatStream sends a chat completion with stream set and calls onDelta
+// with each piece of content. It returns the whole answer. Requests never
+// carry tools.
+func (g *Gateway) ChatStream(ctx context.Context, fn Function, req ChatRequest, onDelta func(string)) (*ChatResult, error) {
+	t, err := g.target(ctx, fn)
+	if err != nil {
+		return nil, err
+	}
+	maxTokens := req.MaxTokens
+	if maxTokens == 0 {
+		if v, ok := t.params["max_tokens"].(float64); ok && v > 0 {
+			maxTokens = int(v)
+		} else {
+			maxTokens = 1024
+		}
+	}
+	in := 0
+	msgs := make([]any, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		in += EstimateTokens(m.Content)
+		msgs = append(msgs, map[string]any{"role": m.Role, "content": m.Content})
+	}
+	if err := g.checkBudget(ctx, t, in, maxTokens); err != nil {
+		return nil, err
+	}
+	body := t.withParams(map[string]any{"messages": msgs, "max_tokens": maxTokens, "stream": true,
+		"stream_options": map[string]any{"include_usage": true}})
+	delete(body, "tools")
+	delete(body, "tool_choice")
+	delete(body, "functions")
+	var content strings.Builder
+	res := &ChatResult{}
+	err = g.stream(ctx, t, "/chat/completions", body, func(data []byte) error {
+		var chunk struct {
+			Model   string `json:"model"`
+			Choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return fmt.Errorf("models: a stream event is not valid JSON: %w", err)
+		}
+		if chunk.Model != "" {
+			res.Model = chunk.Model
+		}
+		for _, c := range chunk.Choices {
+			if c.Delta.Content != "" {
+				content.WriteString(c.Delta.Content)
+				onDelta(c.Delta.Content)
+			}
+		}
+		if chunk.Usage != nil {
+			res.TokensIn, res.TokensOut = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	res.Content = content.String()
+	if res.TokensIn == 0 && res.TokensOut == 0 {
+		// The endpoint sent no usage. Record the estimate.
+		res.TokensIn, res.TokensOut = in, EstimateTokens(res.Content)
+	}
+	if err := g.record(ctx, t, res.Model, res.TokensIn, res.TokensOut, req.Ref); err != nil {
+		return nil, err
+	}
+	return res, nil
+}

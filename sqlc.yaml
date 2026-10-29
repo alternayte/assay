@@ -93,3 +93,17 @@ sql:
         <<: *go
         package: search
         out: internal/search
+  - <<: *pkg
+    queries: internal/claims/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: claims
+        out: internal/claims
+  - <<: *pkg
+    queries: internal/ask/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: ask
+        out: internal/ask

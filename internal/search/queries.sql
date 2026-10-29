@@ -71,3 +71,15 @@ FROM chunks c
 JOIN source_items i ON i.id = c.item_id
 JOIN connections k ON k.id = i.connection_id
 WHERE c.id = ANY(@ids::bigint[]) AND c.connection_id = ANY(@visible::bigint[]) AND i.connection_id = ANY(@visible::bigint[]);
+
+-- name: FullTextAny :many
+-- Chunks that match any of the words, ranked by cover density, for the
+-- questions of Ask.
+SELECT c.id AS chunk_id, c.item_id
+FROM chunks c
+JOIN source_items i ON i.id = c.item_id,
+     to_tsquery('simple', unaccent(@words::text)) q
+WHERE c.connection_id = ANY(@visible::bigint[]) AND i.connection_id = ANY(@visible::bigint[])
+  AND c.tsv @@ q
+ORDER BY ts_rank_cd(c.tsv, q, 32) DESC, c.id
+LIMIT @lim;

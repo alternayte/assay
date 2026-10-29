@@ -102,13 +102,11 @@ func (s *Service) Search(ctx context.Context, vis visibility.Set, text string, f
 	if text == "" || len(vis) == 0 {
 		return out, nil
 	}
-	ents, err := New(s.Pool).MatchEntities(ctx, MatchEntitiesParams{Visible: vis, Norm: entities.NormalizeAlias(text)})
+	ents, err := s.Entities(ctx, vis, text)
 	if err != nil {
 		return nil, err
 	}
-	for _, e := range ents {
-		out.Entities = append(out.Entities, Entity{ID: e.ID, Key: e.Key, Type: e.Type, Name: e.Name})
-	}
+	out.Entities = ents
 	lists, degraded, err := s.lists(ctx, vis, text, f)
 	if err != nil {
 		return nil, err
@@ -147,6 +145,23 @@ func (s *Service) Search(ctx context.Context, vis visibility.Set, text string, f
 	return out, nil
 }
 
+// Entities returns the visible entities and terms with an alias equal or
+// like the text.
+func (s *Service) Entities(ctx context.Context, vis visibility.Set, text string) ([]Entity, error) {
+	out := []Entity{}
+	if len(vis) == 0 || strings.TrimSpace(text) == "" {
+		return out, nil
+	}
+	rows, err := New(s.Pool).MatchEntities(ctx, MatchEntitiesParams{Visible: vis, Norm: entities.NormalizeAlias(text)})
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range rows {
+		out = append(out, Entity{ID: e.ID, Key: e.Key, Type: e.Type, Name: e.Name})
+	}
+	return out, nil
+}
+
 // Chunks returns the best chunks for a question, fused at chunk level, for
 // Ask.
 func (s *Service) Chunks(ctx context.Context, vis visibility.Set, text string, n int) ([]Result, bool, error) {
@@ -156,6 +171,18 @@ func (s *Service) Chunks(ctx context.Context, vis visibility.Set, text string, n
 	lists, degraded, err := s.lists(ctx, vis, text, Filters{})
 	if err != nil {
 		return nil, false, err
+	}
+	// A question rarely matches all its words. Match any content word.
+	if ws := contentWords(text); ws != "" {
+		matches, err := New(s.Pool).FullTextAny(ctx, FullTextAnyParams{Words: ws, Visible: vis, Lim: ListSize})
+		if err != nil {
+			return nil, false, err
+		}
+		l := make([]hit, len(matches))
+		for i, r := range matches {
+			l[i] = hit{r.ChunkID, r.ItemID}
+		}
+		lists = append(lists, l)
 	}
 	ids := make([][]int64, len(lists))
 	for i, l := range lists {
@@ -304,6 +331,30 @@ func words(text string) string {
 	for _, w := range word.FindAllString(text, 20) {
 		if len([]rune(w)) > 1 || unicode.IsDigit([]rune(w)[0]) {
 			ws = append(ws, strings.ToLower(w))
+		}
+	}
+	return strings.Join(ws, " | ")
+}
+
+// stopwords are common English words that carry no topic.
+var stopwords = map[string]bool{}
+
+func init() {
+	for _, w := range strings.Fields(`a about after all also an and any are as at be been before but by can could did do does
+		for from had has have how i if in into is it its may more most must no not of on or our over should so some such than that
+		the their them then there these they this those through to under up was we were what when where which while who whom why
+		will with would you your`) {
+		stopwords[w] = true
+	}
+}
+
+// contentWords is an OR query of the words of a question without
+// stopwords.
+func contentWords(text string) string {
+	var ws []string
+	for _, w := range word.FindAllString(strings.ToLower(text), 40) {
+		if !stopwords[w] && !slices.Contains(ws, w) {
+			ws = append(ws, w)
 		}
 	}
 	return strings.Join(ws, " | ")

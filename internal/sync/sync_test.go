@@ -177,3 +177,72 @@ func TestSCN_OPS_007_ContentURLsAreNotFetched(t *testing.T) {
 		t.Fatalf("redirect run %+v, hits %d", run, hits.Load())
 	}
 }
+
+func TestSCN_SYN_006_EvidenceFollowsPassageHashes(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	src.PutPage(fixtures.Page{ID: "1097", Space: "ENG", Title: "Ledger service", Author: "sam.acme", Updated: time.Now().UTC().Add(-time.Hour),
+		Body: "<p>The Ledger service records every payment.</p><p>Team Hermes owns the Ledger service.</p><p>It runs in two regions.</p>"})
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: base,
+		Scope: map[string]any{"spaces": []string{"ENG"}}})
+	env.RunNow(admin, conn, "sync")
+	ctx := t.Context()
+	pool := env.Server.Pool()
+	var item int64
+	if err := pool.QueryRow(ctx, "SELECT id FROM source_items WHERE connection_id = $1 AND external_id = '1097'", conn).Scan(&item); err != nil {
+		t.Fatal(err)
+	}
+	// Two claims with passage evidence, as extraction writes them.
+	var subject int64
+	if err := pool.QueryRow(ctx, "INSERT INTO entities (type, key) VALUES ('service', 'test:ledger') RETURNING id").Scan(&subject); err != nil {
+		t.Fatal(err)
+	}
+	evidence := map[string]int64{}
+	for pred, quote := range map[string]string{"stated": "Team Hermes owns the Ledger service.", "rationale": "It runs in two regions."} {
+		var claim int64
+		if err := pool.QueryRow(ctx, "INSERT INTO claims (subject_id, predicate, object_text, object_norm) VALUES ($1, $2, $3, $3) RETURNING id",
+			subject, pred, quote).Scan(&claim); err != nil {
+			t.Fatal(err)
+		}
+		var id int64
+		if err := pool.QueryRow(ctx, `INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, quote)
+			SELECT $1, $2, $3, hash, 'passage', $4 FROM passages WHERE item_id = $3 AND norm = $4 RETURNING id`,
+			claim, conn, item, quote).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		evidence[pred] = id
+	}
+	state := func(pred string) string {
+		var s string
+		if err := pool.QueryRow(ctx, "SELECT state FROM claim_evidence WHERE id = $1", evidence[pred]).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	// The owner paragraph moves to the top. Both hashes survive.
+	p, _ := src.Page("1097")
+	p.Body = "<p>Team Hermes owns the Ledger service.</p><p>The Ledger service records every payment.</p><p>It runs in two regions.</p>"
+	p.Updated = time.Time{}
+	src.PutPage(p)
+	if run := env.RunNow(admin, conn, "sync"); run.Updated != 1 {
+		t.Fatalf("run %+v", run)
+	}
+	if state("stated") != "current" || state("rationale") != "current" {
+		t.Fatalf("after a move: %s %s", state("stated"), state("rationale"))
+	}
+
+	// The regions paragraph changes. Its evidence becomes stale.
+	p, _ = src.Page("1097")
+	p.Body = "<p>Team Hermes owns the Ledger service.</p><p>The Ledger service records every payment.</p><p>It runs in three regions.</p>"
+	p.Updated = time.Time{}
+	src.PutPage(p)
+	env.RunNow(admin, conn, "sync")
+	if state("stated") != "current" || state("rationale") != "stale" {
+		t.Fatalf("after a change: %s %s", state("stated"), state("rationale"))
+	}
+	if n := env.Count("SELECT count(*) FROM model_usage"); n != 0 {
+		t.Fatalf("the sync recorded %d model calls", n)
+	}
+}

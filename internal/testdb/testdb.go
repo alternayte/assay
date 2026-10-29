@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/testcontainers/testcontainers-go"
@@ -68,7 +69,7 @@ func Create(t testing.TB, name, template string) string {
 	t.Helper()
 	admin := server(t)
 	ctx := context.Background()
-	conn, err := pgx.Connect(ctx, admin)
+	conn, err := connect(ctx, admin)
 	if err != nil {
 		t.Fatalf("testkit: connect: %v", err)
 	}
@@ -86,4 +87,21 @@ func Create(t testing.TB, name, template string) string {
 	}
 	u.Path = "/" + name
 	return u.String()
+}
+
+// connect connects with a timeout per attempt. While many test processes
+// start their containers, a connection can stall in the startup handshake;
+// a new attempt then succeeds.
+func connect(ctx context.Context, url string) (*pgx.Conn, error) {
+	var err error
+	for range 5 {
+		c, cancel := context.WithTimeout(ctx, 20*time.Second)
+		var conn *pgx.Conn
+		conn, err = pgx.Connect(c, url)
+		cancel()
+		if err == nil {
+			return conn, nil
+		}
+	}
+	return nil, err
 }

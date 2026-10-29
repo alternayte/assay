@@ -42,7 +42,7 @@ func newMetrics(pool *pgxpool.Pool, extra ...prometheus.Collector) *metrics {
 	}
 	m.registry.MustRegister(m.requests, m.duration,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
-		&riverCollector{pool: pool})
+		&riverCollector{pool: pool}, &usageCollector{pool: pool})
 	m.registry.MustRegister(extra...)
 	return m
 }
@@ -111,6 +111,65 @@ func (c *riverCollector) Collect(ch chan<- prometheus.Metric) {
 			return
 		}
 		ch <- prometheus.MustNewConstMetric(riverJobs, prometheus.GaugeValue, float64(n), kind, state)
+	}
+}
+
+// usageCollector reports the decisions by kind, band and outcome, and the
+// model usage of the month by function, at each scrape (REQ-OPS-001).
+type usageCollector struct {
+	pool *pgxpool.Pool
+}
+
+var (
+	decisionCount = prometheus.NewDesc("assay_decisions", "Stored decisions by kind, band and outcome. The band is none when decide was off.",
+		[]string{"kind", "band", "outcome"}, nil)
+	usageTokens = prometheus.NewDesc("assay_model_usage_tokens", "Model tokens of the current month by function and direction.",
+		[]string{"function", "direction"}, nil)
+	usageCost = prometheus.NewDesc("assay_model_usage_cost_usd", "Model cost of the current month in USD by function.", []string{"function"}, nil)
+)
+
+func (c *usageCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- decisionCount
+	ch <- usageTokens
+	ch <- usageCost
+}
+
+func (c *usageCollector) Collect(ch chan<- prometheus.Metric) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	rows, err := c.pool.Query(ctx, "SELECT kind, coalesce(band, 'none'), outcome, count(*) FROM decisions GROUP BY 1, 2, 3")
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(decisionCount, err)
+		return
+	}
+	for rows.Next() {
+		var kind, band, outcome string
+		var n int64
+		if err := rows.Scan(&kind, &band, &outcome, &n); err != nil {
+			rows.Close()
+			ch <- prometheus.NewInvalidMetric(decisionCount, err)
+			return
+		}
+		ch <- prometheus.MustNewConstMetric(decisionCount, prometheus.GaugeValue, float64(n), kind, band, outcome)
+	}
+	rows.Close()
+	rows, err = c.pool.Query(ctx, `SELECT function, sum(tokens_in)::float8, sum(tokens_out)::float8, sum(cost_usd)::float8
+FROM model_usage WHERE at >= date_trunc('month', now()) GROUP BY function`)
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(usageCost, err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var fn string
+		var in, out, cost float64
+		if err := rows.Scan(&fn, &in, &out, &cost); err != nil {
+			ch <- prometheus.NewInvalidMetric(usageCost, err)
+			return
+		}
+		ch <- prometheus.MustNewConstMetric(usageTokens, prometheus.GaugeValue, in, fn, "in")
+		ch <- prometheus.MustNewConstMetric(usageTokens, prometheus.GaugeValue, out, fn, "out")
+		ch <- prometheus.MustNewConstMetric(usageCost, prometheus.GaugeValue, cost, fn)
 	}
 }
 

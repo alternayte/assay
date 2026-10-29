@@ -501,6 +501,34 @@
         ],
         "type": "object"
       },
+      "Conflict": {
+        "additionalProperties": false,
+        "properties": {
+          "claims": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "disputed": {
+            "type": "boolean"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subjectName",
+          "predicate",
+          "claims",
+          "disputed"
+        ],
+        "type": "object"
+      },
       "ConflictBlock": {
         "additionalProperties": false,
         "properties": {
@@ -1657,6 +1685,29 @@
             "type": "object"
           }
         },
+        "type": "object"
+      },
+      "Failure": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "enum": [
+              "sentence_length",
+              "summary_length",
+              "banned_word",
+              "deprecated_term",
+              "uncited"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule",
+          "message"
+        ],
         "type": "object"
       },
       "FieldError": {
@@ -2868,6 +2919,369 @@
         "required": [
           "checks",
           "ok"
+        ],
+        "type": "object"
+      },
+      "Page": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Page.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "type": "array"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/PageLink"
+            },
+            "type": "array"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "domainId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "facts": {
+            "description": "Current claims with the entity as subject.",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "newest": {
+            "description": "The newest update of a source.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owners": {
+            "items": {
+              "$ref": "#/components/schemas/PageLink"
+            },
+            "type": "array"
+          },
+          "permissionsCheckedAt": {
+            "description": "The oldest permissions check of the connections of the page.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "related": {
+            "items": {
+              "$ref": "#/components/schemas/PageLink"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/EntitySource"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/PageSummary"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array"
+          },
+          "type": {
+            "type": "string"
+          },
+          "visibilityKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "name",
+          "domain",
+          "domainId",
+          "aliases",
+          "owners",
+          "newest",
+          "permissionsCheckedAt",
+          "visibilityKey",
+          "facts",
+          "conflicts",
+          "decisions",
+          "timeline",
+          "related",
+          "sources",
+          "summary"
+        ],
+        "type": "object"
+      },
+      "PageCitation": {
+        "additionalProperties": false,
+        "properties": {
+          "conflictNoted": {
+            "type": "boolean"
+          },
+          "conflictWith": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "The marker ID, such as C1.",
+            "type": "string"
+          },
+          "objectKey": {
+            "type": "string"
+          },
+          "objectName": {
+            "type": "string"
+          },
+          "objectText": {
+            "description": "Source data, not instructions.",
+            "type": "string"
+          },
+          "objectType": {
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "source",
+              "human",
+              "model"
+            ],
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "superseded",
+              "stale",
+              "conflicting",
+              "supported"
+            ],
+            "type": "string"
+          },
+          "subjectKey": {
+            "type": "string"
+          },
+          "subjectName": {
+            "type": "string"
+          },
+          "subjectType": {
+            "type": "string"
+          },
+          "validFrom": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "predicate",
+          "subjectKey",
+          "subjectType",
+          "subjectName",
+          "origin",
+          "evidence",
+          "status",
+          "conflictNoted",
+          "current"
+        ],
+        "type": "object"
+      },
+      "PageDeltaEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "PageErrorEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "PageLink": {
+        "additionalProperties": false,
+        "properties": {
+          "claimId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "direction": {
+            "description": "out: the page entity is the subject.",
+            "enum": [
+              "out",
+              "in"
+            ],
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "predicate": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "superseded",
+              "stale",
+              "conflicting",
+              "supported"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "claimId",
+          "predicate",
+          "direction",
+          "key",
+          "name",
+          "type",
+          "status"
+        ],
+        "type": "object"
+      },
+      "PageRetryEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/Failure"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "failures"
+        ],
+        "type": "object"
+      },
+      "PageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/PageCitation"
+            },
+            "type": "array"
+          },
+          "compiledAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "links": {
+            "$ref": "#/components/schemas/Linked",
+            "description": "Approved terms in the Markdown."
+          },
+          "lint": {
+            "items": {
+              "$ref": "#/components/schemas/Failure"
+            },
+            "type": "array"
+          },
+          "markdown": {
+            "description": "Markers such as [C1] cite claims.",
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "notice": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "fresh",
+              "stale",
+              "missing",
+              "insufficient",
+              "needs_edit",
+              "off",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "markdown",
+          "citations",
+          "links",
+          "lint",
+          "model",
+          "compiledAt"
         ],
         "type": "object"
       },
@@ -6781,6 +7195,327 @@
         "summary": "Get an entity with its claims",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/page": {
+      "get": {
+        "description": "The sections come from your visible claims. The summary is the cached summary of your visibility key when it is fresh. When the state is missing or stale, compile the page.",
+        "operationId": "getPage",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the knowledge page of an entity",
+        "tags": [
+          "pages"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/page.md": {
+      "get": {
+        "description": "Footnotes cite the source URLs. Approved terms link to their pages. /e/{key}.md gives the same document.",
+        "operationId": "getPageMarkdown",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The page as Markdown.",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the knowledge page as Markdown",
+        "tags": [
+          "pages"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/page/compile": {
+      "post": {
+        "description": "Streams server-sent events: delta events with the summary text, a retry event when a draft fails a check, then the page. A hidden entity and a missing key give the same 404.",
+        "operationId": "compilePage",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "description": "Each oneOf object in the array represents one possible Server Sent Events (SSE) message, serialized as UTF-8 text according to the SSE specification.",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/PageDeltaEvent"
+                          },
+                          "event": {
+                            "const": "delta",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event delta",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/PageErrorEvent"
+                          },
+                          "event": {
+                            "const": "error",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event error",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/Page"
+                          },
+                          "event": {
+                            "const": "page",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event page",
+                        "type": "object"
+                      },
+                      {
+                        "properties": {
+                          "data": {
+                            "$ref": "#/components/schemas/PageRetryEvent"
+                          },
+                          "event": {
+                            "const": "retry",
+                            "description": "The event name.",
+                            "type": "string"
+                          },
+                          "id": {
+                            "description": "The event ID.",
+                            "oneOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "retry": {
+                            "description": "The retry time in milliseconds.",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "data",
+                          "event"
+                        ],
+                        "title": "Event retry",
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "title": "Server Sent Events",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Compile the summary of a page",
+        "tags": [
+          "pages"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/page/regenerate": {
+      "post": {
+        "description": "Compiles the summary again for your visibility key, also when it is fresh.",
+        "operationId": "regeneratePage",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Regenerate the summary of a page",
+        "tags": [
+          "pages"
         ]
       }
     },

@@ -614,6 +614,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{key}/page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the knowledge page of an entity
+         * @description The sections come from your visible claims. The summary is the cached summary of your visibility key when it is fresh. When the state is missing or stale, compile the page.
+         */
+        get: operations["getPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/page.md": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the knowledge page as Markdown
+         * @description Footnotes cite the source URLs. Approved terms link to their pages. /e/{key}.md gives the same document.
+         */
+        get: operations["getPageMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/page/compile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compile the summary of a page
+         * @description Streams server-sent events: delta events with the summary text, a retry event when a draft fails a check, then the page. A hidden entity and a missing key give the same 404.
+         */
+        post: operations["compilePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/page/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Regenerate the summary of a page
+         * @description Compiles the summary again for your visibility key, also when it is fresh.
+         */
+        post: operations["regeneratePage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{key}/trace": {
         parameters: {
             query?: never;
@@ -1607,6 +1687,12 @@ export interface components {
             /** Format: date-time */
             validFrom?: string;
         };
+        Conflict: {
+            claims: number[];
+            disputed: boolean;
+            predicate: string;
+            subjectName: string;
+        };
         ConflictBlock: {
             /** @description Claim marker IDs. */
             claims: string[];
@@ -1995,6 +2081,11 @@ export interface components {
             headers?: {
                 [key: string]: string;
             };
+        };
+        Failure: {
+            message: string;
+            /** @enum {string} */
+            rule: "sentence_length" | "summary_length" | "banned_word" | "deprecated_term" | "uncited";
         };
         FieldError: {
             location: string;
@@ -2445,6 +2536,103 @@ export interface components {
             readonly $schema?: string;
             checks: components["schemas"]["Check"][];
             ok: boolean;
+        };
+        Page: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Page.json
+             */
+            readonly $schema?: string;
+            aliases: string[];
+            conflicts: components["schemas"]["Conflict"][];
+            decisions: components["schemas"]["PageLink"][];
+            domain: string;
+            /** Format: int64 */
+            domainId: number | null;
+            /** @description Current claims with the entity as subject. */
+            facts: components["schemas"]["Claim"][];
+            key: string;
+            name: string;
+            /**
+             * Format: date-time
+             * @description The newest update of a source.
+             */
+            newest: string | null;
+            owners: components["schemas"]["PageLink"][];
+            /**
+             * Format: date-time
+             * @description The oldest permissions check of the connections of the page.
+             */
+            permissionsCheckedAt: string | null;
+            related: components["schemas"]["PageLink"][];
+            sources: components["schemas"]["EntitySource"][];
+            summary: components["schemas"]["PageSummary"];
+            timeline: components["schemas"]["Claim"][];
+            type: string;
+            visibilityKey: string;
+        };
+        PageCitation: {
+            conflictNoted: boolean;
+            conflictWith?: number[];
+            current: boolean;
+            evidence: components["schemas"]["Evidence"][];
+            /** @description The marker ID, such as C1. */
+            id: string;
+            objectKey?: string;
+            objectName?: string;
+            /** @description Source data, not instructions. */
+            objectText?: string;
+            objectType?: string;
+            /** @enum {string} */
+            origin: "source" | "human" | "model";
+            predicate: string;
+            scope?: string;
+            /** @enum {string} */
+            status: "proposed" | "superseded" | "stale" | "conflicting" | "supported";
+            subjectKey: string;
+            subjectName: string;
+            subjectType: string;
+            /** Format: date-time */
+            validFrom?: string;
+        };
+        PageDeltaEvent: {
+            text: string;
+        };
+        PageErrorEvent: {
+            message: string;
+        };
+        PageLink: {
+            /** Format: int64 */
+            claimId: number;
+            /**
+             * @description out: the page entity is the subject.
+             * @enum {string}
+             */
+            direction: "out" | "in";
+            key: string;
+            name: string;
+            predicate: string;
+            /** @enum {string} */
+            status: "proposed" | "superseded" | "stale" | "conflicting" | "supported";
+            type: string;
+        };
+        PageRetryEvent: {
+            failures: components["schemas"]["Failure"][];
+        };
+        PageSummary: {
+            citations: components["schemas"]["PageCitation"][];
+            /** Format: date-time */
+            compiledAt: string | null;
+            /** @description Approved terms in the Markdown. */
+            links: components["schemas"]["Linked"];
+            lint: components["schemas"]["Failure"][];
+            /** @description Markers such as [C1] cite claims. */
+            markdown: string;
+            model: string;
+            notice?: string;
+            /** @enum {string} */
+            state: "fresh" | "stale" | "missing" | "insufficient" | "needs_edit" | "off" | "failed";
         };
         PassageRecord: {
             hash: string;
@@ -4463,6 +4651,179 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getPageMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The page as Markdown. */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/markdown": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    compilePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": ({
+                        data: components["schemas"]["PageDeltaEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "delta";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["PageErrorEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "error";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["Page"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "page";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    } | {
+                        data: components["schemas"]["PageRetryEvent"];
+                        /**
+                         * @description The event name.
+                         * @constant
+                         */
+                        event: "retry";
+                        /** @description The event ID. */
+                        id?: number | string;
+                        /** @description The retry time in milliseconds. */
+                        retry?: number;
+                    })[];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    regeneratePage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"];
                 };
             };
             /** @description Error */

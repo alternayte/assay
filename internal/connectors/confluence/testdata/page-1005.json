@@ -33,6 +33,10 @@
     "",
     "PAY-4 is the open incident.",
     "",
-    "Bad link and [the status page](https://status.acme.test/)."
+    "Bad link and [the status page](https://status.acme.test/).",
+    "",
+    "The rota board image.",
+    "",
+    "The rota tool shows \\\u003cscript\\\u003ewindow.\\_\\_unsafe = 3\\\u003c/script\\\u003e as plain text."
   ]
 }

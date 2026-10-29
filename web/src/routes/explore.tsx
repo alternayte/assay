@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Merge, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { ApiError, api, unwrap } from "@/api/client";
@@ -190,7 +191,13 @@ export function ExplorePage() {
                   />
                 </Td>
                 <Td>
-                  <div className="font-medium break-words">{r.name}</div>
+                  <Link
+                    to="/e/$key"
+                    params={{ key: r.key }}
+                    className="font-medium break-words text-accent underline-offset-2 hover:underline"
+                  >
+                    {r.name}
+                  </Link>
                   <div className="font-mono text-xs break-all text-ink-faint">{r.key}</div>
                 </Td>
                 <Td className="whitespace-nowrap">{typeLabel(r.type)}</Td>

@@ -7,6 +7,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { api, type Schemas, unwrap } from "@/api/client";
+import { type Linked, linkMarkdown, splitLinks, TermLink, termOf } from "@/components/terms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -14,7 +15,6 @@ import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { type CopyKey, t } from "@/copy";
-import { type Linked, linkMarkdown, splitLinks, TermLink, termOf } from "@/components/terms";
 import { cn } from "@/lib/cn";
 import { formatAgo, formatTime } from "@/lib/format";
 import { readEvents } from "@/lib/sse";
@@ -26,13 +26,16 @@ type Source = Schemas["Source"];
 type Claim = Schemas["ContextClaim"];
 type Segment = Schemas["Segment"];
 
-const sourceType = (k: string) => t(`ask.sourceTypes.${k}` as CopyKey);
+export const sourceType = (k: string) => t(`ask.sourceTypes.${k}` as CopyKey);
 
-/** The open drawer: a source or a claim of the answer. */
-type Opened = { kind: "source"; source: Source } | { kind: "claim"; claim: Claim };
+/** A claim as the drawer shows it: an answer claim or a page claim. */
+export type ClaimLike = Pick<Claim, "subjectName" | "predicate" | "objectName" | "objectText" | "evidence">;
+
+/** The open drawer: a source or a claim. */
+export type Opened = { kind: "source"; source: Source } | { kind: "claim"; claim: ClaimLike };
 
 /** Links outside Assay open in a new tab without the opener or referrer. */
-function External({ href, children }: { href?: string; children?: React.ReactNode }) {
+export function External({ href, children }: { href?: string; children?: React.ReactNode }) {
   return (
     <a
       href={href}
@@ -132,7 +135,7 @@ function AnswerText({
   );
 }
 
-function claimText(c: Claim) {
+export function claimText(c: ClaimLike) {
   return t("ask.claimText", {
     subject: c.subjectName,
     predicate: c.predicate.replaceAll("_", " "),
@@ -317,7 +320,7 @@ function HowWeKnow({ answer, onOpen }: { answer: Answer; onOpen: (o: Opened) => 
 }
 
 /** The evidence drawer: the item with the cited passages marked. */
-function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => void }) {
+export function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => void }) {
   const itemId = opened?.kind === "source" ? opened.source.itemId : undefined;
   const item = useQuery({
     queryKey: ["item", itemId],

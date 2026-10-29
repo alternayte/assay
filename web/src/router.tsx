@@ -12,11 +12,12 @@ import { Button } from "@/components/ui/button";
 import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { AskPage } from "@/routes/ask";
+import { EntityPage } from "@/routes/entity";
 import { ExplorePage } from "@/routes/explore";
 import { GlossaryPage, TermPage } from "@/routes/glossary";
 import { ProfilePage } from "@/routes/profile";
-import { RecordPage } from "@/routes/registry";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
+import { RecordPage } from "@/routes/registry";
 import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
 import { DecisionsPage } from "@/routes/settings/decisions";
 import { DiagnosticsPage } from "@/routes/settings/diagnostics";
@@ -74,6 +75,7 @@ const home = createRoute({ getParentRoute: () => authed, path: "/", component: A
 const question = createRoute({ getParentRoute: () => authed, path: "/questions/$id", component: AskPage });
 
 const explore = createRoute({ getParentRoute: () => authed, path: "/explore", component: ExplorePage });
+const entity = createRoute({ getParentRoute: () => authed, path: "/e/$key", component: EntityPage });
 const glossary = createRoute({ getParentRoute: () => authed, path: "/glossary", component: GlossaryPage });
 const term = createRoute({ getParentRoute: () => authed, path: "/glossary/$key", component: TermPage });
 const record = createRoute({ getParentRoute: () => authed, path: "/registry/$key", component: RecordPage });
@@ -136,6 +138,7 @@ const routeTree = root.addChildren([
     home,
     question,
     explore,
+    entity,
     glossary,
     term,
     record,

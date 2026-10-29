@@ -79,6 +79,11 @@ export async function call(page: Page, method: string, path: string, body?: unkn
 
 /** Turns the answer function on with the fake model API of the fixture server. */
 export async function fakeAnswerModel(page: Page) {
+  await fakeModel(page, "answer");
+}
+
+/** Turns a model function on with the fake model API of the fixture server. */
+export async function fakeModel(page: Page, fn: "answer" | "compile") {
   const list = await call(page, "GET", "/api/v1/models/endpoints");
   let id = list.json.endpoints.find((e: { name: string }) => e.name === "fake")?.id;
   if (!id) {
@@ -92,7 +97,7 @@ export async function fakeAnswerModel(page: Page) {
     expect(r.status).toBe(201);
     id = r.json.id;
   }
-  const f = await call(page, "PUT", "/api/v1/models/functions/answer", {
+  const f = await call(page, "PUT", `/api/v1/models/functions/${fn}`, {
     endpointId: id,
     model: "fake-chat",
     params: {},
@@ -111,4 +116,35 @@ export async function createDomain(page: Page, name: string) {
   await page.getByRole("dialog").getByLabel("Name").fill(name);
   await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
   await expect(page.getByRole("cell", { name })).toBeVisible();
+}
+
+/** Creates the Jira connection once and waits for its first sync. */
+export async function jira(page: Page) {
+  const list = await call(page, "GET", "/api/v1/connections");
+  let id = list.json.connections.find((c: { name: string }) => c.name === "acme-jira")?.id;
+  if (!id) {
+    const r = await call(page, "POST", "/api/v1/connections", {
+      name: "acme-jira",
+      kind: "jira",
+      baseUrl: `${fixturesURL}/jira`,
+      token: sourceToken,
+      scope: { projects: ["PAY", "REM"] },
+      syncMinutes: 30,
+      reconcileHours: 24,
+      rateConcurrency: 4,
+      ratePerSecond: 50,
+    });
+    expect(r.status).toBe(201);
+    id = r.json.id;
+    await call(page, "POST", `/api/v1/connections/${id}/sync`);
+  }
+  await expect
+    .poll(
+      async () => {
+        const r = await call(page, "GET", `/api/v1/connections/${id}/runs`);
+        return r.json.runs.some((run: { status: string }) => run.status === "succeeded");
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
 }

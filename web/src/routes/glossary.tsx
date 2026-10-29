@@ -440,10 +440,6 @@ export function TermPage() {
     queryKey: ["term", key],
     queryFn: async () => unwrap(await api.GET("/api/v1/terms/{key}", { params: { path: { key } } })),
   });
-  const entity = useQuery({
-    queryKey: ["entity", key],
-    queryFn: async () => unwrap(await api.GET("/api/v1/entities/{key}", { params: { path: { key } } })),
-  });
   const registry = key.startsWith("registry:");
   const record = useQuery({
     queryKey: ["record", key],
@@ -451,11 +447,9 @@ export function TermPage() {
     queryFn: async () =>
       unwrap(await api.GET("/api/v1/registry/records/{key}", { params: { path: { key } } })),
   });
-  const terms = useTerms();
   if (term.isPending) return <SkeletonRows label={t("app.loading")} rows={8} />;
   if (term.isError) return <Notice tone="danger">{t("glossary.notFound")}</Notice>;
   const x = term.data;
-  const nameOf = (k?: string) => terms.data?.find((y) => y.key === k)?.name ?? k;
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -479,6 +473,30 @@ export function TermPage() {
           !registry && <p className="max-w-sm text-sm text-ink-muted">{t("glossary.sourceTerm")}</p>
         )}
       </header>
+      <TermFields termKey={key} />
+      {registry && <History recordKey={key} />}
+    </div>
+  );
+}
+
+/** The vocabulary fields of a term: definition, fields, usage and sources. */
+export function TermFields({ termKey }: { termKey: string }) {
+  const key = termKey;
+  const term = useQuery({
+    queryKey: ["term", key],
+    queryFn: async () => unwrap(await api.GET("/api/v1/terms/{key}", { params: { path: { key } } })),
+  });
+  const entity = useQuery({
+    queryKey: ["entity", key],
+    queryFn: async () => unwrap(await api.GET("/api/v1/entities/{key}", { params: { path: { key } } })),
+  });
+  const terms = useTerms();
+  if (term.isPending) return <SkeletonRows label={t("app.loading")} rows={6} />;
+  if (term.isError) return <Notice tone="danger">{t("glossary.notFound")}</Notice>;
+  const x = term.data;
+  const nameOf = (k?: string) => terms.data?.find((y) => y.key === k)?.name ?? k;
+  return (
+    <>
       <Sheet title={t("glossary.definition")}>
         <p className="text-lg leading-7">{x.definition || t("glossary.noDefinition")}</p>
       </Sheet>
@@ -529,8 +547,7 @@ export function TermPage() {
       <Sheet title={t("glossary.sources")}>
         <Sources entity={entity.data} />
       </Sheet>
-      {registry && <History recordKey={key} />}
-    </div>
+    </>
   );
 }
 

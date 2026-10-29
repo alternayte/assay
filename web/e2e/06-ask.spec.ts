@@ -1,36 +1,5 @@
-import { expect, type Page, test } from "@playwright/test";
-import { call, fakeAnswerModel, fixturesURL, owner, signIn, sourceToken } from "./env";
-
-/** Creates the Jira connection once and waits for its first sync. */
-async function jira(page: Page) {
-  const list = await call(page, "GET", "/api/v1/connections");
-  let id = list.json.connections.find((c: { name: string }) => c.name === "acme-jira")?.id;
-  if (!id) {
-    const r = await call(page, "POST", "/api/v1/connections", {
-      name: "acme-jira",
-      kind: "jira",
-      baseUrl: `${fixturesURL}/jira`,
-      token: sourceToken,
-      scope: { projects: ["PAY", "REM"] },
-      syncMinutes: 30,
-      reconcileHours: 24,
-      rateConcurrency: 4,
-      ratePerSecond: 50,
-    });
-    expect(r.status).toBe(201);
-    id = r.json.id;
-    await call(page, "POST", `/api/v1/connections/${id}/sync`);
-  }
-  await expect
-    .poll(
-      async () => {
-        const r = await call(page, "GET", `/api/v1/connections/${id}/runs`);
-        return r.json.runs.some((run: { status: string }) => run.status === "succeeded");
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true);
-}
+import { expect, test } from "@playwright/test";
+import { fakeAnswerModel, jira, owner, signIn } from "./env";
 
 test("SCN-ASK-006 a citation opens the drawer, how do we know lists claims and sources, history shows the question", async ({
   page,

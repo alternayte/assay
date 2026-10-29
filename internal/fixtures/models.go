@@ -214,7 +214,7 @@ func fakeContent(body map[string]any) string {
 	var parts []string
 	if strings.HasPrefix(user, "<entity ") {
 		for _, m := range pageClaim.FindAllStringSubmatch(user, 3) {
-			words := strings.Fields(m[2])
+			words := strings.Fields(strings.TrimRight(strings.TrimSpace(m[2]), ".!?"))
 			if len(words) > 18 {
 				words = words[:18]
 			}

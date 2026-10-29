@@ -114,7 +114,7 @@ func isBlock(n *html.Node) bool {
 	}
 	switch n.Data {
 	case "h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "table", "pre", "blockquote", "hr", "div", "section",
-		"ac:layout", "ac:layout-section", "ac:layout-cell", "ac:rich-text-body", "ac:task-list", "ac:image", "img":
+		"ac:layout", "ac:layout-section", "ac:layout-cell", "ac:rich-text-body", "ac:task-list", "ac:image", "img", "script", "style":
 		return true
 	case "ac:structured-macro":
 		name := attr(n, "ac:name")
@@ -175,7 +175,7 @@ func block(n *html.Node) []string {
 		return []string{fence("", textOf(n))}
 	case "blockquote":
 		return []string{quote(blocks(n))}
-	case "hr", "ac:image", "img":
+	case "hr", "ac:image", "img", "script", "style":
 		return nil
 	case "ac:structured-macro":
 		return macro(n)

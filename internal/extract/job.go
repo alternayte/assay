@@ -218,13 +218,8 @@ func (s *Service) resolve(ctx context.Context, vis []int64, v Valid) (content.Ex
 		}
 		c.Object, objType = &obj, t
 	}
-	if err := claims.Check(v.Predicate, subjType, objType); err != nil {
+	if err := claims.CheckExtracted(v.Predicate, subjType, objType); err != nil {
 		return c, ReasonBadPredicate, err.Error()
-	}
-	// Only registry records and accepted reviews set the status of a term
-	// (REQ-VOC-001).
-	if v.Predicate == "status" && subjType == "term" {
-		return c, ReasonBadPredicate, "extraction does not set the status of a term"
 	}
 	return c, "", ""
 }

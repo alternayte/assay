@@ -95,6 +95,18 @@ func Check(predicate, subjectType, objType string) error {
 	return fmt.Errorf("claims: %s does not take a %s object", predicate, objType)
 }
 
+// CheckExtracted is Check for a claim from extraction. Only registry
+// records and accepted reviews set the status of a term (REQ-VOC-001).
+func CheckExtracted(predicate, subjectType, objType string) error {
+	if err := Check(predicate, subjectType, objType); err != nil {
+		return err
+	}
+	if predicate == "status" && subjectType == "term" {
+		return fmt.Errorf("claims: extraction does not set the status of a term")
+	}
+	return nil
+}
+
 func errUnknownPredicate(p string) error { return fmt.Errorf("claims: unknown predicate %q", p) }
 
 func errUnknownSourceType(t string) error { return fmt.Errorf("claims: unknown source type %q", t) }

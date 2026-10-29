@@ -554,6 +554,19 @@
       "ContextClaim": {
         "additionalProperties": false,
         "properties": {
+          "conflictNoted": {
+            "type": "boolean"
+          },
+          "conflictWith": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "current": {
+            "type": "boolean"
+          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/Evidence"
@@ -577,10 +590,28 @@
           "objectType": {
             "type": "string"
           },
+          "origin": {
+            "enum": [
+              "source",
+              "human",
+              "model"
+            ],
+            "type": "string"
+          },
           "predicate": {
             "type": "string"
           },
           "scope": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "proposed",
+              "superseded",
+              "stale",
+              "conflicting",
+              "supported"
+            ],
             "type": "string"
           },
           "subjectKey": {
@@ -603,7 +634,11 @@
           "subjectKey",
           "subjectType",
           "subjectName",
-          "evidence"
+          "origin",
+          "evidence",
+          "status",
+          "conflictNoted",
+          "current"
         ],
         "type": "object"
       },
@@ -961,6 +996,12 @@
             "type": "integer"
           },
           "kind": {
+            "enum": [
+              "field",
+              "passage",
+              "human",
+              "proposal"
+            ],
             "type": "string"
           },
           "passageHash": {

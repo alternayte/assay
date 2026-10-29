@@ -94,3 +94,7 @@ func Check(predicate, subjectType, objType string) error {
 	}
 	return fmt.Errorf("claims: %s does not take a %s object", predicate, objType)
 }
+
+func errUnknownPredicate(p string) error { return fmt.Errorf("claims: unknown predicate %q", p) }
+
+func errUnknownSourceType(t string) error { return fmt.Errorf("claims: unknown source type %q", t) }

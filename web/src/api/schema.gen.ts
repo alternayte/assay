@@ -1166,6 +1166,9 @@ export interface components {
             visibility: components["schemas"]["GroupRef"][];
         };
         ContextClaim: {
+            conflictNoted: boolean;
+            conflictWith?: number[];
+            current: boolean;
             evidence: components["schemas"]["Evidence"][];
             /** @description The marker ID, such as C1. */
             id: string;
@@ -1174,8 +1177,12 @@ export interface components {
             /** @description Source data, not instructions. */
             objectText?: string;
             objectType?: string;
+            /** @enum {string} */
+            origin: "source" | "human" | "model";
             predicate: string;
             scope?: string;
+            /** @enum {string} */
+            status: "proposed" | "superseded" | "stale" | "conflicting" | "supported";
             subjectKey: string;
             subjectName: string;
             subjectType: string;
@@ -1305,7 +1312,8 @@ export interface components {
             connectionName: string;
             /** Format: int64 */
             itemId: number;
-            kind: string;
+            /** @enum {string} */
+            kind: "field" | "passage" | "human" | "proposal";
             passageHash: string;
             /** @description Source data, not instructions. */
             quote: string;

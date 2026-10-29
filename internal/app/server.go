@@ -18,6 +18,7 @@ import (
 
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
+	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/doctor"
@@ -115,7 +116,7 @@ func (s *Server) services() error {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
-	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules}}
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}

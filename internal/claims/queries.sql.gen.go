@@ -10,7 +10,84 @@ import (
 	"time"
 )
 
-const aboutEntities = `-- name: AboutEntities :many
+const resolutions = `-- name: Resolutions :many
+SELECT id, subject_id, predicate, scope_key, chosen_claim_id, decided_at, reopened_at
+FROM resolutions WHERE subject_id = ANY($1::bigint[])
+`
+
+type ResolutionsRow struct {
+	ID            int64
+	SubjectID     int64
+	Predicate     string
+	ScopeKey      string
+	ChosenClaimID int64
+	DecidedAt     time.Time
+	ReopenedAt    *time.Time
+}
+
+func (q *Queries) Resolutions(ctx context.Context, subjects []int64) ([]ResolutionsRow, error) {
+	rows, err := q.db.Query(ctx, resolutions, subjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResolutionsRow
+	for rows.Next() {
+		var i ResolutionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SubjectID,
+			&i.Predicate,
+			&i.ScopeKey,
+			&i.ChosenClaimID,
+			&i.DecidedAt,
+			&i.ReopenedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const supersededDecisions = `-- name: SupersededDecisions :many
+SELECT DISTINCT c.object_entity_id::bigint AS id
+FROM claims c
+WHERE c.predicate = 'supersedes' AND c.retracted_at IS NULL AND c.object_entity_id = ANY($1::bigint[])
+  AND EXISTS (SELECT 1 FROM claim_evidence e
+              WHERE e.claim_id = c.id AND e.connection_id = ANY($2::bigint[]) AND e.stance = 'supports')
+`
+
+type SupersededDecisionsParams struct {
+	Subjects []int64
+	Visible  []int64
+}
+
+// Decisions that a claim with visible support supersedes.
+func (q *Queries) SupersededDecisions(ctx context.Context, arg SupersededDecisionsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, supersededDecisions, arg.Subjects, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const visibleClaims = `-- name: VisibleClaims :many
 SELECT c.id, c.predicate, c.subject_id, s.key AS subject_key, s.type AS subject_type,
        coalesce((SELECT n.alias FROM entity_aliases n JOIN connections nk ON nk.id = n.connection_id
                  WHERE n.entity_id = s.id AND n.connection_id = ANY($1::bigint[])
@@ -19,27 +96,27 @@ SELECT c.id, c.predicate, c.subject_id, s.key AS subject_key, s.type AS subject_
        coalesce((SELECT n.alias FROM entity_aliases n JOIN connections nk ON nk.id = n.connection_id
                  WHERE n.entity_id = o.id AND n.connection_id = ANY($1::bigint[])
                  ORDER BY nk.kind = 'registry' DESC, n.is_name DESC, n.id LIMIT 1), o.key, '')::text AS object_name,
-       coalesce(c.object_text, '')::text AS object_text, c.object_norm, c.scope_env, c.valid_from
+       coalesce(c.object_text, '')::text AS object_text, c.object_norm, c.scope_env, c.valid_from, c.origin
 FROM claims c
 JOIN entities s ON s.id = c.subject_id
 LEFT JOIN entities o ON o.id = c.object_entity_id
 WHERE c.retracted_at IS NULL
   AND EXISTS (SELECT 1 FROM entity_sources ss WHERE ss.entity_id = s.id AND ss.connection_id = ANY($1::bigint[]))
   AND (o.id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os WHERE os.entity_id = o.id AND os.connection_id = ANY($1::bigint[])))
-  AND (c.subject_id = ANY($2::bigint[]) OR c.object_entity_id = ANY($2::bigint[]))
+  AND (c.subject_id = ANY($2::bigint[]) OR c.object_entity_id = ANY($3::bigint[]) OR c.id = ANY($4::bigint[]))
   AND EXISTS (SELECT 1 FROM claim_evidence e
               WHERE e.claim_id = c.id AND e.connection_id = ANY($1::bigint[]) AND e.stance = 'supports')
-ORDER BY c.subject_id = ANY($2::bigint[]) DESC, c.valid_from DESC NULLS LAST, c.id
-LIMIT $3
+ORDER BY c.id
 `
 
-type AboutEntitiesParams struct {
+type VisibleClaimsParams struct {
 	Visible  []int64
-	Entities []int64
-	Lim      int32
+	Subjects []int64
+	Objects  []int64
+	Ids      []int64
 }
 
-type AboutEntitiesRow struct {
+type VisibleClaimsRow struct {
 	ID             int64
 	Predicate      string
 	SubjectID      int64
@@ -54,19 +131,26 @@ type AboutEntitiesRow struct {
 	ObjectNorm     string
 	ScopeEnv       string
 	ValidFrom      *time.Time
+	Origin         string
 }
 
-// Claims about the entities, as subject or object, with visible support.
-// Names are the best visible aliases.
-func (q *Queries) AboutEntities(ctx context.Context, arg AboutEntitiesParams) ([]AboutEntitiesRow, error) {
-	rows, err := q.db.Query(ctx, aboutEntities, arg.Visible, arg.Entities, arg.Lim)
+// Claims with visible support whose subject is in @subjects, whose object
+// is in @objects, or whose ID is in @ids. Names are the best visible
+// aliases. Subject and object need a visible source.
+func (q *Queries) VisibleClaims(ctx context.Context, arg VisibleClaimsParams) ([]VisibleClaimsRow, error) {
+	rows, err := q.db.Query(ctx, visibleClaims,
+		arg.Visible,
+		arg.Subjects,
+		arg.Objects,
+		arg.Ids,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []AboutEntitiesRow
+	var items []VisibleClaimsRow
 	for rows.Next() {
-		var i AboutEntitiesRow
+		var i VisibleClaimsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Predicate,
@@ -82,6 +166,7 @@ func (q *Queries) AboutEntities(ctx context.Context, arg AboutEntitiesParams) ([
 			&i.ObjectNorm,
 			&i.ScopeEnv,
 			&i.ValidFrom,
+			&i.Origin,
 		); err != nil {
 			return nil, err
 		}
@@ -94,11 +179,12 @@ func (q *Queries) AboutEntities(ctx context.Context, arg AboutEntitiesParams) ([
 }
 
 const visibleEvidence = `-- name: VisibleEvidence :many
-SELECT e.claim_id, e.item_id, e.passage_hash, e.kind, e.stance, e.quote, e.state, e.source_type, e.connection_id,
-       i.title, i.url, i.source_updated_at, k.name AS connection_name
+SELECT e.claim_id, e.item_id, e.passage_hash, e.kind, e.stance, e.quote, e.state, e.source_type, e.connection_id, e.created_at,
+       i.title, i.url, i.source_updated_at, k.name AS connection_name, coalesce(p.status, '')::text AS proposal_status
 FROM claim_evidence e
 JOIN source_items i ON i.id = e.item_id
 JOIN connections k ON k.id = e.connection_id
+LEFT JOIN proposals p ON p.id = e.proposal_id
 WHERE e.claim_id = ANY($1::bigint[]) AND e.connection_id = ANY($2::bigint[])
   AND i.connection_id = ANY($2::bigint[])
 ORDER BY e.claim_id, e.state, e.id
@@ -119,13 +205,16 @@ type VisibleEvidenceRow struct {
 	State           string
 	SourceType      string
 	ConnectionID    int64
+	CreatedAt       time.Time
 	Title           string
 	Url             string
 	SourceUpdatedAt *time.Time
 	ConnectionName  string
+	ProposalStatus  string
 }
 
-// The visible evidence of claims, with its item.
+// The visible evidence of claims, with its item. Evidence of a proposal
+// carries the proposal status.
 func (q *Queries) VisibleEvidence(ctx context.Context, arg VisibleEvidenceParams) ([]VisibleEvidenceRow, error) {
 	rows, err := q.db.Query(ctx, visibleEvidence, arg.Claims, arg.Visible)
 	if err != nil {
@@ -145,10 +234,12 @@ func (q *Queries) VisibleEvidence(ctx context.Context, arg VisibleEvidenceParams
 			&i.State,
 			&i.SourceType,
 			&i.ConnectionID,
+			&i.CreatedAt,
 			&i.Title,
 			&i.Url,
 			&i.SourceUpdatedAt,
 			&i.ConnectionName,
+			&i.ProposalStatus,
 		); err != nil {
 			return nil, err
 		}

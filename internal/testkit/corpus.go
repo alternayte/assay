@@ -40,12 +40,12 @@ LATERAL (SELECT string_agg(($2::text[])[1 + ((i.id * 31 + n * 17 + k * k) % arra
          FROM generate_series(1, 60) k) w
 WHERE i.connection_id = $1`,
 	}
-	for _, q := range steps {
+	for i, q := range steps {
 		args := []any{conn}
-		switch {
-		case q == steps[0]:
+		switch i {
+		case 0:
 			args = append(args, benchWords, items)
-		case q == steps[3]:
+		case 3:
 			args = append(args, benchWords, per)
 		}
 		if _, err := pool.Exec(ctx, q, args...); err != nil {

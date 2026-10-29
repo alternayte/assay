@@ -206,8 +206,8 @@ func TestSCN_SYN_006_EvidenceFollowsPassageHashes(t *testing.T) {
 			t.Fatal(err)
 		}
 		var id int64
-		if err := pool.QueryRow(ctx, `INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, quote)
-			SELECT $1, $2, $3, hash, 'passage', $4 FROM passages WHERE item_id = $3 AND norm = $4 RETURNING id`,
+		if err := pool.QueryRow(ctx, `INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, quote, source_type)
+			SELECT $1, $2, $3, hash, 'passage', $4, 'confluence' FROM passages WHERE item_id = $3 AND norm = $4 RETURNING id`,
 			claim, conn, item, quote).Scan(&id); err != nil {
 			t.Fatal(err)
 		}

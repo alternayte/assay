@@ -3,7 +3,7 @@ import { Link, Outlet } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Select } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
@@ -132,7 +132,88 @@ export function GeneralPage() {
       <History settingKey="retention" />
       <PrioritySheet />
       <History settingKey="priority" />
+      <PagesSheet />
+      <History settingKey="pages" />
     </div>
+  );
+}
+
+type PagesValue = {
+  sentenceWords: number;
+  summaryWords: number;
+  extractPassages: number;
+  bannedWords: string[];
+};
+const pagesFields: {
+  key: "sentenceWords" | "summaryWords" | "extractPassages";
+  label: Parameters<typeof t>[0];
+  min: number;
+}[] = [
+  { key: "sentenceWords", label: "general.sentenceWords", min: 5 },
+  { key: "summaryWords", label: "general.summaryWords", min: 20 },
+  { key: "extractPassages", label: "general.extractPassages", min: 0 },
+];
+
+/** The page rules: lint thresholds, banned words and the extraction limit. */
+function PagesSheet() {
+  const setting = useSetting("pages");
+  const [value, setValue] = useState<PagesValue>();
+  const [banned, setBanned] = useState("");
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
+  useEffect(() => {
+    if (!setting.data) return;
+    const v = setting.data.value as PagesValue;
+    setValue(v);
+    setBanned(v.bannedWords.join("\n"));
+  }, [setting.data]);
+  const save = useSaveSetting(
+    "pages",
+    (s) => setMsg({ tone: "success", text: t("general.saved", { revision: s.revision }) }),
+    (text) => setMsg({ tone: "danger", text }),
+  );
+  if (setting.isPending || !value) return <SkeletonRows label={t("app.loading")} />;
+  if (setting.isError || !setting.data) return <Notice tone="danger">{t("app.error")}</Notice>;
+  const revision = setting.data.revision;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setMsg(undefined);
+    const bannedWords = banned
+      .split("\n")
+      .map((w) => w.trim())
+      .filter(Boolean);
+    save.mutate({ value: { ...value, bannedWords }, revision });
+  };
+  return (
+    <Sheet title={t("general.pagesTitle")} description={t("general.pagesBody")}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        <div className="grid gap-4 sm:grid-cols-3">
+          {pagesFields.map((f) => (
+            <Field key={f.key} label={t(f.label)}>
+              {(p) => (
+                <Input
+                  {...p}
+                  type="number"
+                  min={f.min}
+                  required
+                  className="font-mono"
+                  value={value[f.key]}
+                  onChange={(e) => setValue({ ...value, [f.key]: Number(e.target.value) })}
+                />
+              )}
+            </Field>
+          ))}
+        </div>
+        <Field label={t("general.bannedWords")} hint={t("general.bannedWordsHint")}>
+          {(p) => <Textarea {...p} rows={6} value={banned} onChange={(e) => setBanned(e.target.value)} />}
+        </Field>
+        <div>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            {t("general.save")}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
   );
 }
 

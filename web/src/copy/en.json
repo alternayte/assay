@@ -27,10 +27,14 @@
   },
   "palette": {
     "title": "Search and go",
-    "placeholder": "Type a page or a setting",
+    "placeholder": "Type a name, a term, a question or a setting",
     "empty": "No match. Try another word.",
     "groupPages": "Pages",
-    "groupSettings": "Settings"
+    "groupSettings": "Settings",
+    "groupEntities": "Things and terms",
+    "groupItems": "Source items",
+    "groupQuestions": "Your questions",
+    "searching": "Searching."
   },
   "auth": {
     "signInTitle": "Sign in to Assay",
@@ -189,7 +193,14 @@
     "history": "History",
     "revision": "Revision {revision}",
     "by": "by {email}",
-    "system": "default"
+    "system": "default",
+    "pagesTitle": "Pages",
+    "pagesBody": "The writing checks of page summaries, and the passages that a compile sends to extraction.",
+    "sentenceWords": "Words per sentence, at most",
+    "summaryWords": "Words per summary, at most",
+    "extractPassages": "Passages to extract per compile",
+    "bannedWords": "Banned words",
+    "bannedWordsHint": "One word or phrase on each line."
   },
   "smtp": {
     "title": "Email",

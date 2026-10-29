@@ -4,10 +4,8 @@ package app_test
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
@@ -46,13 +44,6 @@ func TestSCN_OPS_008_ReadyOnMigratedDatabase(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	ms := time.Since(start).Milliseconds()
-	if f := os.Getenv("ASSAY_BENCH_REPORT"); f != "" {
-		line := fmt.Sprintf("{\"scn\":\"SCN-OPS-008\",\"pass\":true,\"ms\":%d}\n", ms)
-		fh, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, _ = fh.WriteString(line)
-			_ = fh.Close()
-		}
-	}
+	testkit.BenchReport("SCN-OPS-008", true, ms, nil)
 	t.Logf("ready after %d ms", ms)
 }

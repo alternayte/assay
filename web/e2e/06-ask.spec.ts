@@ -84,7 +84,7 @@ test("SCN-ASK-006 a citation opens the drawer, how do we know lists claims and s
   await jira(page);
 
   const question = "What is the status of PAY-1?";
-  await page.getByLabel("Question").fill(question);
+  await page.getByRole("searchbox", { name: "Question" }).fill(question);
   await page.getByRole("button", { name: "Ask", exact: true }).click();
 
   const source = page.getByRole("button", { name: "Open source S1" });

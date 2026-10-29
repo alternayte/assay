@@ -352,4 +352,44 @@ func (s *Service) Register(a huma.API) {
 		}
 		return &saveOut{Body: *out}, nil
 	})
+
+	type exportOut struct {
+		ContentType        string `header:"Content-Type"`
+		ContentDisposition string `header:"Content-Disposition"`
+		Body               []byte
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "exportTerms", Method: http.MethodGet, Path: "/api/v1/registry/terms.csv", Tags: tags,
+		Summary:     "Export the registry terms as CSV",
+		Description: "Columns: key, name, synonyms, definition, domain, owner, preferred, related, status. Lists use a semicolon.",
+		Middlewares: members,
+		Responses:   map[string]*huma.Response{"200": {Description: "CSV", Content: map[string]*huma.MediaType{"text/csv": {Schema: &huma.Schema{Type: "string"}}}}},
+	}, func(ctx context.Context, _ *struct{}) (*exportOut, error) {
+		b, err := s.ExportTerms(ctx)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		return &exportOut{ContentType: "text/csv; charset=utf-8", ContentDisposition: `attachment; filename="glossary.csv"`, Body: b}, nil
+	})
+
+	type importIn struct {
+		RawBody []byte `contentType:"text/csv" maxLength:"5000000"`
+	}
+	type importOut struct{ Body ImportResult }
+	huma.Register(a, huma.Operation{
+		OperationID: "importTerms", Method: http.MethodPost, Path: "/api/v1/registry/terms.csv", Tags: tags,
+		Summary:     "Import registry terms from CSV",
+		Description: "The export format. A row with a key or a known name saves a new version; other rows create terms. The status rules of your role apply.",
+		Middlewares: members,
+	}, func(ctx context.Context, in *importIn) (*importOut, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		res, err := s.ImportTerms(ctx, in.RawBody, editor(ctx, vis))
+		if err != nil {
+			return nil, saveErr(err)
+		}
+		return &importOut{Body: *res}, nil
+	})
 }

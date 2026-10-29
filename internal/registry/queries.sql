@@ -18,7 +18,7 @@ WHERE e.key = ANY(@keys::text[]) AND e.status <> 'merged'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY(@visible::bigint[]));
 
 -- name: RecordItem :one
-SELECT i.id, i.kind, i.entity_id, i.version_id FROM source_items i
+SELECT i.id, i.kind, i.entity_id, i.version_id, i.content_hash FROM source_items i
 WHERE i.connection_id = ANY(@visible::bigint[]) AND i.external_id = @key;
 
 -- name: ClearRecordAliases :exec
@@ -54,3 +54,9 @@ RETURNING id;
 
 -- name: UserName :one
 SELECT coalesce(nullif(display_name, ''), email)::text FROM auth_users WHERE id = @id;
+
+-- name: DomainByName :one
+SELECT id FROM domains WHERE lower(name) = lower(@name);
+
+-- name: DomainNames :many
+SELECT id, name FROM domains;

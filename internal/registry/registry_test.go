@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/alternayte/assay/internal/testkit"
@@ -263,5 +264,37 @@ func TestSCN_RES_009_MergeKeepsRegistryEntityAndCanonicalName(t *testing.T) {
 	r := w.get(t, w.member, created.Key)
 	if r.Thing["name"] != "Payments Platform API" || len(r.Versions) != 2 || r.Versions[0].EditedBy != "reviewer@acme.test" {
 		t.Errorf("the registry record is %v with %d versions by %+v", r.Thing["name"], len(r.Versions), r.Versions)
+	}
+}
+
+func TestSCN_VOC_004_CSVRoundTrip(t *testing.T) {
+	w := start(t)
+	w.reviewer.Must(http.StatusCreated, http.MethodPost, "/api/v1/registry/records", map[string]any{"kind": "term",
+		"term": map[string]any{"name": "Manuscript", "synonyms": []string{"Submission", "Paper draft"}, "status": "approved",
+			"definition": "A paper that an author sends to a journal, for review."}})
+	w.reviewer.Must(http.StatusCreated, http.MethodPost, "/api/v1/registry/records", map[string]any{"kind": "term",
+		"term": map[string]any{"name": "Preprint", "related": []string{"registry:term:manuscript"}, "definition": "A paper before review."}})
+	csv := w.reviewer.Must(http.StatusOK, http.MethodGet, "/api/v1/registry/terms.csv", nil).Body
+	if !strings.HasPrefix(string(csv), "key,name,synonyms,definition,domain,owner,preferred,related,status\n") ||
+		!strings.Contains(string(csv), `registry:term:manuscript,Manuscript,Submission; Paper draft,"A paper that an author sends to a journal, for review.",,,,,approved`) {
+		t.Fatalf("export:\n%s", csv)
+	}
+	var res struct {
+		Created, Updated, Unchanged int
+		Errors                      []any
+	}
+	w.reviewer.Must(http.StatusOK, http.MethodPost, "/api/v1/registry/terms.csv", testkit.Raw{ContentType: "text/csv", Data: csv}).JSON(t, &res)
+	if res.Created != 0 || res.Updated != 0 || res.Unchanged != 2 || len(res.Errors) != 0 {
+		t.Errorf("a reimport of the export gives %+v", res)
+	}
+	again := w.reviewer.Must(http.StatusOK, http.MethodGet, "/api/v1/registry/terms.csv", nil).Body
+	if string(again) != string(csv) {
+		t.Errorf("the terms changed:\n%s\n%s", csv, again)
+	}
+	// A new row creates a term; a bad status is a row error.
+	add := string(csv) + ",Editor,,The person who decides on a paper.,,,,,draft\n,Reviewer,,A person who reads a paper.,,,,,final\n"
+	w.reviewer.Must(http.StatusOK, http.MethodPost, "/api/v1/registry/terms.csv", testkit.Raw{ContentType: "text/csv", Data: []byte(add)}).JSON(t, &res)
+	if res.Created != 1 || len(res.Errors) != 1 {
+		t.Errorf("an import with a new row and a bad row gives %+v", res)
 	}
 }

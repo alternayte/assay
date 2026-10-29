@@ -125,23 +125,35 @@ func (r *Response) Code() string {
 	return e.Error.Code
 }
 
-// Do sends a request with an optional JSON body.
+// Raw is a request body that is sent as it is, with its content type.
+type Raw struct {
+	ContentType string
+	Data        []byte
+}
+
+// Do sends a request with an optional body: a Raw body, or any other value
+// as JSON.
 func (c *Client) Do(method, path string, body any) *Response {
 	c.t.Helper()
 	var rd io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
+	contentType := "application/json"
+	switch b := body.(type) {
+	case nil:
+	case Raw:
+		rd, contentType = bytes.NewReader(b.Data), b.ContentType
+	default:
+		data, err := json.Marshal(body)
 		if err != nil {
 			c.t.Fatal(err)
 		}
-		rd = bytes.NewReader(b)
+		rd = bytes.NewReader(data)
 	}
 	req, err := http.NewRequestWithContext(context.Background(), method, c.env.HTTP.URL+path, rd)
 	if err != nil {
 		c.t.Fatal(err)
 	}
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", contentType)
 	}
 	if c.Origin != "" && method != http.MethodGet && method != http.MethodHead {
 		req.Header.Set("Origin", c.Origin)

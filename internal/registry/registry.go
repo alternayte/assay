@@ -5,6 +5,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -215,6 +216,14 @@ func (s *Service) SaveTx(ctx context.Context, tx pgx.Tx, key string, rec Registr
 	it.EditedBy, it.Updated, it.Origin, it.DropStale = ed.Name, s.now(), "human", true
 	if create {
 		it.Created = it.Updated
+	}
+	if !create && bytes.Equal(item.ContentHash, it.Hash()) {
+		// Nothing changed: no version, and the aliases stay.
+		out := &SavedRecord{Key: key}
+		if item.VersionID != nil {
+			out.Version = *item.VersionID
+		}
+		return out, nil
 	}
 	if item.EntityID != nil {
 		if err := q.ClearRecordAliases(ctx, ClearRecordAliasesParams{EntityID: *item.EntityID, Visible: regSet}); err != nil {

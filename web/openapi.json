@@ -1951,6 +1951,68 @@
         ],
         "type": "object"
       },
+      "ImportError": {
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ImportResult": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ImportResult.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "created": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ImportError"
+            },
+            "type": "array"
+          },
+          "proposals": {
+            "description": "Member edits of approved definitions that became proposals.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "unchanged": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "updated": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "updated",
+          "unchanged",
+          "proposals",
+          "errors"
+        ],
+        "type": "object"
+      },
       "Invite": {
         "additionalProperties": false,
         "properties": {
@@ -8197,6 +8259,92 @@
           }
         },
         "summary": "Get a version of a registry record with its diff",
+        "tags": [
+          "registry"
+        ]
+      }
+    },
+    "/api/v1/registry/terms.csv": {
+      "get": {
+        "description": "Columns: key, name, synonyms, definition, domain, owner, preferred, related, status. Lists use a semicolon.",
+        "operationId": "exportTerms",
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "CSV",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Export the registry terms as CSV",
+        "tags": [
+          "registry"
+        ]
+      },
+      "post": {
+        "description": "The export format. A row with a key or a known name saves a new version; other rows create terms. The status rules of your role apply.",
+        "operationId": "importTerms",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "schema": {
+                "contentMediaType": "application/octet-stream",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Import registry terms from CSV",
         "tags": [
           "registry"
         ]

@@ -25,6 +25,46 @@ func (q *Queries) ClearRecordAliases(ctx context.Context, arg ClearRecordAliases
 	return err
 }
 
+const domainByName = `-- name: DomainByName :one
+SELECT id FROM domains WHERE lower(name) = lower($1)
+`
+
+func (q *Queries) DomainByName(ctx context.Context, name string) (int64, error) {
+	row := q.db.QueryRow(ctx, domainByName, name)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const domainNames = `-- name: DomainNames :many
+SELECT id, name FROM domains
+`
+
+type DomainNamesRow struct {
+	ID   int64
+	Name string
+}
+
+func (q *Queries) DomainNames(ctx context.Context) ([]DomainNamesRow, error) {
+	rows, err := q.db.Query(ctx, domainNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DomainNamesRow
+	for rows.Next() {
+		var i DomainNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const entityID = `-- name: EntityID :one
 SELECT id FROM entities WHERE key = $1
 `
@@ -160,7 +200,7 @@ func (q *Queries) PreviousVersion(ctx context.Context, arg PreviousVersionParams
 }
 
 const recordItem = `-- name: RecordItem :one
-SELECT i.id, i.kind, i.entity_id, i.version_id FROM source_items i
+SELECT i.id, i.kind, i.entity_id, i.version_id, i.content_hash FROM source_items i
 WHERE i.connection_id = ANY($1::bigint[]) AND i.external_id = $2
 `
 
@@ -170,10 +210,11 @@ type RecordItemParams struct {
 }
 
 type RecordItemRow struct {
-	ID        int64
-	Kind      string
-	EntityID  *int64
-	VersionID *int64
+	ID          int64
+	Kind        string
+	EntityID    *int64
+	VersionID   *int64
+	ContentHash []byte
 }
 
 func (q *Queries) RecordItem(ctx context.Context, arg RecordItemParams) (RecordItemRow, error) {
@@ -184,6 +225,7 @@ func (q *Queries) RecordItem(ctx context.Context, arg RecordItemParams) (RecordI
 		&i.Kind,
 		&i.EntityID,
 		&i.VersionID,
+		&i.ContentHash,
 	)
 	return i, err
 }

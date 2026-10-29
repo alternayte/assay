@@ -1143,6 +1143,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/registry/terms.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the registry terms as CSV
+         * @description Columns: key, name, synonyms, definition, domain, owner, preferred, related, status. Lists use a semicolon.
+         */
+        get: operations["exportTerms"];
+        put?: never;
+        /**
+         * Import registry terms from CSV
+         * @description The export format. A row with a key or a known name saves a new version; other rows create terms. The status rules of your role apply.
+         */
+        post: operations["importTerms"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/search": {
         parameters: {
             query?: never;
@@ -2085,6 +2109,31 @@ export interface components {
             readonly $schema?: string;
             /** Format: int64 */
             id: number;
+        };
+        ImportError: {
+            /** Format: int64 */
+            line: number;
+            message: string;
+        };
+        ImportResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImportResult.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            created: number;
+            errors: components["schemas"]["ImportError"][];
+            /**
+             * Format: int64
+             * @description Member edits of approved definitions that became proposals.
+             */
+            proposals: number;
+            /** Format: int64 */
+            unchanged: number;
+            /** Format: int64 */
+            updated: number;
         };
         Invite: {
             /** Format: date-time */
@@ -5548,6 +5597,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VersionOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    exportTerms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    importTerms: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "text/csv": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportResult"];
                 };
             };
             /** @description Error */

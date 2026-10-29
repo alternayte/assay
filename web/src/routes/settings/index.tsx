@@ -326,7 +326,7 @@ function History({ settingKey }: { settingKey: string }) {
                   {c.updatedBy ? t("general.by", { email: c.updatedBy }) : t("general.system")}
                 </span>
               </p>
-              <pre className="mt-1 overflow-x-auto rounded-sm bg-paper-sunk px-2 py-1 font-mono text-xs">
+              <pre className="mt-1 rounded-sm bg-paper-sunk px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap">
                 {JSON.stringify(c.newValue)}
               </pre>
             </li>

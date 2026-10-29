@@ -303,6 +303,23 @@ func TestSCN_VIS_005_RestrictedEntityIsNotFound(t *testing.T) {
 			t.Fatal("Explore lists the restricted entity for the member")
 		}
 	}
+
+	// A term that only the restricted space defines.
+	w.src.PutPage(fixtures.Page{ID: "2097", Space: "RST", Title: "Falcon terms", Author: "alex.acme",
+		Body: "<p>The Falcon Typesetting Charge (FTC) is private.</p>"})
+	if r := w.env.RunNow(w.owner, w.restrict, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync: %+v", r)
+	}
+	term := "confluence:" + w.host + ":term:falcon-typesetting-charge"
+	get(t, w.owner, term)
+	w.owner.Must(http.StatusOK, http.MethodGet, "/api/v1/terms/"+url.PathEscape(term), nil)
+	for _, p := range []string{path(term), path(term) + "/trace", "/api/v1/terms/" + url.PathEscape(term)} {
+		w.member.Must(http.StatusNotFound, http.MethodGet, p, nil)
+	}
+	terms := string(w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/terms", nil).Body)
+	if strings.Contains(terms, "Falcon") || strings.Contains(terms, "FTC") {
+		t.Fatalf("the member term list shows the restricted term: %s", terms)
+	}
 }
 
 func TestSCN_VIS_006_TraceStopsAtRestrictedEdge(t *testing.T) {

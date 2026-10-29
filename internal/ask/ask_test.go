@@ -119,6 +119,8 @@ var marker = regexp.MustCompile(`\[(S|C)\d+\]`)
 
 func TestSCN_ASK_001_ContextIDsAndEvents(t *testing.T) {
 	s := start(t)
+	s.admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/registry/records", map[string]any{"kind": "term",
+		"term": map[string]any{"name": "Ledger", "status": "approved", "definition": "The system that records each settled payment."}})
 	s.fake.OnChat(func(map[string]any) string {
 		return "The payments team owns the Payments API [C1]. The API sends settled payments to the ledger service [S1]."
 	})
@@ -138,7 +140,7 @@ func TestSCN_ASK_001_ContextIDsAndEvents(t *testing.T) {
 	}
 	msgs := reqs[0].Body["messages"].([]any)
 	user := msgs[1].(map[string]any)["content"].(string)
-	for _, want := range []string{`<source id="S1"`, `<claim id="C1">`, "owned by"} {
+	for _, want := range []string{`<source id="S1"`, `<claim id="C1">`, "owned by", `<term name="Ledger">The system that records each settled payment.</term>`} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("the context has no %q:\n%s", want, user)
 		}

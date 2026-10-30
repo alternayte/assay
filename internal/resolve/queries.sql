@@ -129,7 +129,8 @@ RETURNING id;
 
 -- name: VisibleCards :many
 -- Open cards whose inputs are all visible (SI-18, REQ-REV-002).
-SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs, p.connections
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons,
+       coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs, p.connections
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.connections <@ @visible::bigint[]
@@ -138,7 +139,8 @@ ORDER BY p.id
 LIMIT @lim;
 
 -- name: CardForUpdate :one
-SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id, d.subject_refs, d.kind AS decision_kind
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id,
+       coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs, d.kind AS decision_kind
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.id = @id
@@ -374,7 +376,8 @@ FROM ents;
 -- name: DecidedCards :many
 -- Decided cards whose inputs are all visible, newest decision first.
 SELECT p.id, p.kind, p.target, p.payload, p.status, p.reason, p.created_at, p.decided_at, p.decision_id, p.connections,
-       d.raw_p, d.band, d.reasons, d.subject_refs, coalesce(u.email, '')::text AS reviewer
+       d.raw_p, d.band, d.reasons, coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs,
+       coalesce(u.email, '')::text AS reviewer
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 LEFT JOIN auth_users u ON u.id = p.reviewer_id
@@ -382,3 +385,9 @@ WHERE p.status <> 'open' AND p.connections <@ @visible::bigint[]
   AND (sqlc.narg(kind)::text IS NULL OR p.kind = sqlc.narg(kind))
 ORDER BY p.decided_at DESC NULLS LAST, p.id DESC
 LIMIT @lim;
+
+-- name: OpenMergeCards :many
+-- Open merge cards whose subjects include all @keys.
+SELECT p.id FROM proposals p LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.kind = 'merge'
+  AND coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] @> @keys::text[];

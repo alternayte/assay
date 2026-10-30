@@ -2,6 +2,7 @@ package entities
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -106,11 +107,27 @@ type Detail struct {
 	Incoming []claims.Claim `json:"incoming" doc:"Claims with the entity as object."`
 	Timeline []claims.Claim `json:"timeline" doc:"Dated values of time-scoped claims, newest first."`
 	Sources  []EntitySource `json:"sources"`
+	Merges   []MergeView    `json:"merges" doc:"Active merges into this entity, with the losers that you can see. Split undoes one."`
 	// Newest is the newest update time of a source.
 	Newest *time.Time `json:"newest"`
 
 	ID      int64   `json:"-"`
 	Members []int64 `json:"-"`
+}
+
+// MergeView is an active merge into an entity.
+type MergeView struct {
+	ID            int64     `json:"id"`
+	CanonicalName string    `json:"canonicalName"`
+	Auto          bool      `json:"auto"`
+	At            time.Time `json:"at"`
+	Losers        []Ref     `json:"losers"`
+}
+
+// Ref names an entity.
+type Ref struct {
+	Key  string `json:"key"`
+	Name string `json:"name"`
 }
 
 // Get returns a visible entity. A merged key gives its winner. A hidden
@@ -133,7 +150,18 @@ func (s *Service) Get(ctx context.Context, vis visibility.Set, key string) (*Det
 	}
 	d := &Detail{ID: e.ID, Members: members, Key: e.Key, Type: e.Type, Name: e.Name, Status: e.Status, Domain: e.DomainName,
 		DomainID: e.DomainID, Aliases: []string{}, Claims: []claims.Claim{}, Incoming: []claims.Claim{}, Timeline: []claims.Claim{},
-		Sources: []EntitySource{}}
+		Sources: []EntitySource{}, Merges: []MergeView{}}
+	ms, err := q.ActiveMerges(ctx, ActiveMergesParams{WinnerID: e.ID, Visible: vis})
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range ms {
+		v := MergeView{ID: m.ID, CanonicalName: m.CanonicalName, Auto: m.Auto, At: m.CreatedAt, Losers: []Ref{}}
+		for i, k := range m.Keys {
+			v.Losers = append(v.Losers, Ref{Key: k, Name: m.Names[i]})
+		}
+		d.Merges = append(d.Merges, v)
+	}
 	aliases, err := q.VisibleAliases(ctx, VisibleAliasesParams{Members: members, Visible: vis})
 	if err != nil {
 		return nil, err
@@ -306,6 +334,38 @@ type MergeRequest struct {
 	Canonical string
 	By        string
 	Auto      bool
+}
+
+// ProposeMerge records a merge proposal of a member as a merge card
+// (REQ-REV-012). All entities must be visible to the member.
+func (s *Service) ProposeMerge(ctx context.Context, vis visibility.Set, keys []string, by string) (int64, error) {
+	q := New(s.Pool)
+	keys = slices.Compact(slices.Sorted(slices.Values(keys)))
+	if len(keys) < 2 {
+		return 0, errors.New("entities: a merge needs two entities or more")
+	}
+	for _, k := range keys {
+		if _, err := q.VisibleEntityByKey(ctx, VisibleEntityByKeyParams{Key: k, Visible: vis}); errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrNotFound
+		} else if err != nil {
+			return 0, err
+		}
+	}
+	conns, err := q.SourceConnections(ctx, SourceConnectionsParams{Keys: keys, Visible: vis})
+	if err != nil {
+		return 0, err
+	}
+	payload, _ := json.Marshal(map[string]any{"keys": keys})
+	var id int64
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if id, err = New(tx).InsertMergeProposal(ctx, InsertMergeProposalParams{Target: "entity:" + keys[0], Payload: payload, ProposerID: &by,
+			Connections: conns}); err != nil {
+			return err
+		}
+		return audit.Write(ctx, tx, audit.Entry{Action: "entities.merge_proposal", Target: "entity:" + keys[0],
+			Details: map[string]any{"proposal": id, "keys": keys}})
+	})
+	return id, err
 }
 
 // Merge points the losing entities to the winner (REQ-ENT-004). The winner

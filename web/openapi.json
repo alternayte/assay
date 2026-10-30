@@ -1260,6 +1260,13 @@
           "key": {
             "type": "string"
           },
+          "merges": {
+            "description": "Active merges into this entity, with the losers that you can see. Split undoes one.",
+            "items": {
+              "$ref": "#/components/schemas/MergeView"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
@@ -1306,6 +1313,7 @@
           "incoming",
           "timeline",
           "sources",
+          "merges",
           "newest"
         ],
         "type": "object"
@@ -3022,14 +3030,48 @@
             "format": "int64",
             "type": "integer"
           },
+          "proposal": {
+            "description": "The merge card of a member.",
+            "format": "int64",
+            "type": "integer"
+          },
           "winner": {
             "description": "The key of the winner.",
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "MergeView": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "auto": {
+            "type": "boolean"
+          },
+          "canonicalName": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "losers": {
+            "items": {
+              "$ref": "#/components/schemas/Ref"
+            },
+            "type": "array"
+          }
+        },
         "required": [
           "id",
-          "winner"
+          "canonicalName",
+          "auto",
+          "at",
+          "losers"
         ],
         "type": "object"
       },
@@ -3097,6 +3139,36 @@
           "key",
           "type",
           "name"
+        ],
+        "type": "object"
+      },
+      "NotSameInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/NotSameInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "keys": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "keys"
         ],
         "type": "object"
       },
@@ -4039,6 +4111,22 @@
           "key",
           "versions",
           "kind"
+        ],
+        "type": "object"
+      },
+      "Ref": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
         ],
         "type": "object"
       },
@@ -8860,7 +8948,7 @@
     },
     "/api/v1/merges": {
       "post": {
-        "description": "The registry entity wins, else the oldest. The losers point to the winner and keep their aliases.",
+        "description": "A reviewer merges at once (201): the registry entity wins, else the oldest, and the losers keep their aliases. A member creates a merge card for review (202).",
         "operationId": "mergeEntities",
         "requestBody": {
           "content": {
@@ -8883,6 +8971,34 @@
             },
             "description": "Created"
           },
+          "202": {
+            "description": "A merge card for review."
+          }
+        },
+        "summary": "Merge entities",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/merges/not-same": {
+      "post": {
+        "description": "Resolution does not suggest the pair again, and the open merge cards of the pair are rejected.",
+        "operationId": "notTheSame",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotSameInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
           "default": {
             "content": {
               "application/json": {
@@ -8894,9 +9010,9 @@
             "description": "Error"
           }
         },
-        "summary": "Merge entities",
+        "summary": "Store that two entities are not the same",
         "tags": [
-          "entities"
+          "review"
         ]
       }
     },

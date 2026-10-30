@@ -7,8 +7,70 @@ package entities
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
+
+const activeMerges = `-- name: ActiveMerges :many
+SELECT m.id, m.canonical_name, m.auto, m.created_at,
+       array(SELECT x.key FROM entities x
+             WHERE x.id = ANY(m.loser_ids)
+               AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[]))
+             ORDER BY x.id)::text[] AS keys,
+       array(SELECT coalesce(entity_display_name(x.id, $1::bigint[]), x.key) FROM entities x
+             WHERE x.id = ANY(m.loser_ids)
+               AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[]))
+             ORDER BY x.id)::text[] AS names
+FROM merges m
+WHERE m.winner_id = $2 AND m.undone_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM entities x
+                  WHERE x.id = ANY(m.loser_ids)
+                    AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[])))
+ORDER BY m.id DESC
+`
+
+type ActiveMergesParams struct {
+	Visible  []int64
+	WinnerID int64
+}
+
+type ActiveMergesRow struct {
+	ID            int64
+	CanonicalName string
+	Auto          bool
+	CreatedAt     time.Time
+	Keys          []string
+	Names         []string
+}
+
+// The active merges into an entity whose losers are all visible: a merge
+// with a hidden loser would show its canonical name (SI-16).
+func (q *Queries) ActiveMerges(ctx context.Context, arg ActiveMergesParams) ([]ActiveMergesRow, error) {
+	rows, err := q.db.Query(ctx, activeMerges, arg.Visible, arg.WinnerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ActiveMergesRow
+	for rows.Next() {
+		var i ActiveMergesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CanonicalName,
+			&i.Auto,
+			&i.CreatedAt,
+			&i.Keys,
+			&i.Names,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const edges = `-- name: Edges :many
 SELECT c.id, c.predicate, coalesce(cs.merged_into, cs.id)::bigint AS subject_id, coalesce(co.merged_into, co.id)::bigint AS object_id
@@ -264,6 +326,31 @@ func (q *Queries) InsertMerge(ctx context.Context, arg InsertMergeParams) (int64
 	return id, err
 }
 
+const insertMergeProposal = `-- name: InsertMergeProposal :one
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
+VALUES ('merge', $1, $2, $3, 'ui', $4)
+RETURNING id
+`
+
+type InsertMergeProposalParams struct {
+	Target      string
+	Payload     json.RawMessage
+	ProposerID  *string
+	Connections []int64
+}
+
+func (q *Queries) InsertMergeProposal(ctx context.Context, arg InsertMergeProposalParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertMergeProposal,
+		arg.Target,
+		arg.Payload,
+		arg.ProposerID,
+		arg.Connections,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const markMerged = `-- name: MarkMerged :exec
 UPDATE entities SET status = 'merged', merged_into = $1, updated_at = now() WHERE id = ANY($2::bigint[])
 `
@@ -358,6 +445,38 @@ type RepointMergedParams struct {
 func (q *Queries) RepointMerged(ctx context.Context, arg RepointMergedParams) error {
 	_, err := q.db.Exec(ctx, repointMerged, arg.Winner, arg.Ids)
 	return err
+}
+
+const sourceConnections = `-- name: SourceConnections :many
+SELECT DISTINCT es.connection_id FROM entity_sources es JOIN entities e ON e.id = es.entity_id
+WHERE e.key = ANY($1::text[]) AND es.connection_id = ANY($2::bigint[])
+ORDER BY es.connection_id
+`
+
+type SourceConnectionsParams struct {
+	Keys    []string
+	Visible []int64
+}
+
+// The visible connections with a source of the entities of keys.
+func (q *Queries) SourceConnections(ctx context.Context, arg SourceConnectionsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, sourceConnections, arg.Keys, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var connection_id int64
+		if err := rows.Scan(&connection_id); err != nil {
+			return nil, err
+		}
+		items = append(items, connection_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const undoMerge = `-- name: UndoMerge :execrows

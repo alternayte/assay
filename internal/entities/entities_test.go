@@ -172,8 +172,13 @@ func TestSCN_ENT_003_MergeAndSplit(t *testing.T) {
 		t.Fatalf("Explore lists %d of the merged teams", n)
 	}
 
-	// A member cannot merge.
-	w.member.Must(http.StatusForbidden, http.MethodPost, "/api/v1/merges", map[string]any{"keys": []string{team, ghTeam}})
+	// A member cannot merge or split. A merge request of a member gives a
+	// merge card (REQ-REV-012).
+	w.member.Must(http.StatusAccepted, http.MethodPost, "/api/v1/merges", map[string]any{"keys": []string{team, ghTeam}})
+	if n := w.env.Count("SELECT count(*) FROM merges"); n != 1 {
+		t.Fatalf("%d merges after the request of a member", n)
+	}
+	w.member.Must(http.StatusForbidden, http.MethodPost, fmt.Sprintf("/api/v1/merges/%d/split", m.ID), nil)
 
 	w.owner.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/merges/%d/split", m.ID), nil)
 	a, b := get(t, w.owner, team), get(t, w.owner, ghTeam)

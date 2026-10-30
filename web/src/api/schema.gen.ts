@@ -985,9 +985,29 @@ export interface paths {
         put?: never;
         /**
          * Merge entities
-         * @description The registry entity wins, else the oldest. The losers point to the winner and keep their aliases.
+         * @description A reviewer merges at once (201): the registry entity wins, else the oldest, and the losers keep their aliases. A member creates a merge card for review (202).
          */
         post: operations["mergeEntities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/merges/not-same": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Store that two entities are not the same
+         * @description Resolution does not suggest the pair again, and the open merge cards of the pair are rejected.
+         */
+        post: operations["notTheSame"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2064,6 +2084,8 @@ export interface components {
             /** @description Claims with the entity as object. */
             incoming: components["schemas"]["Claim"][];
             key: string;
+            /** @description Active merges into this entity, with the losers that you can see. Split undoes one. */
+            merges: components["schemas"]["MergeView"][];
             name: string;
             /** Format: date-time */
             newest: string | null;
@@ -2697,9 +2719,23 @@ export interface components {
              */
             readonly $schema?: string;
             /** Format: int64 */
-            id: number;
+            id?: number;
+            /**
+             * Format: int64
+             * @description The merge card of a member.
+             */
+            proposal?: number;
             /** @description The key of the winner. */
-            winner: string;
+            winner?: string;
+        };
+        MergeView: {
+            /** Format: date-time */
+            at: string;
+            auto: boolean;
+            canonicalName: string;
+            /** Format: int64 */
+            id: number;
+            losers: components["schemas"]["Ref"][];
         };
         MineOutBody: {
             /**
@@ -2723,6 +2759,16 @@ export interface components {
             key: string;
             name: string;
             type: string;
+        };
+        NotSameInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/NotSameInBody.json
+             */
+            readonly $schema?: string;
+            keys: string[];
+            reason?: string;
         };
         Notice: {
             /** @enum {string} */
@@ -3011,6 +3057,10 @@ export interface components {
             term?: components["schemas"]["TermRecord"];
             thing?: components["schemas"]["ThingRecord"];
             versions: components["schemas"]["VersionInfo"][];
+        };
+        Ref: {
+            key: string;
+            name: string;
         };
         RegistryRecord: {
             /**
@@ -5772,6 +5822,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MergeOutBody"];
                 };
+            };
+            /** @description A merge card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    notTheSame: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotSameInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

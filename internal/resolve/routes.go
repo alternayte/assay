@@ -458,7 +458,7 @@ func (s *Service) acceptCluster(ctx context.Context, tx pgx.Tx, vis visibility.S
 	}
 	for _, pid := range cl.Pairs {
 		refs := pairs[pid]
-		if len(refs) != 2 || !slices.Contains(members, refs[0]) || !slices.Contains(members, refs[1]) {
+		if len(refs) == 0 || slices.ContainsFunc(refs, func(r string) bool { return !slices.Contains(members, r) }) {
 			continue
 		}
 		pc, err := s.openCard(ctx, tx, vis, pid)
@@ -495,6 +495,44 @@ func (s *Service) rejectCluster(ctx context.Context, tx pgx.Tx, vis visibility.S
 		}
 	}
 	return nil
+}
+
+// NotSame stores the verdict that two entities are different and rejects
+// the open merge cards of exactly these two (REQ-RES-006, REQ-REV-012).
+func (s *Service) NotSame(ctx context.Context, vis visibility.Set, keys []string, reason, by string) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		subs, err := s.subjectMap(ctx, vis, keys)
+		if err != nil {
+			return err
+		}
+		if len(keys) != 2 || keys[0] == keys[1] || len(subs) != 2 {
+			return ErrNotFound
+		}
+		if err := s.verdict(ctx, tx, keys, "different", by); err != nil {
+			return err
+		}
+		ids, err := New(tx).OpenMergeCards(ctx, keys)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			c, err := s.openCard(ctx, tx, vis, id)
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if len(c.SubjectRefs) != 2 {
+				continue
+			}
+			if err := s.closeCard(ctx, tx, c, "rejected", reason, by); err != nil {
+				return err
+			}
+		}
+		return audit.Write(ctx, tx, audit.Entry{Action: "resolve.not_same", Target: "entity:" + keys[0],
+			Details: map[string]any{"keys": keys}})
+	})
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -743,6 +781,29 @@ func (s *Service) Register(a huma.API) {
 		out := &bandOut{}
 		out.Body.Accepted = ids
 		return out, nil
+	})
+
+	type notSameIn struct {
+		Body struct {
+			Keys   []string `json:"keys" minItems:"2" maxItems:"2"`
+			Reason string   `json:"reason,omitempty" maxLength:"1000"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "notTheSame", Method: http.MethodPost, Path: "/api/v1/merges/not-same", Tags: tags,
+		Summary:     "Store that two entities are not the same",
+		Description: "Resolution does not suggest the pair again, and the open merge cards of the pair are rejected.",
+		Middlewares: reviewers, DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, in *notSameIn) (*struct{}, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		reason := in.Body.Reason
+		if reason == "" {
+			reason = "Not the same."
+		}
+		return nil, cardErr(s.NotSame(ctx, vis, in.Body.Keys, reason, api.Caller(ctx).User.ID))
 	})
 
 	type decisionsIn struct {

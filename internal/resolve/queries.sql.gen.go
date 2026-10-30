@@ -134,7 +134,8 @@ func (q *Queries) AddVerdict(ctx context.Context, arg AddVerdictParams) error {
 }
 
 const cardForUpdate = `-- name: CardForUpdate :one
-SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id, d.subject_refs, d.kind AS decision_kind
+SELECT p.id, p.kind, p.status, p.connections, p.payload, p.decision_id, p.proposer_id,
+       coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs, d.kind AS decision_kind
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.id = $1
@@ -226,7 +227,8 @@ func (q *Queries) DecideCard(ctx context.Context, arg DecideCardParams) error {
 
 const decidedCards = `-- name: DecidedCards :many
 SELECT p.id, p.kind, p.target, p.payload, p.status, p.reason, p.created_at, p.decided_at, p.decision_id, p.connections,
-       d.raw_p, d.band, d.reasons, d.subject_refs, coalesce(u.email, '')::text AS reviewer
+       d.raw_p, d.band, d.reasons, coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs,
+       coalesce(u.email, '')::text AS reviewer
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 LEFT JOIN auth_users u ON u.id = p.reviewer_id
@@ -996,6 +998,33 @@ func (q *Queries) NeighbourPairs(ctx context.Context) ([]NeighbourPairsRow, erro
 	return items, nil
 }
 
+const openMergeCards = `-- name: OpenMergeCards :many
+SELECT p.id FROM proposals p LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.kind = 'merge'
+  AND coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] @> $1::text[]
+`
+
+// Open merge cards whose subjects include all @keys.
+func (q *Queries) OpenMergeCards(ctx context.Context, keys []string) ([]int64, error) {
+	rows, err := q.db.Query(ctx, openMergeCards, keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openPairCard = `-- name: OpenPairCard :one
 SELECT EXISTS (SELECT 1 FROM proposals p JOIN decisions d ON d.id = p.decision_id
                WHERE p.status = 'open' AND p.kind = 'merge' AND d.subject_refs @> $1::text[])::boolean
@@ -1617,7 +1646,8 @@ func (q *Queries) Verdicts(ctx context.Context, kind string) ([]VerdictsRow, err
 }
 
 const visibleCards = `-- name: VisibleCards :many
-SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs, p.connections
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons,
+       coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] AS subject_refs, p.connections
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.connections <@ $1::bigint[]

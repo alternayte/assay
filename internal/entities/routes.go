@@ -170,22 +170,34 @@ func (s *Service) Register(a huma.API) {
 		}
 	}
 	type mergeOut struct {
-		Body struct {
-			ID     int64  `json:"id"`
-			Winner string `json:"winner" doc:"The key of the winner."`
+		Status int
+		Body   struct {
+			ID       int64  `json:"id,omitempty"`
+			Winner   string `json:"winner,omitempty" doc:"The key of the winner."`
+			Proposal int64  `json:"proposal,omitempty" doc:"The merge card of a member."`
 		}
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "mergeEntities", Method: http.MethodPost, Path: "/api/v1/merges", Tags: tags,
-		Summary:     "Merge entities",
-		Description: "The registry entity wins, else the oldest. The losers point to the winner and keep their aliases.",
-		Middlewares: reviewers, DefaultStatus: http.StatusCreated,
+		Summary: "Merge entities",
+		Description: "A reviewer merges at once (201): the registry entity wins, else the oldest, and the losers keep their aliases. " +
+			"A member creates a merge card for review (202).",
+		Middlewares: members, DefaultStatus: http.StatusCreated,
+		Responses: map[string]*huma.Response{"202": {Description: "A merge card for review."}},
 	}, func(ctx context.Context, in *mergeIn) (*mergeOut, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {
 			return nil, api.Internal(err)
 		}
-		id, winner, err := s.Merge(ctx, vis, MergeRequest{Keys: in.Body.Keys, Canonical: in.Body.CanonicalName, By: api.Caller(ctx).User.ID})
+		out := &mergeOut{Status: http.StatusCreated}
+		var id, proposal int64
+		var winner string
+		if api.AtLeast(ctx, auth.RoleReviewer) {
+			id, winner, err = s.Merge(ctx, vis, MergeRequest{Keys: in.Body.Keys, Canonical: in.Body.CanonicalName, By: api.Caller(ctx).User.ID})
+		} else {
+			out.Status = http.StatusAccepted
+			proposal, err = s.ProposeMerge(ctx, vis, in.Body.Keys, api.Caller(ctx).User.ID)
+		}
 		switch {
 		case errors.Is(err, ErrNotFound):
 			return nil, api.ErrNotFound
@@ -194,8 +206,7 @@ func (s *Service) Register(a huma.API) {
 		case err != nil:
 			return nil, api.Internal(err)
 		}
-		out := &mergeOut{}
-		out.Body.ID, out.Body.Winner = id, winner
+		out.Body.ID, out.Body.Winner, out.Body.Proposal = id, winner, proposal
 		return out, nil
 	})
 

@@ -106,3 +106,33 @@ ORDER BY c.id;
 -- name: Nodes :many
 SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
 FROM entities e WHERE e.id = ANY(@ids::bigint[]);
+
+-- name: ActiveMerges :many
+-- The active merges into an entity whose losers are all visible: a merge
+-- with a hidden loser would show its canonical name (SI-16).
+SELECT m.id, m.canonical_name, m.auto, m.created_at,
+       array(SELECT x.key FROM entities x
+             WHERE x.id = ANY(m.loser_ids)
+               AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[]))
+             ORDER BY x.id)::text[] AS keys,
+       array(SELECT coalesce(entity_display_name(x.id, @visible::bigint[]), x.key) FROM entities x
+             WHERE x.id = ANY(m.loser_ids)
+               AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[]))
+             ORDER BY x.id)::text[] AS names
+FROM merges m
+WHERE m.winner_id = @winner_id AND m.undone_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM entities x
+                  WHERE x.id = ANY(m.loser_ids)
+                    AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[])))
+ORDER BY m.id DESC;
+
+-- name: SourceConnections :many
+-- The visible connections with a source of the entities of keys.
+SELECT DISTINCT es.connection_id FROM entity_sources es JOIN entities e ON e.id = es.entity_id
+WHERE e.key = ANY(@keys::text[]) AND es.connection_id = ANY(@visible::bigint[])
+ORDER BY es.connection_id;
+
+-- name: InsertMergeProposal :one
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
+VALUES ('merge', @target, @payload, @proposer_id, 'ui', @connections)
+RETURNING id;

@@ -201,7 +201,7 @@ func evaluate(ctx context.Context, db DB, vis visibility.Set, cs []Claim) (map[i
 		}
 	}
 	q := New(db)
-	rs, err := q.Resolutions(ctx, orEmpty(subjects))
+	rs, err := q.Resolutions(ctx, ResolutionsParams{Subjects: orEmpty(subjects), Visible: vis})
 	if err != nil {
 		return nil, err
 	}

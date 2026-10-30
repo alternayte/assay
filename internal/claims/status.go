@@ -246,10 +246,14 @@ func Evaluate(facts []Fact, resolutions []Resolution, superseded map[int64]bool,
 
 // supersededBy reports whether a resolution chose another claim with no
 // newer visible support for this one, or a visible decision supersedes the
-// subject.
+// subject. A resolution affects only a predicate whose values conflict: other
+// values of a multi-valued predicate stay.
 func supersededBy(f *Fact, res map[groupKey]Resolution, superseded map[int64]bool) bool {
 	if superseded[f.Subject] {
 		return true
+	}
+	if p, ok := Registry[f.Predicate]; !ok || p.Multi || p.NeverConflicts {
+		return false
 	}
 	r, ok := res[groupKey{f.Subject, f.Predicate, f.Scope}]
 	if !ok || r.Chosen == f.ID {

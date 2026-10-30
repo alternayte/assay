@@ -191,9 +191,19 @@ func (q *Queries) ReopenResolutions(ctx context.Context, arg ReopenResolutionsPa
 }
 
 const resolutions = `-- name: Resolutions :many
-SELECT id, subject_id, predicate, scope_key, chosen_claim_id, decided_at, reopened_at
-FROM resolutions WHERE subject_id = ANY($1::bigint[])
+SELECT r.id, r.subject_id, r.predicate, r.scope_key, r.chosen_claim_id, r.decided_at, r.reopened_at
+FROM resolutions r
+WHERE r.subject_id = ANY($1::bigint[])
+  AND EXISTS (SELECT 1 FROM claims c JOIN claim_evidence e ON e.claim_id = c.id
+              LEFT JOIN proposals p ON p.id = e.proposal_id
+              WHERE c.id = r.chosen_claim_id AND c.retracted_at IS NULL AND e.connection_id = ANY($2::bigint[])
+                AND e.stance = 'supports' AND (p.id IS NULL OR p.status IN ('open', 'accepted')))
 `
+
+type ResolutionsParams struct {
+	Subjects []int64
+	Visible  []int64
+}
 
 type ResolutionsRow struct {
 	ID            int64
@@ -205,8 +215,10 @@ type ResolutionsRow struct {
 	ReopenedAt    *time.Time
 }
 
-func (q *Queries) Resolutions(ctx context.Context, subjects []int64) ([]ResolutionsRow, error) {
-	rows, err := q.db.Query(ctx, resolutions, subjects)
+// Resolutions whose chosen claim has visible support. A resolution for a
+// hidden claim does not change what the reader sees (SI-02).
+func (q *Queries) Resolutions(ctx context.Context, arg ResolutionsParams) ([]ResolutionsRow, error) {
+	rows, err := q.db.Query(ctx, resolutions, arg.Subjects, arg.Visible)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +250,9 @@ SELECT DISTINCT c.object_entity_id::bigint AS id
 FROM claims c
 WHERE c.predicate = 'supersedes' AND c.retracted_at IS NULL AND c.object_entity_id = ANY($1::bigint[])
   AND EXISTS (SELECT 1 FROM claim_evidence e
-              WHERE e.claim_id = c.id AND e.connection_id = ANY($2::bigint[]) AND e.stance = 'supports')
+              LEFT JOIN proposals p ON p.id = e.proposal_id
+              WHERE e.claim_id = c.id AND e.connection_id = ANY($2::bigint[]) AND e.stance = 'supports'
+                AND (p.id IS NULL OR p.status = 'accepted'))
 `
 
 type SupersededDecisionsParams struct {
@@ -246,7 +260,8 @@ type SupersededDecisionsParams struct {
 	Visible  []int64
 }
 
-// Decisions that a claim with visible support supersedes.
+// Decisions that a claim with visible support supersedes. A proposal counts
+// only after a reviewer accepts it: before that the claim is Proposed.
 func (q *Queries) SupersededDecisions(ctx context.Context, arg SupersededDecisionsParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, supersededDecisions, arg.Subjects, arg.Visible)
 	if err != nil {

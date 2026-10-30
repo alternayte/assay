@@ -126,3 +126,19 @@ WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_syn
 
 -- name: EveryoneGroup :one
 SELECT id FROM groups WHERE builtin;
+
+-- name: ConnectionEntities :many
+-- The entities with a source in the connection, for a purge.
+-- vis:system
+SELECT DISTINCT entity_id FROM entity_sources WHERE connection_id = @id;
+
+-- name: DeleteSourcelessEntities :execrows
+-- Deletes the entities of ids that have no source left. Entities merged
+-- into a deleted entity become active again. Claims, profiles and pages of
+-- the deleted entities go by cascade.
+-- vis:system
+WITH gone AS (SELECT e.id FROM entities e
+              WHERE e.id = ANY(@ids::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+DELETE FROM entities WHERE id IN (SELECT id FROM gone);

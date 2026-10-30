@@ -569,8 +569,9 @@ func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64,
 	})
 }
 
-// Purge deletes a connection and all its data in one transaction and writes
-// an audit entry. The registry cannot be purged.
+// Purge deletes a connection and all its data in one transaction, with the
+// entities that have no other source, and writes an audit entry. The
+// registry cannot be purged.
 func (s *Service) Purge(ctx context.Context, id int64) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		q := New(tx)
@@ -584,7 +585,14 @@ func (s *Service) Purge(ctx context.Context, id int64) error {
 		if c.Kind == "registry" {
 			return registryProblem()
 		}
+		ents, err := q.ConnectionEntities(ctx, id)
+		if err != nil {
+			return err
+		}
 		if _, err := q.DeleteConnection(ctx, id); err != nil {
+			return err
+		}
+		if _, err := q.DeleteSourcelessEntities(ctx, append([]int64{}, ents...)); err != nil {
 			return err
 		}
 		if c.SecretID != nil {

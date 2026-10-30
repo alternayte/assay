@@ -73,6 +73,25 @@ func (q *Queries) ActiveMerges(ctx context.Context, arg ActiveMergesParams) ([]A
 	return items, nil
 }
 
+const allVisible = `-- name: AllVisible :one
+SELECT (NOT EXISTS (SELECT 1 FROM unnest($1::bigint[]) x(id)
+                    WHERE NOT EXISTS (SELECT 1 FROM entity_sources es
+                                      WHERE es.entity_id = x.id AND es.connection_id = ANY($2::bigint[]))))::bool AS visible
+`
+
+type AllVisibleParams struct {
+	Ids     []int64
+	Visible []int64
+}
+
+// Whether each entity has a source in the visible set.
+func (q *Queries) AllVisible(ctx context.Context, arg AllVisibleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, allVisible, arg.Ids, arg.Visible)
+	var visible bool
+	err := row.Scan(&visible)
+	return visible, err
+}
+
 const edges = `-- name: Edges :many
 SELECT c.id, c.predicate, coalesce(cs.merged_into, cs.id)::bigint AS subject_id, coalesce(co.merged_into, co.id)::bigint AS object_id
 FROM claims c
@@ -121,6 +140,35 @@ func (q *Queries) Edges(ctx context.Context, arg EdgesParams) ([]EdgesRow, error
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const everyoneConnections = `-- name: EveryoneConnections :many
+SELECT c.id FROM connections c
+WHERE c.status = 'active'
+  AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id AND g.builtin WHERE v.connection_id = c.id)
+ORDER BY c.id
+`
+
+// The active connections that are shared with Everyone: the visible set that
+// every user has.
+func (q *Queries) EveryoneConnections(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, everyoneConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

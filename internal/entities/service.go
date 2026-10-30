@@ -441,9 +441,21 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 	if err := q.MarkMerged(ctx, MarkMergedParams{Winner: &winner.ID, Ids: losers}); err != nil {
 		return 0, "", err
 	}
+	shared := false
 	if canonical != "" && slices.Contains(reg, winner.ID) && s.Rename != nil {
+		everyone, err := q.EveryoneConnections(ctx)
+		if err != nil {
+			return 0, "", err
+		}
+		if shared, err = q.AllVisible(ctx, AllVisibleParams{Ids: ids, Visible: append([]int64{}, everyone...)}); err != nil {
+			return 0, "", err
+		}
+	}
+	if shared {
 		// The registry name comes first (REQ-ENT-007), so the canonical name
-		// renames the registry record.
+		// renames the registry record. Everyone reads the registry, so this
+		// happens only when Everyone sees every merged entity: else the name
+		// would show to readers who do not see every entity (SI-16).
 		if err := s.Rename(ctx, tx, vis, winner.Key, canonical, r.By); err != nil {
 			return 0, "", err
 		}

@@ -235,6 +235,57 @@
         ],
         "type": "object"
       },
+      "BandInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/BandInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "band": {
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "band"
+        ],
+        "type": "object"
+      },
+      "BandOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/BandOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "accepted": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "type": "object"
+      },
       "Bin": {
         "additionalProperties": false,
         "properties": {
@@ -287,7 +338,18 @@
           "calibrated": {
             "type": "boolean"
           },
+          "claims": {
+            "description": "The claims of a correction, finding or conflict card, with their visible evidence.",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array"
+          },
           "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decidedAt": {
             "format": "date-time",
             "type": "string"
           },
@@ -331,16 +393,32 @@
             "$ref": "#/components/schemas/Precision",
             "description": "The measured precision of the band."
           },
+          "reason": {
+            "type": "string"
+          },
           "reasons": {
             "items": {
               "type": "string"
             },
             "type": "array"
           },
+          "reviewer": {
+            "description": "The email of the reviewer of a decided card.",
+            "type": "string"
+          },
           "score": {
             "description": "Impact multiplied by uncertainty. The queue shows the highest score first.",
             "format": "double",
             "type": "number"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "accepted",
+              "rejected",
+              "needs_evidence"
+            ],
+            "type": "string"
           },
           "subjects": {
             "items": {
@@ -360,6 +438,7 @@
           "calibrated",
           "reasons",
           "subjects",
+          "status",
           "impact",
           "score",
           "createdAt"
@@ -4888,11 +4967,25 @@
       "Subject": {
         "additionalProperties": false,
         "properties": {
+          "aliases": {
+            "description": "The visible aliases.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "key": {
             "type": "string"
           },
           "name": {
             "type": "string"
+          },
+          "sources": {
+            "description": "The names of the visible connections with a source of the entity.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "type": {
             "type": "string"
@@ -4901,7 +4994,9 @@
         "required": [
           "key",
           "name",
-          "type"
+          "type",
+          "aliases",
+          "sources"
         ],
         "type": "object"
       },
@@ -6298,25 +6393,20 @@
     },
     "/api/v1/cards": {
       "get": {
-        "description": "A card shows only when all its inputs are visible to you.",
+        "description": "A card shows only when all its inputs are visible to you. Open cards come in queue order: impact multiplied by uncertainty.",
         "operationId": "listCards",
         "parameters": [
           {
+            "description": "open lists the queue in order; decided lists the newest decisions first.",
             "explode": false,
             "in": "query",
-            "name": "kind",
+            "name": "status",
             "schema": {
+              "default": "open",
+              "description": "open lists the queue in order; decided lists the newest decisions first.",
               "enum": [
-                "correction",
-                "finding",
-                "merge",
-                "mention_link",
-                "unnamed",
-                "new_term",
-                "term_edit",
-                "conflict",
-                "needs_edit",
-                ""
+                "open",
+                "decided"
               ],
               "type": "string"
             }
@@ -6356,7 +6446,49 @@
             "description": "Error"
           }
         },
-        "summary": "List open review cards",
+        "summary": "List review cards",
+        "tags": [
+          "review"
+        ]
+      }
+    },
+    "/api/v1/cards/accept-band": {
+      "post": {
+        "description": "Accepts each open card of the band that the filter selects, with no edits. A cluster card merges all its members.",
+        "operationId": "acceptBand",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BandInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BandOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Accept all open cards of one band in a filter",
         "tags": [
           "review"
         ]

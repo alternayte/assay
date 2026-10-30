@@ -16,37 +16,48 @@ import (
 	"github.com/alternayte/assay/internal/api"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/visibility"
 )
 
 // Subject is an entity that a card or a decision is about.
 type Subject struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Key     string   `json:"key"`
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	Aliases []string `json:"aliases" doc:"The visible aliases."`
+	Sources []string `json:"sources" doc:"The names of the visible connections with a source of the entity."`
+
+	domain *int64
 }
 
 // Card is one open review card.
 type Card struct {
-	ID         int64      `json:"id"`
-	Kind       string     `json:"kind"`
-	Target     string     `json:"target"`
-	Payload    any        `json:"payload"`
-	DecisionID *int64     `json:"decisionId,omitempty"`
-	P          *float64   `json:"p,omitempty"`
-	Band       string     `json:"band,omitempty" doc:"Empty when the decide function was off."`
-	Calibrated bool       `json:"calibrated"`
-	Precision  *Precision `json:"precision,omitempty" doc:"The measured precision of the band."`
-	Reasons    []string   `json:"reasons"`
-	Subjects   []Subject  `json:"subjects"`
-	Members    []Subject  `json:"members,omitempty" doc:"The entities of a merge cluster. Accept merges the members that you pick."`
-	Pairs      []int64    `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
-	Impact     int        `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
-	Score      float64    `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
-	CreatedAt  time.Time  `json:"createdAt"`
+	ID         int64          `json:"id"`
+	Kind       string         `json:"kind"`
+	Target     string         `json:"target"`
+	Payload    any            `json:"payload"`
+	DecisionID *int64         `json:"decisionId,omitempty"`
+	P          *float64       `json:"p,omitempty"`
+	Band       string         `json:"band,omitempty" doc:"Empty when the decide function was off."`
+	Calibrated bool           `json:"calibrated"`
+	Precision  *Precision     `json:"precision,omitempty" doc:"The measured precision of the band."`
+	Reasons    []string       `json:"reasons"`
+	Subjects   []Subject      `json:"subjects"`
+	Members    []Subject      `json:"members,omitempty" doc:"The entities of a merge cluster. Accept merges the members that you pick."`
+	Pairs      []int64        `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
+	Claims     []claims.Claim `json:"claims,omitempty" doc:"The claims of a correction, finding or conflict card, with their visible evidence."`
+	Status     string         `json:"status" enum:"open,accepted,rejected,needs_evidence"`
+	Reason     string         `json:"reason,omitempty"`
+	Reviewer   string         `json:"reviewer,omitempty" doc:"The email of the reviewer of a decided card."`
+	DecidedAt  *time.Time     `json:"decidedAt,omitempty"`
+	Impact     int            `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
+	Score      float64        `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
+	CreatedAt  time.Time      `json:"createdAt"`
 
-	refs []string
+	refs        []string
+	connections []int64
 }
 
 // DecisionView is a stored decision as the API shows it.
@@ -74,19 +85,34 @@ type KindCalibration struct {
 }
 
 func (s *Service) subjects(ctx context.Context, vis visibility.Set, refs []string) ([]Subject, error) {
+	m, err := s.subjectMap(ctx, vis, refs)
+	if err != nil {
+		return nil, err
+	}
+	return pick(m, refs), nil
+}
+
+// subjectMap loads the visible subjects of refs by key.
+func (s *Service) subjectMap(ctx context.Context, vis visibility.Set, refs []string) (map[string]Subject, error) {
 	rows, err := New(s.Pool).EntityRefs(ctx, EntityRefsParams{Keys: refs, Visible: vis})
 	if err != nil {
 		return nil, err
 	}
+	m := make(map[string]Subject, len(rows))
+	for _, r := range rows {
+		m[r.Key] = Subject{Key: r.Key, Name: r.Name, Type: r.Type, Aliases: orEmpty(r.Aliases), Sources: orEmpty(r.Sources), domain: r.DomainID}
+	}
+	return m, nil
+}
+
+func pick(m map[string]Subject, refs []string) []Subject {
 	out := []Subject{}
 	for _, k := range refs {
-		for _, r := range rows {
-			if r.Key == k {
-				out = append(out, Subject{Key: r.Key, Name: r.Name, Type: r.Type})
-			}
+		if sub, ok := m[k]; ok && !slices.ContainsFunc(out, func(x Subject) bool { return x.Key == k }) {
+			out = append(out, sub)
 		}
 	}
-	return out, nil
+	return out
 }
 
 func reasonsOf(raw []byte) []string {
@@ -95,84 +121,191 @@ func reasonsOf(raw []byte) []string {
 	return orEmpty(rs)
 }
 
-// maxQueue is the number of open cards that the queue order ranks.
+// CardFilter selects the cards of the queue (REQ-REV-011). Zero values
+// select all.
+type CardFilter struct {
+	Decided    bool
+	Kind, Band string
+	Connection int64
+	Type       string
+	Domain     int64
+	Query      string
+}
+
+func (f CardFilter) match(c Card) bool {
+	if f.Band != "" && c.Band != f.Band {
+		return false
+	}
+	if f.Connection != 0 && !slices.Contains(c.connections, f.Connection) {
+		return false
+	}
+	if f.Type != "" && !slices.ContainsFunc(c.Subjects, func(x Subject) bool { return x.Type == f.Type }) {
+		return false
+	}
+	if f.Domain != 0 && !slices.ContainsFunc(c.Subjects, func(x Subject) bool { return x.domain != nil && *x.domain == f.Domain }) {
+		return false
+	}
+	if q := strings.ToLower(strings.TrimSpace(f.Query)); q != "" {
+		text, _ := json.Marshal(c.Payload)
+		hay := strings.ToLower(c.Kind + " " + string(text))
+		for _, x := range c.Subjects {
+			hay += " " + strings.ToLower(x.Name+" "+strings.Join(x.Aliases, " "))
+		}
+		return strings.Contains(hay, q)
+	}
+	return true
+}
+
+// maxQueue is the number of cards that the queue order ranks.
 const maxQueue = 5000
 
-// Cards lists the open cards whose inputs are all visible, in queue order
-// (REQ-REV-010).
-func (s *Service) Cards(ctx context.Context, vis visibility.Set, kind string, limit int) ([]Card, error) {
+// Cards lists the cards whose inputs are all visible: open cards in queue
+// order (REQ-REV-010), or decided cards with the newest decision first.
+func (s *Service) Cards(ctx context.Context, vis visibility.Set, f CardFilter, limit int) ([]Card, error) {
 	var k *string
-	if kind != "" {
-		k = &kind
+	if f.Kind != "" {
+		k = &f.Kind
 	}
 	q := New(s.Pool)
-	rows, err := q.VisibleCards(ctx, VisibleCardsParams{Visible: vis, Kind: k, Lim: maxQueue})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Card, 0, len(rows))
-	var keys []string
-	for _, r := range rows {
-		c := Card{ID: r.ID, Kind: r.Kind, Target: r.Target, DecisionID: r.DecisionID, P: r.RawP, Reasons: reasonsOf(r.Reasons), CreatedAt: r.CreatedAt,
-			refs: r.SubjectRefs}
-		_ = json.Unmarshal(r.Payload, &c.Payload)
-		if r.Band != nil {
-			c.Band = *r.Band
-		}
-		if c.refs == nil && strings.HasPrefix(r.Target, "entity:") {
-			c.refs = []string{strings.TrimPrefix(r.Target, "entity:")}
-		}
-		keys = append(keys, c.refs...)
-		out = append(out, c)
-	}
-	out = Cluster(out)
-	impact := map[string]int{}
-	if len(keys) > 0 {
-		is, err := q.Impact(ctx, ImpactParams{Keys: keys, Visible: vis, Since: s.now().AddDate(0, 0, -30)})
+	var out []Card
+	if f.Decided {
+		rows, err := q.DecidedCards(ctx, DecidedCardsParams{Visible: vis, Kind: k, Lim: maxQueue})
 		if err != nil {
 			return nil, err
 		}
-		for _, i := range is {
-			impact[i.Key] = int(i.Impact)
+		for _, r := range rows {
+			out = append(out, newCard(r.ID, r.Kind, r.Target, r.Payload, r.CreatedAt, r.DecisionID, r.RawP, r.Band, r.Reasons, r.SubjectRefs,
+				r.Connections))
+			c := &out[len(out)-1]
+			c.Status, c.Reason, c.Reviewer, c.DecidedAt = r.Status, r.Reason, r.Reviewer, r.DecidedAt
 		}
-	}
-	for i := range out {
-		for _, ref := range out[i].refs {
-			out[i].Impact += impact[ref]
-		}
-	}
-	SortQueue(out)
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	cals := map[string]Calibration{}
-	for i := range out {
-		c := &out[i]
-		if c.Subjects, err = s.subjects(ctx, vis, c.refs); err != nil {
+	} else {
+		rows, err := q.VisibleCards(ctx, VisibleCardsParams{Visible: vis, Kind: k, Lim: maxQueue})
+		if err != nil {
 			return nil, err
 		}
+		for _, r := range rows {
+			out = append(out, newCard(r.ID, r.Kind, r.Target, r.Payload, r.CreatedAt, r.DecisionID, r.RawP, r.Band, r.Reasons, r.SubjectRefs,
+				r.Connections))
+		}
+		out = Cluster(out)
+	}
+	var keys []string
+	for _, c := range out {
+		keys = append(keys, c.refs...)
+	}
+	subs, err := s.subjectMap(ctx, vis, keys)
+	if err != nil {
+		return nil, err
+	}
+	if !f.Decided {
+		impact := map[string]int{}
+		if len(keys) > 0 {
+			is, err := q.Impact(ctx, ImpactParams{Keys: keys, Visible: vis, Since: s.now().AddDate(0, 0, -30)})
+			if err != nil {
+				return nil, err
+			}
+			for _, i := range is {
+				impact[i.Key] = int(i.Impact)
+			}
+		}
+		for i := range out {
+			for _, ref := range out[i].refs {
+				out[i].Impact += impact[ref]
+			}
+		}
+		SortQueue(out)
+	}
+	kept := []Card{}
+	for _, c := range out {
+		c.Subjects = pick(subs, c.refs)
 		if c.Kind == "merge" {
 			c.Members = c.Subjects
 		}
-		if c.DecisionID != nil {
-			kind := c.Kind
-			if kind == "merge" {
-				kind = KindSameEntity
+		if f.match(c) {
+			kept = append(kept, c)
+		}
+		if len(kept) == limit {
+			break
+		}
+	}
+	if err := s.enrich(ctx, vis, kept); err != nil {
+		return nil, err
+	}
+	return kept, nil
+}
+
+func newCard(id int64, kind, target string, payload []byte, at time.Time, decision *int64, p *float64, band *string, reasons []byte,
+	refs []string, conns []int64) Card {
+	c := Card{ID: id, Kind: kind, Target: target, DecisionID: decision, P: p, Reasons: reasonsOf(reasons), CreatedAt: at, Status: "open",
+		refs: refs, connections: conns}
+	_ = json.Unmarshal(payload, &c.Payload)
+	if band != nil {
+		c.Band = *band
+	}
+	if c.refs == nil && strings.HasPrefix(target, "entity:") {
+		c.refs = []string{strings.TrimPrefix(target, "entity:")}
+	}
+	if kind == "merge" {
+		c.Pairs = []int64{id}
+	}
+	return c
+}
+
+// enrich adds the calibration and the claims of the cards.
+func (s *Service) enrich(ctx context.Context, vis visibility.Set, cs []Card) error {
+	cals := map[string]Calibration{}
+	var ids []int64
+	want := make([][]int64, len(cs))
+	for i := range cs {
+		c := &cs[i]
+		var ref struct{ Claim, ValueClaim, Chosen int64 }
+		if b, err := json.Marshal(c.Payload); err == nil {
+			_ = json.Unmarshal(b, &ref)
+		}
+		for _, id := range []int64{ref.Claim, ref.ValueClaim, ref.Chosen} {
+			if id != 0 {
+				want[i] = append(want[i], id)
+				ids = append(ids, id)
 			}
-			cal, ok := cals[kind]
-			if !ok {
-				if cal, err = s.kindCalibration(ctx, kind); err != nil {
-					return nil, err
+		}
+		if c.DecisionID == nil {
+			continue
+		}
+		kind := c.Kind
+		if kind == "merge" {
+			kind = KindSameEntity
+		}
+		cal, ok := cals[kind]
+		if !ok {
+			var err error
+			if cal, err = s.kindCalibration(ctx, kind); err != nil {
+				return err
+			}
+			cals[kind] = cal
+		}
+		c.Calibrated = cal.Calibrated
+		if p, ok := cal.Precision[c.Band]; ok && c.Band != "" {
+			c.Precision = &p
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	cl, err := claims.Load(ctx, s.Pool, vis, claims.Query{IDs: ids})
+	if err != nil {
+		return err
+	}
+	for i := range cs {
+		for _, id := range want[i] {
+			for _, x := range cl {
+				if x.ID == id {
+					cs[i].Claims = append(cs[i].Claims, x)
 				}
-				cals[kind] = cal
-			}
-			c.Calibrated = cal.Calibrated
-			if p, ok := cal.Precision[c.Band]; ok && c.Band != "" {
-				c.Precision = &p
 			}
 		}
 	}
-	return out, nil
+	return nil
 }
 
 // kindCalibration computes the calibration of a kind with its precision.
@@ -442,15 +575,60 @@ func (s *Service) Undo(ctx context.Context, vis visibility.Set, id int64) error 
 	})
 }
 
+// filterBody is a card filter in a request body.
+type filterBody struct {
+	Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
+	Connection int64  `json:"connection,omitempty"`
+	Type       string `json:"type,omitempty"`
+	Domain     int64  `json:"domain,omitempty"`
+	Q          string `json:"q,omitempty" maxLength:"200"`
+}
+
+// AcceptBand accepts each open card of the band of f that f selects, and
+// returns the accepted card IDs (REQ-REV-011).
+func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilter, by string) ([]int64, error) {
+	if f.Band == "" {
+		return nil, errCardKind
+	}
+	cs, err := s.Cards(ctx, vis, f, maxQueue)
+	if err != nil {
+		return nil, err
+	}
+	ids := []int64{}
+	for _, c := range cs {
+		err := s.Accept(ctx, vis, c.ID, Edits{}, by)
+		switch {
+		case err == nil:
+			ids = append(ids, c.ID)
+		case errors.Is(err, ErrCardDone), errors.Is(err, ErrNotFound):
+		default:
+			return ids, err
+		}
+	}
+	return ids, nil
+}
+
 // Register adds the card, decision and calibration routes.
 func (s *Service) Register(a huma.API) {
 	reviewers := huma.Middlewares{api.Require(auth.RoleReviewer)}
 	admins := huma.Middlewares{api.Require(auth.RoleAdmin)}
 	tags := []string{"review"}
 
+	type filterIn struct {
+		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
+		Band       string `query:"band" enum:"high,medium,low,"`
+		Connection int64  `query:"connection" doc:"A connection of the card inputs."`
+		Type       string `query:"type" doc:"An entity type of a subject."`
+		Domain     int64  `query:"domain" doc:"A domain of a subject."`
+		Q          string `query:"q" maxLength:"200" doc:"Text in the subject names, aliases or the card."`
+	}
+	filter := func(f filterIn, decided bool) CardFilter {
+		return CardFilter{Decided: decided, Kind: f.Kind, Band: f.Band, Connection: f.Connection, Type: f.Type, Domain: f.Domain, Query: f.Q}
+	}
 	type cardsIn struct {
-		Kind  string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
-		Limit int    `query:"limit" minimum:"1" maximum:"500" default:"200"`
+		filterIn
+		Status string `query:"status" enum:"open,decided" default:"open" doc:"open lists the queue in order; decided lists the newest decisions first."`
+		Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"200"`
 	}
 	type cardsOut struct {
 		Body struct {
@@ -459,14 +637,14 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "listCards", Method: http.MethodGet, Path: "/api/v1/cards", Tags: tags,
-		Summary: "List open review cards", Description: "A card shows only when all its inputs are visible to you.",
+		Summary: "List review cards", Description: "A card shows only when all its inputs are visible to you. Open cards come in queue order: impact multiplied by uncertainty.",
 		Middlewares: reviewers,
 	}, func(ctx context.Context, in *cardsIn) (*cardsOut, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {
 			return nil, api.Internal(err)
 		}
-		cs, err := s.Cards(ctx, vis, in.Kind, in.Limit)
+		cs, err := s.Cards(ctx, vis, filter(in.filterIn, in.Status == "decided"), in.Limit)
 		if err != nil {
 			return nil, api.Internal(err)
 		}
@@ -533,6 +711,38 @@ func (s *Service) Register(a huma.API) {
 			return nil, api.Internal(err)
 		}
 		return nil, cardErr(s.NeedsEvidence(ctx, vis, in.ID, in.Body.Reason, api.Caller(ctx).User.ID))
+	})
+
+	type bandIn struct {
+		Body struct {
+			Band string `json:"band" enum:"high,medium,low"`
+			filterBody
+		}
+	}
+	type bandOut struct {
+		Body struct {
+			Accepted []int64 `json:"accepted"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "acceptBand", Method: http.MethodPost, Path: "/api/v1/cards/accept-band", Tags: tags,
+		Summary:     "Accept all open cards of one band in a filter",
+		Description: "Accepts each open card of the band that the filter selects, with no edits. A cluster card merges all its members.",
+		Middlewares: reviewers,
+	}, func(ctx context.Context, in *bandIn) (*bandOut, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		b := in.Body
+		f := CardFilter{Kind: b.Kind, Band: b.Band, Connection: b.Connection, Type: b.Type, Domain: b.Domain, Query: b.Q}
+		ids, err := s.AcceptBand(ctx, vis, f, api.Caller(ctx).User.ID)
+		if err != nil {
+			return nil, cardErr(err)
+		}
+		out := &bandOut{}
+		out.Body.Accepted = ids
+		return out, nil
 	})
 
 	type decisionsIn struct {

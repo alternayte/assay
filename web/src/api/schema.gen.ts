@@ -211,12 +211,32 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List open review cards
-         * @description A card shows only when all its inputs are visible to you.
+         * List review cards
+         * @description A card shows only when all its inputs are visible to you. Open cards come in queue order: impact multiplied by uncertainty.
          */
         get: operations["listCards"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cards/accept-band": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept all open cards of one band in a filter
+         * @description Accepts each open card of the band that the filter selects, with no edits. A cluster card merges all its members.
+         */
+        post: operations["acceptBand"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1684,6 +1704,25 @@ export interface components {
             readonly $schema?: string;
             autoApply: boolean;
         };
+        BandInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BandInBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            band: "high" | "medium" | "low";
+        };
+        BandOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BandOutBody.json
+             */
+            readonly $schema?: string;
+            accepted: number[];
+        };
         Bin: {
             /** Format: int64 */
             accepted: number;
@@ -1703,8 +1742,12 @@ export interface components {
             /** @description Empty when the decide function was off. */
             band?: string;
             calibrated: boolean;
+            /** @description The claims of a correction, finding or conflict card, with their visible evidence. */
+            claims?: components["schemas"]["Claim"][];
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            decidedAt?: string;
             /** Format: int64 */
             decisionId?: number;
             /** Format: int64 */
@@ -1724,12 +1767,17 @@ export interface components {
             payload: unknown;
             /** @description The measured precision of the band. */
             precision?: components["schemas"]["Precision"];
+            reason?: string;
             reasons: string[];
+            /** @description The email of the reviewer of a decided card. */
+            reviewer?: string;
             /**
              * Format: double
              * @description Impact multiplied by uncertainty. The queue shows the highest score first.
              */
             score: number;
+            /** @enum {string} */
+            status: "open" | "accepted" | "rejected" | "needs_evidence";
             subjects: components["schemas"]["Subject"][];
             target: string;
         };
@@ -3278,8 +3326,12 @@ export interface components {
             required: boolean;
         };
         Subject: {
+            /** @description The visible aliases. */
+            aliases: string[];
             key: string;
             name: string;
+            /** @description The names of the visible connections with a source of the entity. */
+            sources: string[];
             type: string;
         };
         SuccessResponse: {
@@ -3998,7 +4050,8 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
-                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+                /** @description open lists the queue in order; decided lists the newest decisions first. */
+                status?: "open" | "decided";
                 limit?: number;
             };
             header?: never;
@@ -4014,6 +4067,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CardsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    acceptBand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BandInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BandOutBody"];
                 };
             };
             /** @description Error */

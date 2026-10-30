@@ -129,7 +129,7 @@ RETURNING id;
 
 -- name: VisibleCards :many
 -- Open cards whose inputs are all visible (SI-18, REQ-REV-002).
-SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs, p.connections
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.connections <@ @visible::bigint[]
@@ -170,8 +170,13 @@ SELECT id, kind, outcome, connections, subject_refs, merge_id FROM decisions WHE
 UPDATE decisions SET merge_id = @merge_id WHERE id = @id;
 
 -- name: EntityRefs :many
--- Keys, types and display names of entities that are visible.
-SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+-- Keys, types, domains and display names of entities that are visible,
+-- with their visible aliases and the names of their visible connections.
+SELECT e.id, e.key, e.type, e.domain_id, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
+       array(SELECT DISTINCT a.alias FROM entity_aliases a
+             WHERE a.entity_id = e.id AND a.connection_id = ANY(@visible::bigint[]) ORDER BY a.alias)::text[] AS aliases,
+       array(SELECT k.name FROM entity_sources es JOIN connections k ON k.id = es.connection_id
+             WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]) ORDER BY k.name)::text[] AS sources
 FROM entities e
 WHERE e.key = ANY(@keys::text[])
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY(@visible::bigint[]));
@@ -365,3 +370,15 @@ SELECT ents.key,
              AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
                          JOIN cl ON cl.id = x.id::bigint AND cl.key = ents.key)))::bigint AS impact
 FROM ents;
+
+-- name: DecidedCards :many
+-- Decided cards whose inputs are all visible, newest decision first.
+SELECT p.id, p.kind, p.target, p.payload, p.status, p.reason, p.created_at, p.decided_at, p.decision_id, p.connections,
+       d.raw_p, d.band, d.reasons, d.subject_refs, coalesce(u.email, '')::text AS reviewer
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+LEFT JOIN auth_users u ON u.id = p.reviewer_id
+WHERE p.status <> 'open' AND p.connections <@ @visible::bigint[]
+  AND (sqlc.narg(kind)::text IS NULL OR p.kind = sqlc.narg(kind))
+ORDER BY p.decided_at DESC NULLS LAST, p.id DESC
+LIMIT @lim;

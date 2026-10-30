@@ -224,6 +224,79 @@ func (q *Queries) DecideCard(ctx context.Context, arg DecideCardParams) error {
 	return err
 }
 
+const decidedCards = `-- name: DecidedCards :many
+SELECT p.id, p.kind, p.target, p.payload, p.status, p.reason, p.created_at, p.decided_at, p.decision_id, p.connections,
+       d.raw_p, d.band, d.reasons, d.subject_refs, coalesce(u.email, '')::text AS reviewer
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+LEFT JOIN auth_users u ON u.id = p.reviewer_id
+WHERE p.status <> 'open' AND p.connections <@ $1::bigint[]
+  AND ($2::text IS NULL OR p.kind = $2)
+ORDER BY p.decided_at DESC NULLS LAST, p.id DESC
+LIMIT $3
+`
+
+type DecidedCardsParams struct {
+	Visible []int64
+	Kind    *string
+	Lim     int32
+}
+
+type DecidedCardsRow struct {
+	ID          int64
+	Kind        string
+	Target      string
+	Payload     json.RawMessage
+	Status      string
+	Reason      string
+	CreatedAt   time.Time
+	DecidedAt   *time.Time
+	DecisionID  *int64
+	Connections []int64
+	RawP        *float64
+	Band        *string
+	Reasons     []byte
+	SubjectRefs []string
+	Reviewer    string
+}
+
+// Decided cards whose inputs are all visible, newest decision first.
+func (q *Queries) DecidedCards(ctx context.Context, arg DecidedCardsParams) ([]DecidedCardsRow, error) {
+	rows, err := q.db.Query(ctx, decidedCards, arg.Visible, arg.Kind, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DecidedCardsRow
+	for rows.Next() {
+		var i DecidedCardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Target,
+			&i.Payload,
+			&i.Status,
+			&i.Reason,
+			&i.CreatedAt,
+			&i.DecidedAt,
+			&i.DecisionID,
+			&i.Connections,
+			&i.RawP,
+			&i.Band,
+			&i.Reasons,
+			&i.SubjectRefs,
+			&i.Reviewer,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const decidedInput = `-- name: DecidedInput :one
 SELECT EXISTS (SELECT 1 FROM decisions WHERE kind = $1 AND input_hash = $2)::boolean
 `
@@ -405,7 +478,11 @@ func (q *Queries) EntityByKeyAny(ctx context.Context, key string) (EntityByKeyAn
 }
 
 const entityRefs = `-- name: EntityRefs :many
-SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+SELECT e.id, e.key, e.type, e.domain_id, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
+       array(SELECT DISTINCT a.alias FROM entity_aliases a
+             WHERE a.entity_id = e.id AND a.connection_id = ANY($1::bigint[]) ORDER BY a.alias)::text[] AS aliases,
+       array(SELECT k.name FROM entity_sources es JOIN connections k ON k.id = es.connection_id
+             WHERE es.entity_id = e.id AND es.connection_id = ANY($1::bigint[]) ORDER BY k.name)::text[] AS sources
 FROM entities e
 WHERE e.key = ANY($2::text[])
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY($1::bigint[]))
@@ -417,13 +494,17 @@ type EntityRefsParams struct {
 }
 
 type EntityRefsRow struct {
-	ID   int64
-	Key  string
-	Type string
-	Name string
+	ID       int64
+	Key      string
+	Type     string
+	DomainID *int64
+	Name     string
+	Aliases  []string
+	Sources  []string
 }
 
-// Keys, types and display names of entities that are visible.
+// Keys, types, domains and display names of entities that are visible,
+// with their visible aliases and the names of their visible connections.
 func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]EntityRefsRow, error) {
 	rows, err := q.db.Query(ctx, entityRefs, arg.Visible, arg.Keys)
 	if err != nil {
@@ -437,7 +518,10 @@ func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]Entit
 			&i.ID,
 			&i.Key,
 			&i.Type,
+			&i.DomainID,
 			&i.Name,
+			&i.Aliases,
+			&i.Sources,
 		); err != nil {
 			return nil, err
 		}
@@ -1533,7 +1617,7 @@ func (q *Queries) Verdicts(ctx context.Context, kind string) ([]VerdictsRow, err
 }
 
 const visibleCards = `-- name: VisibleCards :many
-SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs
+SELECT p.id, p.kind, p.target, p.payload, p.created_at, p.decision_id, d.raw_p, d.band, d.reasons, d.subject_refs, p.connections
 FROM proposals p
 LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.connections <@ $1::bigint[]
@@ -1559,6 +1643,7 @@ type VisibleCardsRow struct {
 	Band        *string
 	Reasons     []byte
 	SubjectRefs []string
+	Connections []int64
 }
 
 // Open cards whose inputs are all visible (SI-18, REQ-REV-002).
@@ -1582,6 +1667,7 @@ func (q *Queries) VisibleCards(ctx context.Context, arg VisibleCardsParams) ([]V
 			&i.Band,
 			&i.Reasons,
 			&i.SubjectRefs,
+			&i.Connections,
 		); err != nil {
 			return nil, err
 		}

@@ -5,13 +5,16 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/alternayte/assay/internal/testkit"
+	"github.com/alternayte/assay/internal/visibility"
 )
 
 // raw sends a request with a bearer token and no cookie.
@@ -168,4 +171,74 @@ WHERE table_schema = 'public' AND data_type IN ('text', 'character varying', 'js
 	if n := w.env.Count(`SELECT count(*) FROM password_resets WHERE token_hash = $1`, resetDigest[:]); n != 1 {
 		t.Fatalf("%d resets with the digest of the reset token", n)
 	}
+}
+
+func TestSCN_CLM_006_ClaimWithoutEvidenceIsRetracted(t *testing.T) {
+	src, base := testkit.FakeSources(t)
+	env := testkit.Start(t)
+	owner := env.Setup("owner@acme.test")
+	w := &world{env: env, owner: owner}
+	id := testkit.CreateConnection(t, owner, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
+		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
+	if r := env.RunNow(owner, id, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync: %+v", r)
+	}
+	// The CODEOWNERS file is the only evidence of the owner of the repository.
+	var claim int64
+	var key string
+	if err := env.Server.Pool().QueryRow(context.Background(), `
+SELECT c.id, s.key FROM claims c JOIN entities s ON s.id = c.subject_id
+JOIN claim_evidence e ON e.claim_id = c.id JOIN source_items i ON i.id = e.item_id
+WHERE c.predicate = 'owned_by' AND s.type = 'repository' AND i.external_id LIKE '%CODEOWNERS'
+  AND NOT EXISTS (SELECT 1 FROM claim_evidence x WHERE x.claim_id = c.id AND x.item_id <> i.id)`).Scan(&claim, &key); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range src.RepoFiles("github", "acme/payments-api") {
+		if strings.HasSuffix(f, "CODEOWNERS") {
+			src.DeleteFile("github", "acme/payments-api", f)
+		}
+	}
+	if r := env.RunNow(owner, id, "reconcile"); r.Status != "succeeded" || r.Deleted == 0 {
+		t.Fatalf("reconcile after the delete: %+v", r)
+	}
+	if n := env.Count(`SELECT count(*) FROM claims WHERE id = $1 AND retracted_at IS NOT NULL`, claim); n != 1 {
+		t.Fatal("the claim is not retracted")
+	}
+	mentions := func(body string) bool { return strings.Contains(body, fmt.Sprintf(`"id":%d,`, claim)) }
+	if r := owner.Must(http.StatusOK, http.MethodGet, "/api/v1/entities/"+url.PathEscape(key)+"/page", nil); mentions(string(r.Body)) {
+		t.Fatal("the page shows the retracted claim")
+	}
+	value := token(t, owner)
+	s := connect(t, w, value)
+	tools := toolsOf(t, s)
+	e := call(t, s, tools, "get_entity", map[string]any{"key": key})
+	ctx := call(t, s, tools, "search_context", map[string]any{"query": "Who owns the payments-api repository?"})
+	for _, out := range []map[string]any{e, ctx} {
+		b, _ := json.Marshal(out)
+		if mentions(string(b)) {
+			t.Fatalf("MCP shows the retracted claim: %s", b)
+		}
+	}
+	c, err := env.Server.Ask().Build(context.Background(), visibilityOf(t, env, owner), "Who owns the payments-api repository?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cl := range c.Claims {
+		if cl.ClaimID == claim {
+			t.Fatal("the answer context holds the retracted claim")
+		}
+	}
+}
+
+func visibilityOf(t *testing.T, env *testkit.Env, cl *testkit.Client) visibility.Set {
+	t.Helper()
+	var me struct {
+		ID string `json:"id"`
+	}
+	cl.Must(http.StatusOK, http.MethodGet, "/api/v1/me", nil).JSON(t, &me)
+	vis, err := visibility.For(context.Background(), env.Server.Pool(), me.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return vis
 }

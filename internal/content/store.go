@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -364,8 +365,8 @@ func (in *ingest) claim(ctx context.Context, subject int64, predicate string, ob
 
 // Tombstone deletes an item in tx: its versions, passages, chunks and
 // evidence. Claims left without evidence are retracted. The entity of the
-// item loses the source and the aliases of the connection when nothing else
-// of the connection names it. An entity without a source is visible to no
+// item, and each entity that a claim of the item names, loses the source and
+// the aliases of the connection when nothing else of the connection names it. An entity without a source is visible to no
 // one; it stays, so that its retracted claims stay on record.
 func Tombstone(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time) error {
 	q := New(tx)
@@ -383,16 +384,31 @@ func Tombstone(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time) erro
 	if _, err := q.DeleteItem(ctx, itemID); err != nil {
 		return err
 	}
+	ents, err := q.ClaimEntities(ctx, orEmptyIDs(ids))
+	if err != nil {
+		return err
+	}
+	if ent.EntityID != nil && !slices.Contains(ents, *ent.EntityID) {
+		ents = append(ents, *ent.EntityID)
+	}
 	if len(ids) > 0 {
 		if _, err := q.RetractUnsupported(ctx, RetractUnsupportedParams{Now: &now, Ids: ids}); err != nil {
 			return err
 		}
 	}
-	if ent.EntityID == nil {
-		return nil
+	for _, e := range ents {
+		if _, err := q.DropEntitySource(ctx, DropEntitySourceParams{EntityID: e, ConnectionID: ent.ConnectionID}); err != nil {
+			return err
+		}
 	}
-	_, err = q.DropEntitySource(ctx, DropEntitySourceParams{EntityID: *ent.EntityID, ConnectionID: ent.ConnectionID})
-	return err
+	return nil
+}
+
+func orEmptyIDs(ids []int64) []int64 {
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
 }
 
 // DeleteSourceless deletes the entities of ids that have no source left.

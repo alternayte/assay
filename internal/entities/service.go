@@ -471,7 +471,7 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 	}
 	// The entry names only what the merger sees.
 	return mergeID, key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + key,
-		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto},
+		Details:     map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto},
 		Connections: append([]int64{}, vis...)})
 }
 

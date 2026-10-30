@@ -218,3 +218,11 @@ WITH src AS (DELETE FROM entity_sources s
                                  AND ev.connection_id = @connection_id AND c.retracted_at IS NULL)
              RETURNING s.entity_id)
 DELETE FROM entity_aliases a WHERE a.entity_id IN (SELECT entity_id FROM src) AND a.connection_id = @connection_id;
+
+-- name: ClaimEntities :many
+-- The subjects and entity objects of the claims.
+-- vis:system
+SELECT DISTINCT x.id::bigint AS id FROM claims c,
+       LATERAL (VALUES (c.subject_id), (c.object_entity_id)) AS x(id)
+WHERE c.id = ANY(@ids::bigint[]) AND x.id IS NOT NULL
+ORDER BY 1;

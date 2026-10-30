@@ -182,6 +182,35 @@ func (q *Queries) AddProposalEvidence(ctx context.Context, arg AddProposalEviden
 	return err
 }
 
+const claimEntities = `-- name: ClaimEntities :many
+SELECT DISTINCT x.id::bigint AS id FROM claims c,
+       LATERAL (VALUES (c.subject_id), (c.object_entity_id)) AS x(id)
+WHERE c.id = ANY($1::bigint[]) AND x.id IS NOT NULL
+ORDER BY 1
+`
+
+// The subjects and entity objects of the claims.
+// vis:system
+func (q *Queries) ClaimEntities(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, claimEntities, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimGroupConnections = `-- name: ClaimGroupConnections :many
 SELECT DISTINCT e.connection_id FROM claim_evidence e
 JOIN claims c ON c.id = e.claim_id

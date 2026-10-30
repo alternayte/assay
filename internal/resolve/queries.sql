@@ -391,3 +391,6 @@ LIMIT @lim;
 SELECT p.id FROM proposals p LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.kind = 'merge'
   AND coalesce(d.subject_refs, CASE WHEN p.payload ? 'keys' THEN array(SELECT jsonb_array_elements_text(p.payload->'keys')) END)::text[] @> @keys::text[];
+
+-- name: ConnectionNames :many
+SELECT id, name FROM connections WHERE id = ANY(@ids::bigint[]) AND id = ANY(@visible::bigint[]) ORDER BY name;

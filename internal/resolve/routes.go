@@ -34,30 +34,37 @@ type Subject struct {
 
 // Card is one open review card.
 type Card struct {
-	ID         int64          `json:"id"`
-	Kind       string         `json:"kind"`
-	Target     string         `json:"target"`
-	Payload    any            `json:"payload"`
-	DecisionID *int64         `json:"decisionId,omitempty"`
-	P          *float64       `json:"p,omitempty"`
-	Band       string         `json:"band,omitempty" doc:"Empty when the decide function was off."`
-	Calibrated bool           `json:"calibrated"`
-	Precision  *Precision     `json:"precision,omitempty" doc:"The measured precision of the band."`
-	Reasons    []string       `json:"reasons"`
-	Subjects   []Subject      `json:"subjects"`
-	Members    []Subject      `json:"members,omitempty" doc:"The entities of a merge cluster. Accept merges the members that you pick."`
-	Pairs      []int64        `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
-	Claims     []claims.Claim `json:"claims,omitempty" doc:"The claims of a correction, finding or conflict card, with their visible evidence."`
-	Status     string         `json:"status" enum:"open,accepted,rejected,needs_evidence"`
-	Reason     string         `json:"reason,omitempty"`
-	Reviewer   string         `json:"reviewer,omitempty" doc:"The email of the reviewer of a decided card."`
-	DecidedAt  *time.Time     `json:"decidedAt,omitempty"`
-	Impact     int            `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
-	Score      float64        `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
-	CreatedAt  time.Time      `json:"createdAt"`
+	ID          int64            `json:"id"`
+	Kind        string           `json:"kind"`
+	Target      string           `json:"target"`
+	Payload     any              `json:"payload"`
+	DecisionID  *int64           `json:"decisionId,omitempty"`
+	P           *float64         `json:"p,omitempty"`
+	Band        string           `json:"band,omitempty" doc:"Empty when the decide function was off."`
+	Calibrated  bool             `json:"calibrated"`
+	Precision   *Precision       `json:"precision,omitempty" doc:"The measured precision of the band."`
+	Reasons     []string         `json:"reasons"`
+	Subjects    []Subject        `json:"subjects"`
+	Members     []Subject        `json:"members,omitempty" doc:"The entities of a merge cluster. Accept merges the members that you pick."`
+	Pairs       []int64          `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
+	Connections []CardConnection `json:"connections" doc:"The connections of the card inputs."`
+	Claims      []claims.Claim   `json:"claims,omitempty" doc:"The claims of a correction, finding or conflict card, with their visible evidence."`
+	Status      string           `json:"status" enum:"open,accepted,rejected,needs_evidence"`
+	Reason      string           `json:"reason,omitempty"`
+	Reviewer    string           `json:"reviewer,omitempty" doc:"The email of the reviewer of a decided card."`
+	DecidedAt   *time.Time       `json:"decidedAt,omitempty"`
+	Impact      int              `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
+	Score       float64          `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
+	CreatedAt   time.Time        `json:"createdAt"`
 
 	refs        []string
 	connections []int64
+}
+
+// CardConnection names a connection of a card.
+type CardConnection struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 // DecisionView is a stored decision as the API shows it.
@@ -287,6 +294,22 @@ func (s *Service) enrich(ctx context.Context, vis visibility.Set, cs []Card) err
 		c.Calibrated = cal.Calibrated
 		if p, ok := cal.Precision[c.Band]; ok && c.Band != "" {
 			c.Precision = &p
+		}
+	}
+	var conns []int64
+	for _, c := range cs {
+		conns = append(conns, c.connections...)
+	}
+	names, err := New(s.Pool).ConnectionNames(ctx, ConnectionNamesParams{Ids: conns, Visible: vis})
+	if err != nil {
+		return err
+	}
+	for i := range cs {
+		cs[i].Connections = []CardConnection{}
+		for _, n := range names {
+			if slices.Contains(cs[i].connections, n.ID) {
+				cs[i].Connections = append(cs[i].Connections, CardConnection{ID: n.ID, Name: n.Name})
+			}
 		}
 	}
 	if len(ids) == 0 {

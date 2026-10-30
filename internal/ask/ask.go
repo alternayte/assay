@@ -69,7 +69,8 @@ type Source struct {
 
 // ContextClaim is one claim of the context.
 type ContextClaim struct {
-	ID string `json:"id" doc:"The marker ID, such as C1."`
+	ID      string `json:"id" doc:"The marker ID, such as C1."`
+	ClaimID int64  `json:"claimId"`
 	claims.Claim
 }
 
@@ -130,7 +131,7 @@ func (s *Service) Build(ctx context.Context, vis visibility.Set, question string
 		id := fmt.Sprintf("C%d", i+1)
 		c.known[id] = true
 		c.byClaim[cl.ID] = id
-		c.Claims = append(c.Claims, ContextClaim{ID: id, Claim: cl})
+		c.Claims = append(c.Claims, ContextClaim{ID: id, ClaimID: cl.ID, Claim: cl})
 		for _, e := range cl.Evidence {
 			conns[e.ConnectionID] = true
 		}

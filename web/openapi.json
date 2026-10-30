@@ -345,6 +345,13 @@
             },
             "type": "array"
           },
+          "connections": {
+            "description": "The connections of the card inputs.",
+            "items": {
+              "$ref": "#/components/schemas/CardConnection"
+            },
+            "type": "array"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -438,10 +445,28 @@
           "calibrated",
           "reasons",
           "subjects",
+          "connections",
           "status",
           "impact",
           "score",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "CardConnection": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
         ],
         "type": "object"
       },
@@ -954,6 +979,10 @@
       "ContextClaim": {
         "additionalProperties": false,
         "properties": {
+          "claimId": {
+            "format": "int64",
+            "type": "integer"
+          },
           "conflictNoted": {
             "type": "boolean"
           },
@@ -1030,6 +1059,7 @@
         },
         "required": [
           "id",
+          "claimId",
           "predicate",
           "subjectKey",
           "subjectType",
@@ -3373,6 +3403,10 @@
       "PageCitation": {
         "additionalProperties": false,
         "properties": {
+          "claimId": {
+            "format": "int64",
+            "type": "integer"
+          },
           "conflictNoted": {
             "type": "boolean"
           },
@@ -3449,6 +3483,7 @@
         },
         "required": [
           "id",
+          "claimId",
           "predicate",
           "subjectKey",
           "subjectType",

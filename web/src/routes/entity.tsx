@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import { MergeActions, Merges } from "@/components/merge";
 import { type Linked, linkMarkdown, TermLink, termOf } from "@/components/terms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -321,6 +322,15 @@ export function EntityPage() {
   const [live, setLive] = useState<Compile>();
   const [opened, setOpened] = useState<Opened>();
   const [regenerating, setRegenerating] = useState(false);
+  const detail = useQuery({
+    queryKey: ["entity", key],
+    queryFn: async () => unwrap(await api.GET("/api/v1/entities/{key}", { params: { path: { key } } })),
+    retry: false,
+  });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["entity", key] });
+    qc.invalidateQueries({ queryKey: ["page", key] });
+  };
   const started = useRef<string>(undefined);
 
   const state = page.data?.summary.state;
@@ -431,6 +441,8 @@ export function EntityPage() {
             </span>
           </Meta>
         </dl>
+        <MergeActions entity={{ key: p.key, name: p.name }} onChange={refresh} />
+        {detail.data && <Merges merges={detail.data.merges} onSplit={refresh} />}
         {p.type === "term" && (
           <Link
             to="/glossary/$key"

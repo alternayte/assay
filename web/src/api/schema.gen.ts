@@ -1784,6 +1784,8 @@ export interface components {
             calibrated: boolean;
             /** @description The claims of a correction, finding or conflict card, with their visible evidence. */
             claims?: components["schemas"]["Claim"][];
+            /** @description The connections of the card inputs. */
+            connections: components["schemas"]["CardConnection"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1820,6 +1822,11 @@ export interface components {
             status: "open" | "accepted" | "rejected" | "needs_evidence";
             subjects: components["schemas"]["Subject"][];
             target: string;
+        };
+        CardConnection: {
+            /** Format: int64 */
+            id: number;
+            name: string;
         };
         CardsOutBody: {
             /**
@@ -1985,6 +1992,8 @@ export interface components {
             visibility: components["schemas"]["GroupRef"][];
         };
         ContextClaim: {
+            /** Format: int64 */
+            claimId: number;
             conflictNoted: boolean;
             conflictWith?: number[];
             current: boolean;
@@ -2830,6 +2839,8 @@ export interface components {
             visibilityKey: string;
         };
         PageCitation: {
+            /** Format: int64 */
+            claimId: number;
             conflictNoted: boolean;
             conflictWith?: number[];
             current: boolean;

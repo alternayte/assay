@@ -18,6 +18,7 @@ import { GlossaryPage, TermPage } from "@/routes/glossary";
 import { ProfilePage } from "@/routes/profile";
 import { InvitePage, PublicPage, ResetPage, SetupPage, SignInPage } from "@/routes/public";
 import { RecordPage } from "@/routes/registry";
+import { ReviewPage } from "@/routes/review";
 import { ConnectionPage, ConnectionsPage, NewConnectionPage } from "@/routes/settings/connections";
 import { DecisionsPage } from "@/routes/settings/decisions";
 import { DiagnosticsPage } from "@/routes/settings/diagnostics";
@@ -26,6 +27,7 @@ import { GroupsPage } from "@/routes/settings/groups";
 import { AuditPage, EmailPage, GeneralPage, SettingsLayout } from "@/routes/settings/index";
 import { ModelsPage } from "@/routes/settings/models";
 import { UsersPage } from "@/routes/settings/users";
+import { UpdatesPage } from "@/routes/updates";
 
 type Context = { queryClient: QueryClient };
 
@@ -79,6 +81,15 @@ const entity = createRoute({ getParentRoute: () => authed, path: "/e/$key", comp
 const glossary = createRoute({ getParentRoute: () => authed, path: "/glossary", component: GlossaryPage });
 const term = createRoute({ getParentRoute: () => authed, path: "/glossary/$key", component: TermPage });
 const record = createRoute({ getParentRoute: () => authed, path: "/registry/$key", component: RecordPage });
+const updates = createRoute({ getParentRoute: () => authed, path: "/updates", component: UpdatesPage });
+const review = createRoute({
+  getParentRoute: () => authed,
+  path: "/review",
+  component: ReviewPage,
+  beforeLoad: ({ context }) => {
+    if (!atLeast(context.me, "reviewer")) throw redirect({ to: "/" });
+  },
+});
 const profile = createRoute({ getParentRoute: () => authed, path: "/profile", component: ProfilePage });
 
 const settings = createRoute({
@@ -142,6 +153,8 @@ const routeTree = root.addChildren([
     glossary,
     term,
     record,
+    updates,
+    review,
     profile,
     settings.addChildren([
       settingsIndex,

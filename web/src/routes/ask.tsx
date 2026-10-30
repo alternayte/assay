@@ -7,6 +7,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { api, type Schemas, unwrap } from "@/api/client";
+import { ReportProblem } from "@/components/report";
 import { type Linked, linkMarkdown, splitLinks, TermLink, termOf } from "@/components/terms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,7 +30,17 @@ type Segment = Schemas["Segment"];
 export const sourceType = (k: string) => t(`ask.sourceTypes.${k}` as CopyKey);
 
 /** A claim as the drawer shows it: an answer claim or a page claim. */
-export type ClaimLike = Pick<Claim, "subjectName" | "predicate" | "objectName" | "objectText" | "evidence">;
+export type ClaimLike = Pick<
+  Claim,
+  "subjectName" | "predicate" | "objectName" | "objectText" | "evidence"
+> & {
+  id?: number | string;
+  claimId?: number;
+  objectKey?: string;
+};
+
+/** The numeric ID of a claim: a page claim carries it as id, a cited claim as claimId. */
+const claimIdOf = (c: ClaimLike) => (typeof c.id === "number" ? c.id : c.claimId || undefined);
 
 /** The open drawer: a source or a claim. */
 export type Opened = { kind: "source"; source: Source } | { kind: "claim"; claim: ClaimLike };
@@ -446,6 +457,18 @@ export function Drawer({ opened, onClose }: { opened?: Opened; onClose: () => vo
                   </li>
                 ))}
               </ul>
+            )}
+            {opened?.kind === "claim" && claimIdOf(opened.claim) !== undefined && (
+              <div className="mt-3">
+                <ReportProblem
+                  key={claimIdOf(opened.claim)}
+                  claim={{
+                    id: claimIdOf(opened.claim) as number,
+                    title: claimText(opened.claim),
+                    entity: Boolean(opened.claim.objectKey),
+                  }}
+                />
+              </div>
             )}
           </div>
         </D.Content>

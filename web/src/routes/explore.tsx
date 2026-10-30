@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Merge, X } from "lucide-react";
-import { type FormEvent, useEffect, useState } from "react";
-import { ApiError, api, unwrap } from "@/api/client";
+import { useEffect, useState } from "react";
+import { api, unwrap } from "@/api/client";
+import { MergeDialog } from "@/components/merge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Empty } from "@/components/ui/sheet";
@@ -13,7 +13,6 @@ import { SkeletonRows } from "@/components/ui/skeleton";
 import { Table, Td, Th } from "@/components/ui/table";
 import { type CopyKey, t } from "@/copy";
 import { formatAgo } from "@/lib/format";
-import { atLeast, useMe } from "@/lib/session";
 import { ThingDialog } from "@/routes/registry";
 
 const typeLabel = (k: string) => t(`entityTypes.${k}` as CopyKey);
@@ -29,7 +28,6 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /** Explore: the visible entities with filters, search and multi-select. */
 export function ExplorePage() {
-  const me = useMe();
   const qc = useQueryClient();
   const [type, setType] = useState("");
   const [domain, setDomain] = useState("");
@@ -71,7 +69,6 @@ export function ExplorePage() {
   const allSelected = rows.length > 0 && rows.every((r) => selected.includes(r.key));
   const toggle = (key: string) =>
     setSelected((s) => (s.includes(key) ? s.filter((k) => k !== key) : [...s, key]));
-  const canMerge = atLeast(me, "reviewer");
 
   return (
     <div className="flex flex-col gap-6">
@@ -129,17 +126,10 @@ export function ExplorePage() {
           className="sticky top-14 z-20 flex flex-wrap items-center gap-3 rounded-sm border border-accent bg-accent-wash px-3 py-2"
         >
           <span className="font-mono text-sm">{t("explore.selected", { count: selected.length })}</span>
-          {canMerge && (
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={selected.length < 2}
-              onClick={() => setMerging(true)}
-            >
-              <Merge aria-hidden />
-              {t("explore.merge")}
-            </Button>
-          )}
+          <Button size="sm" variant="primary" disabled={selected.length < 2} onClick={() => setMerging(true)}>
+            <Merge aria-hidden />
+            {t("explore.merge")}
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setSelected([])}>
             <X aria-hidden />
             {t("explore.clear")}
@@ -220,68 +210,17 @@ export function ExplorePage() {
 
       {merging && (
         <MergeDialog
+          title={t("explore.mergeTitle", { count: selected.length })}
           keys={selected}
           onClose={() => setMerging(false)}
-          onDone={() => {
+          onDone={(m) => {
             setMerging(false);
             setSelected([]);
-            setMsg(t("explore.merged"));
+            setMsg(m);
             qc.invalidateQueries({ queryKey: ["entities"] });
           }}
         />
       )}
     </div>
-  );
-}
-
-function MergeDialog({ keys, onClose, onDone }: { keys: string[]; onClose: () => void; onDone: () => void }) {
-  const [canonical, setCanonical] = useState("");
-  const merge = useMutation({
-    mutationFn: async () =>
-      unwrap(
-        await api.POST("/api/v1/merges", {
-          body: { keys, canonicalName: canonical.trim() || undefined },
-        }),
-      ),
-    onSuccess: onDone,
-  });
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    merge.mutate();
-  };
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent
-        title={t("explore.mergeTitle", { count: keys.length })}
-        description={t("explore.mergeBody")}
-        closeLabel={t("explore.close")}
-      >
-        <form onSubmit={submit} className="flex flex-col gap-4">
-          {merge.isError && (
-            <Notice tone="danger">
-              {merge.error instanceof ApiError ? merge.error.message : t("errors.network")}
-            </Notice>
-          )}
-          <Field label={t("explore.canonical")} hint={t("explore.canonicalHint")}>
-            {(p) => (
-              <Input
-                {...p}
-                maxLength={200}
-                value={canonical}
-                onChange={(e) => setCanonical(e.target.value)}
-              />
-            )}
-          </Field>
-          <div className="flex gap-3">
-            <Button type="button" onClick={onClose}>
-              {t("explore.cancel")}
-            </Button>
-            <Button type="submit" variant="primary" disabled={merge.isPending}>
-              {t("explore.mergeAction")}
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Download, Pencil, Plus, Upload } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import { MergeActions } from "@/components/merge";
 import { TermStatus } from "@/components/terms";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -436,6 +437,7 @@ type EntityDetail = Schemas["Detail"];
 /** A term page: every vocabulary field, usage per connection and history. */
 export function TermPage() {
   const { key } = useParams({ from: "/authed/glossary/$key" });
+  const qc = useQueryClient();
   const term = useQuery({
     queryKey: ["term", key],
     queryFn: async () => unwrap(await api.GET("/api/v1/terms/{key}", { params: { path: { key } } })),
@@ -466,6 +468,10 @@ export function TermPage() {
             )}
           </div>
           <p className="font-mono text-xs break-all text-ink-faint">{x.key}</p>
+          <MergeActions
+            entity={{ key: x.key, name: x.name }}
+            onChange={() => qc.invalidateQueries({ queryKey: ["term", key] })}
+          />
         </div>
         {registry && record.data?.term ? (
           <TermDialog recordKey={key} record={record.data.term} />

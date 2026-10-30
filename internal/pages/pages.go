@@ -81,7 +81,8 @@ type PageLink struct {
 
 // PageCitation is one claim marker of a summary.
 type PageCitation struct {
-	ID string `json:"id" doc:"The marker ID, such as C1."`
+	ID      string `json:"id" doc:"The marker ID, such as C1."`
+	ClaimID int64  `json:"claimId"`
 	claims.Claim
 }
 
@@ -275,7 +276,7 @@ func (s *Service) fill(ctx context.Context, vis visibility.Set, p *Page, md stri
 	}
 	for _, m := range citedIDs(md) {
 		if c, ok := byID[ids[m]]; ok {
-			p.Summary.Citations = append(p.Summary.Citations, PageCitation{ID: m, Claim: c})
+			p.Summary.Citations = append(p.Summary.Citations, PageCitation{ID: m, ClaimID: c.ID, Claim: c})
 		}
 	}
 	approved, err := s.Vocab.Approved(ctx, vis)

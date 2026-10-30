@@ -202,6 +202,40 @@ func (q *Queries) ClaimsInUse(ctx context.Context, since time.Time) ([]int64, er
 	return items, nil
 }
 
+const connectionNames = `-- name: ConnectionNames :many
+SELECT id, name FROM connections WHERE id = ANY($1::bigint[]) AND id = ANY($2::bigint[]) ORDER BY name
+`
+
+type ConnectionNamesParams struct {
+	Ids     []int64
+	Visible []int64
+}
+
+type ConnectionNamesRow struct {
+	ID   int64
+	Name string
+}
+
+func (q *Queries) ConnectionNames(ctx context.Context, arg ConnectionNamesParams) ([]ConnectionNamesRow, error) {
+	rows, err := q.db.Query(ctx, connectionNames, arg.Ids, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConnectionNamesRow
+	for rows.Next() {
+		var i ConnectionNamesRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const decideCard = `-- name: DecideCard :exec
 UPDATE proposals SET status = $1, reviewer_id = $2, reason = $3, decided_at = $4 WHERE id = $5
 `

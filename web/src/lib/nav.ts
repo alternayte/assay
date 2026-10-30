@@ -9,6 +9,8 @@ export const navItems: NavItem[] = [
   { to: "/", label: "nav.ask", role: "member", group: "pages" },
   { to: "/explore", label: "nav.explore", role: "member", group: "pages" },
   { to: "/glossary", label: "nav.glossary", role: "member", group: "pages" },
+  { to: "/updates", label: "nav.updates", role: "member", group: "pages" },
+  { to: "/review", label: "nav.review", role: "reviewer", group: "pages" },
   { to: "/settings/users", label: "settings.title", role: "admin", group: "pages" },
   { to: "/profile", label: "nav.profile", role: "member", group: "pages" },
   { to: "/settings/users", label: "settings.users", role: "admin", group: "settings" },

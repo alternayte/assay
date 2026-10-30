@@ -243,6 +243,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cards/{id}/needs-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for evidence on a card
+         * @description A reason is required. The proposer sees it with the result.
+         */
+        post: operations["cardNeedsEvidence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cards/{id}/reject": {
         parameters: {
             query?: never;
@@ -257,6 +277,26 @@ export interface paths {
          * @description A reason is required. A rejected merge card stores the verdict that the pair is not the same.
          */
         post: operations["rejectCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/claims/{id}/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a problem with a claim
+         * @description Creates a correction card. A reason is required, and wrong_value needs the correct value. The source system does not change.
+         */
+        post: operations["reportProblem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -714,6 +754,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose a finding
+         * @description Creates a finding card and a Proposed claim. Each quote must be an exact part of a visible item. A hidden item gives 404.
+         */
+        post: operations["proposeFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -1096,6 +1156,26 @@ export interface paths {
          * @description The registry is code. Source priority per predicate is a setting.
          */
         get: operations["listPredicates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your proposals with their results
+         * @description Newest first. A decided proposal carries the reason of the reviewer.
+         */
+        get: operations["listMyProposals"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1687,6 +1767,11 @@ export interface components {
             /** Format: date-time */
             validFrom?: string;
         };
+        ClaimValue: {
+            /** @description The key of a visible entity. */
+            key?: string;
+            text?: string;
+        };
         Conflict: {
             claims: number[];
             disputed: boolean;
@@ -2098,6 +2183,24 @@ export interface components {
             /** Format: int64 */
             start: number;
         };
+        FindingOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/FindingOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            claim: number;
+            /** Format: int64 */
+            proposal: number;
+        };
+        FindingQuote: {
+            /** Format: int64 */
+            itemId: number;
+            /** @description An exact part of a passage of the item. */
+            quote: string;
+        };
         FnInBody: {
             /**
              * Format: uri
@@ -2499,6 +2602,15 @@ export interface components {
             /** @description The key of the winner. */
             winner: string;
         };
+        MineOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MineOutBody.json
+             */
+            readonly $schema?: string;
+            proposals: components["schemas"]["Proposal"][];
+        };
         NameBody: {
             /**
              * Format: uri
@@ -2687,6 +2799,59 @@ export interface components {
             predicates: components["schemas"]["Predicate"][];
             sourceTypes: string[];
         };
+        ProblemReport: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ProblemReport.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            problem: "wrong_value" | "outdated" | "not_here";
+            reason: string;
+            source?: components["schemas"]["ReportSource"];
+            /** @description The correct value. Required for wrong_value. */
+            value?: components["schemas"]["ClaimValue"];
+        };
+        Proposal: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            decidedAt: string | null;
+            /** Format: int64 */
+            id: number;
+            kind: string;
+            /** @description The reason of a reviewer who rejected the proposal or asked for evidence. */
+            reason: string;
+            /** @enum {string} */
+            status: "open" | "accepted" | "rejected" | "needs_evidence";
+            target: string;
+            /** @enum {string} */
+            via: "ui" | "mcp" | "system";
+        };
+        ProposalOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ProposalOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            proposal: number;
+        };
+        ProposedFinding: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ProposedFinding.json
+             */
+            readonly $schema?: string;
+            evidence: components["schemas"]["FindingQuote"][];
+            object: components["schemas"]["ClaimValue"];
+            predicate: string;
+            /** @description The key of a visible entity. */
+            subject: string;
+        };
         PutInputBody: {
             /**
              * Format: uri
@@ -2768,6 +2933,14 @@ export interface components {
              */
             readonly $schema?: string;
             reason: string;
+        };
+        ReportSource: {
+            /**
+             * Format: int64
+             * @description A visible item.
+             */
+            itemId?: number;
+            note?: string;
         };
         ResolveOutBody: {
             /**
@@ -3871,6 +4044,39 @@ export interface operations {
             };
         };
     };
+    cardNeedsEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectInBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     rejectCard: {
         parameters: {
             query?: never;
@@ -3892,6 +4098,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reportProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProblemReport"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProposalOutBody"];
+                };
             };
             /** @description Error */
             default: {
@@ -4875,6 +5116,39 @@ export interface operations {
             };
         };
     };
+    proposeFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposedFinding"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listGroups: {
         parameters: {
             query?: never;
@@ -5697,6 +5971,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PredicatesOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listMyProposals: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MineOutBody"];
                 };
             };
             /** @description Error */

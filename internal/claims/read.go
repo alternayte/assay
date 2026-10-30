@@ -180,7 +180,7 @@ func load(ctx context.Context, db DBTX, vis visibility.Set, q Query) ([]Claim, e
 		return nil, err
 	}
 	for _, e := range ev {
-		if e.ProposalStatus == "rejected" {
+		if e.ProposalStatus == "rejected" || e.ProposalStatus == "needs_evidence" {
 			continue
 		}
 		i := index[e.ClaimID]

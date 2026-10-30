@@ -1,6 +1,7 @@
 -- name: VisibleClaims :many
 -- Claims with visible support whose subject is in @subjects, whose object
--- is in @objects, or whose ID is in @ids. Names are the best visible
+-- is in @objects, or whose ID is in @ids. Evidence of a rejected proposal,
+-- or of one that needs evidence, is no support. Names are the best visible
 -- aliases. Subject and object need a visible source.
 SELECT c.id, c.predicate, c.subject_id, s.key AS subject_key, s.type AS subject_type,
        coalesce(entity_display_name(s.id, @visible::bigint[]), s.key)::text AS subject_name,
@@ -15,7 +16,9 @@ WHERE c.retracted_at IS NULL
   AND (o.id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os WHERE os.entity_id = o.id AND os.connection_id = ANY(@visible::bigint[])))
   AND (c.subject_id = ANY(@subjects::bigint[]) OR c.object_entity_id = ANY(@objects::bigint[]) OR c.id = ANY(@ids::bigint[]))
   AND EXISTS (SELECT 1 FROM claim_evidence e
-              WHERE e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[]) AND e.stance = 'supports')
+              LEFT JOIN proposals p ON p.id = e.proposal_id
+              WHERE e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[]) AND e.stance = 'supports'
+                AND (p.id IS NULL OR p.status IN ('open', 'accepted')))
 ORDER BY c.id;
 
 -- name: VisibleEvidence :many

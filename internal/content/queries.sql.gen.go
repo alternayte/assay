@@ -39,6 +39,32 @@ func (q *Queries) AddAlias(ctx context.Context, arg AddAliasParams) error {
 	return err
 }
 
+const addDispute = `-- name: AddDispute :exec
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+SELECT $1, i.connection_id, i.id, $2, 'human', 'disputes', $3, 'current', 'review'
+FROM source_items i WHERE i.id = ANY($4::bigint[])
+ON CONFLICT (claim_id, item_id, passage_hash, stance) DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now()
+`
+
+type AddDisputeParams struct {
+	ClaimID     int64
+	PassageHash []byte
+	Quote       string
+	Items       []int64
+}
+
+// A human row that disputes a claim, after an accepted correction.
+// vis:system
+func (q *Queries) AddDispute(ctx context.Context, arg AddDisputeParams) error {
+	_, err := q.db.Exec(ctx, addDispute,
+		arg.ClaimID,
+		arg.PassageHash,
+		arg.Quote,
+		arg.Items,
+	)
+	return err
+}
+
 const addEntitySource = `-- name: AddEntitySource :exec
 INSERT INTO entity_sources (entity_id, connection_id) VALUES ($1, $2)
 ON CONFLICT DO NOTHING
@@ -90,6 +116,70 @@ func (q *Queries) AddEvidence(ctx context.Context, arg AddEvidenceParams) (bool,
 	var inserted bool
 	err := row.Scan(&inserted)
 	return inserted, err
+}
+
+const addNoteEvidence = `-- name: AddNoteEvidence :exec
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type, proposal_id)
+SELECT $1, i.connection_id, i.id, $2, 'proposal', 'supports', $3, 'current', 'review', $4
+FROM source_items i WHERE i.id = ANY($5::bigint[])
+ON CONFLICT (claim_id, item_id, passage_hash, stance)
+DO UPDATE SET proposal_id = EXCLUDED.proposal_id, quote = EXCLUDED.quote, state = 'current', updated_at = now()
+WHERE claim_evidence.kind = 'proposal'
+`
+
+type AddNoteEvidenceParams struct {
+	ClaimID     int64
+	PassageHash []byte
+	Quote       string
+	ProposalID  *int64
+	Items       []int64
+}
+
+// The note or reason of a correction on each of its items. It makes the
+// correct value Proposed.
+// vis:system
+func (q *Queries) AddNoteEvidence(ctx context.Context, arg AddNoteEvidenceParams) error {
+	_, err := q.db.Exec(ctx, addNoteEvidence,
+		arg.ClaimID,
+		arg.PassageHash,
+		arg.Quote,
+		arg.ProposalID,
+		arg.Items,
+	)
+	return err
+}
+
+const addProposalEvidence = `-- name: AddProposalEvidence :exec
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type, proposal_id)
+SELECT $1, i.connection_id, i.id, $2, 'proposal', 'supports', $3, 'current', k.kind, $4
+FROM source_items i JOIN connections k ON k.id = i.connection_id
+WHERE i.id = $5
+ON CONFLICT (claim_id, item_id, passage_hash, stance)
+DO UPDATE SET proposal_id = EXCLUDED.proposal_id, quote = EXCLUDED.quote, state = 'current', updated_at = now()
+WHERE claim_evidence.kind = 'proposal'
+`
+
+type AddProposalEvidenceParams struct {
+	ClaimID     int64
+	PassageHash []byte
+	Quote       string
+	ProposalID  *int64
+	ItemID      int64
+}
+
+// Evidence of an open proposal makes its claim Proposed. Evidence from a
+// source stays as it is. The review package checks that the item is
+// visible to the proposer.
+// vis:system
+func (q *Queries) AddProposalEvidence(ctx context.Context, arg AddProposalEvidenceParams) error {
+	_, err := q.db.Exec(ctx, addProposalEvidence,
+		arg.ClaimID,
+		arg.PassageHash,
+		arg.Quote,
+		arg.ProposalID,
+		arg.ItemID,
+	)
+	return err
 }
 
 const claimGroupConnections = `-- name: ClaimGroupConnections :many

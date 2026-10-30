@@ -29,6 +29,7 @@ import (
 	"github.com/alternayte/assay/internal/pages"
 	"github.com/alternayte/assay/internal/registry"
 	"github.com/alternayte/assay/internal/resolve"
+	"github.com/alternayte/assay/internal/review"
 	"github.com/alternayte/assay/internal/search"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
@@ -60,6 +61,7 @@ type Server struct {
 	registry   *registry.Service
 	vocab      *vocab.Service
 	pages      *pages.Service
+	review     *review.Service
 	river      *river.Client[pgx.Tx]
 	metrics    *metrics
 	tracer     *sdktrace.TracerProvider
@@ -142,8 +144,10 @@ func (s *Server) services() error {
 	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
 	s.registry = &registry.Service{Pool: s.pool, Log: s.log, Now: s.now}
 	s.entities.Rename = s.registry.Rename
+	s.review = &review.Service{Pool: s.pool, Now: s.now}
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
-		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm}}
+		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm,
+			"correction": s.review.ApplyCorrection}}
 	s.pages = &pages.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Extract: s.extract, Log: s.log, Now: s.now}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}
@@ -166,6 +170,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.entities.Register(a)
 	s.extract.Register(a)
 	s.resolve.Register(a)
+	s.review.Register(a)
 	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 	s.vocab.Register(a)

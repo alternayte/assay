@@ -142,3 +142,10 @@ sql:
         <<: *go
         package: pages
         out: internal/pages
+  - <<: *pkg
+    queries: internal/review/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: review
+        out: internal/review

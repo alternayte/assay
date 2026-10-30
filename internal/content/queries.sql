@@ -157,3 +157,35 @@ ORDER BY ordinal;
 -- name: DeleteStaleItemEvidence :exec
 -- vis:system
 DELETE FROM claim_evidence WHERE item_id = @item_id AND state = 'stale';
+
+-- name: AddProposalEvidence :exec
+-- Evidence of an open proposal makes its claim Proposed. Evidence from a
+-- source stays as it is. The review package checks that the item is
+-- visible to the proposer.
+-- vis:system
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type, proposal_id)
+SELECT @claim_id, i.connection_id, i.id, @passage_hash, 'proposal', 'supports', @quote, 'current', k.kind, @proposal_id
+FROM source_items i JOIN connections k ON k.id = i.connection_id
+WHERE i.id = @item_id
+ON CONFLICT (claim_id, item_id, passage_hash, stance)
+DO UPDATE SET proposal_id = EXCLUDED.proposal_id, quote = EXCLUDED.quote, state = 'current', updated_at = now()
+WHERE claim_evidence.kind = 'proposal';
+
+-- name: AddNoteEvidence :exec
+-- The note or reason of a correction on each of its items. It makes the
+-- correct value Proposed.
+-- vis:system
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type, proposal_id)
+SELECT @claim_id, i.connection_id, i.id, @passage_hash, 'proposal', 'supports', @quote, 'current', 'review', @proposal_id
+FROM source_items i WHERE i.id = ANY(@items::bigint[])
+ON CONFLICT (claim_id, item_id, passage_hash, stance)
+DO UPDATE SET proposal_id = EXCLUDED.proposal_id, quote = EXCLUDED.quote, state = 'current', updated_at = now()
+WHERE claim_evidence.kind = 'proposal';
+
+-- name: AddDispute :exec
+-- A human row that disputes a claim, after an accepted correction.
+-- vis:system
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+SELECT @claim_id, i.connection_id, i.id, @passage_hash, 'human', 'disputes', @quote, 'current', 'review'
+FROM source_items i WHERE i.id = ANY(@items::bigint[])
+ON CONFLICT (claim_id, item_id, passage_hash, stance) DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now();

@@ -186,6 +186,9 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical); err != nil {
 				return err
 			}
+		case "finding":
+			// The evidence of an accepted proposal counts as human
+			// evidence, so the claim becomes Supported.
 		default:
 			apply, ok := s.Apply[c.Kind]
 			if !ok {
@@ -223,6 +226,18 @@ func (s *Service) Reject(ctx context.Context, vis visibility.Set, id int64, reas
 			}
 		}
 		return s.closeCard(ctx, tx, c, "rejected", reason, by)
+	})
+}
+
+// NeedsEvidence closes a card with a request for evidence and a reason.
+// The proposer sees the reason and can report again with a source.
+func (s *Service) NeedsEvidence(ctx context.Context, vis visibility.Set, id int64, reason, by string) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		c, err := s.openCard(ctx, tx, vis, id)
+		if err != nil {
+			return err
+		}
+		return s.closeCard(ctx, tx, c, "needs_evidence", reason, by)
 	})
 }
 
@@ -379,6 +394,18 @@ func (s *Service) Register(a huma.API) {
 			return nil, api.Internal(err)
 		}
 		return nil, cardErr(s.Reject(ctx, vis, in.ID, in.Body.Reason, api.Caller(ctx).User.ID))
+	})
+
+	huma.Register(a, huma.Operation{
+		OperationID: "cardNeedsEvidence", Method: http.MethodPost, Path: "/api/v1/cards/{id}/needs-evidence", Tags: tags,
+		Summary: "Ask for evidence on a card", Description: "A reason is required. The proposer sees it with the result.",
+		Middlewares: reviewers, DefaultStatus: http.StatusNoContent,
+	}, func(ctx context.Context, in *rejectIn) (*struct{}, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		return nil, cardErr(s.NeedsEvidence(ctx, vis, in.ID, in.Body.Reason, api.Caller(ctx).User.ID))
 	})
 
 	type decisionsIn struct {

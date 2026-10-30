@@ -135,6 +135,38 @@ func (q *Queries) EntitiesOfKeys(ctx context.Context, arg EntitiesOfKeysParams) 
 	return items, nil
 }
 
+const entitySourceConnections = `-- name: EntitySourceConnections :many
+SELECT DISTINCT es.connection_id FROM entity_sources es
+WHERE es.entity_id = ANY($1::bigint[]) AND es.connection_id = ANY($2::bigint[])
+ORDER BY es.connection_id
+`
+
+type EntitySourceConnectionsParams struct {
+	Ids     []int64
+	Visible []int64
+}
+
+// The visible connections with a source of the entities.
+func (q *Queries) EntitySourceConnections(ctx context.Context, arg EntitySourceConnectionsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, entitySourceConnections, arg.Ids, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var connection_id int64
+		if err := rows.Scan(&connection_id); err != nil {
+			return nil, err
+		}
+		items = append(items, connection_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertProposal = `-- name: InsertProposal :one
 INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
 VALUES ($1, $2, $3, $4, $5, $6)

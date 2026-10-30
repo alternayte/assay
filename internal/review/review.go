@@ -253,6 +253,22 @@ func (s *Service) Propose(ctx context.Context, vis visibility.Set, f ProposedFin
 				conns = append(conns, it.ConnectionID)
 			}
 		}
+		// The card names its entities, so a reviewer needs their sources too
+		// (REQ-REV-002, SI-02).
+		ents := []int64{subject.ID}
+		if object.id != nil {
+			ents = append(ents, *object.id)
+		}
+		srcs, err := q.EntitySourceConnections(ctx, EntitySourceConnectionsParams{Ids: ents, Visible: vis})
+		if err != nil {
+			return err
+		}
+		for _, c := range srcs {
+			if !slices.Contains(conns, c) {
+				conns = append(conns, c)
+			}
+		}
+		slices.Sort(conns)
 		if claim, err = q.UpsertClaim(ctx, UpsertClaimParams{SubjectID: subject.ID, Predicate: f.Predicate, ObjectEntityID: object.id,
 			ObjectText: object.text, ObjectNorm: object.norm, ScopeEnv: strings.TrimSpace(f.Scope)}); err != nil {
 			return err

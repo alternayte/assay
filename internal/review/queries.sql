@@ -94,3 +94,9 @@ SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[
 FROM entities e
 WHERE e.key = ANY(@keys::text[]) AND e.merged_into IS NULL
   AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]));
+
+-- name: EntitySourceConnections :many
+-- The visible connections with a source of the entities.
+SELECT DISTINCT es.connection_id FROM entity_sources es
+WHERE es.entity_id = ANY(@ids::bigint[]) AND es.connection_id = ANY(@visible::bigint[])
+ORDER BY es.connection_id;

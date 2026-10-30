@@ -8,12 +8,15 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
 
 type world struct {
 	env                     *testkit.Env
 	owner, reviewer, member *testkit.Client
+	src                     *fixtures.Sources
+	base                    string
 }
 
 // start syncs GitHub and Jira, shared with Everyone, and the restricted
@@ -24,7 +27,8 @@ func start(t *testing.T) *world {
 	w := &world{env: env, owner: env.Setup("owner@acme.test")}
 	w.reviewer, _ = env.Invite(w.owner, "reviewer@acme.test", "reviewer", "reviewer-password-1")
 	w.member, _ = env.Invite(w.owner, "member@acme.test", "member", "member-password-1")
-	_, base := testkit.FakeSources(t)
+	src, base := testkit.FakeSources(t)
+	w.src, w.base = src, base
 	mk := func(name, kind, path string, scope map[string]any, share bool) {
 		id := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: name, Kind: kind, BaseURL: base, Path: path, Scope: scope})
 		if share {

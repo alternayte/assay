@@ -11,7 +11,7 @@ work=$(mktemp -d)
 export COMPOSE_PROJECT_NAME=assay-e2e
 port=18080
 
-compose() { docker compose --project-directory "$work" -f "$work/compose.yaml" "$@"; }
+compose() { docker compose --project-directory "$work" -f "$work/compose.yaml" -f "$work/compose.override.yaml" "$@"; }
 cleanup() {
 	compose --profile demo down -v >/dev/null 2>&1 || true
 	rm -rf "$work"
@@ -20,6 +20,12 @@ trap cleanup EXIT
 
 docker build -q -t assay:e2e "$root" >/dev/null
 cp "$root/deploy/compose/compose.yaml" "$work/compose.yaml"
+# The tests change fixture pages and read the fixture hits from the host.
+cat >"$work/compose.override.yaml" <<YAML
+services:
+  fixtures:
+    ports: ["127.0.0.1:18090:8090"]
+YAML
 cat >"$work/.env" <<ENV
 ASSAY_IMAGE=assay:e2e
 ASSAY_PORT=$port
@@ -45,6 +51,6 @@ done
 
 cd "$root/web"
 status=0
-ASSAY_REPORTS="$reports" E2E_FIXTURES_URL=http://fixtures:8090 E2E_BASE_URL="http://localhost:$port" E2E_SETUP_TOKEN=e2e-setup-token bunx playwright test || status=$?
+ASSAY_REPORTS="$reports" E2E_FIXTURES_URL=http://fixtures:8090 E2E_FIXTURES_CONTROL=http://127.0.0.1:18090 E2E_BASE_URL="http://localhost:$port" E2E_SETUP_TOKEN=e2e-setup-token bunx playwright test || status=$?
 [ "$status" -eq 0 ] || compose logs --tail 100 assay >&2
 exit "$status"

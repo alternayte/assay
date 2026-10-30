@@ -25,8 +25,9 @@ import (
 
 // Service records problem reports and findings.
 type Service struct {
-	Pool *pgxpool.Pool
-	Now  func() time.Time
+	Pool    *pgxpool.Pool
+	Resolve *resolve.Service
+	Now     func() time.Time
 }
 
 func (s *Service) now() time.Time {

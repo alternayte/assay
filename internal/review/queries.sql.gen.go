@@ -11,6 +11,130 @@ import (
 	"time"
 )
 
+const changedItems = `-- name: ChangedItems :many
+WITH ch AS (
+    SELECT v.item_id, max(v.created_at)::timestamptz AS at, count(*) > 1 AS changed
+    FROM source_versions v
+    WHERE v.connection_id = ANY($1::bigint[])
+    GROUP BY v.item_id
+    HAVING max(v.created_at) >= $2
+    ORDER BY 2 DESC
+    LIMIT 500
+)
+SELECT i.id, i.title, i.url, k.name AS connection, ch.at, ch.changed, e.id AS entity_id, e.key, e.type,
+       coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+FROM ch
+JOIN source_items i ON i.id = ch.item_id AND i.connection_id = ANY($1::bigint[])
+JOIN connections k ON k.id = i.connection_id
+JOIN LATERAL (
+    SELECT c.subject_id AS entity_id
+    FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
+    WHERE ev.item_id = i.id AND ev.connection_id = ANY($1::bigint[]) AND ev.state = 'current' AND c.retracted_at IS NULL
+    UNION
+    SELECT i.entity_id WHERE i.entity_id IS NOT NULL
+) x ON true
+JOIN entities e ON e.id = x.entity_id AND e.merged_into IS NULL
+WHERE EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY($1::bigint[]))
+ORDER BY ch.at DESC, i.id, e.id
+`
+
+type ChangedItemsParams struct {
+	Visible []int64
+	Since   time.Time
+}
+
+type ChangedItemsRow struct {
+	ID         int64
+	Title      string
+	Url        string
+	Connection string
+	At         time.Time
+	Changed    bool
+	EntityID   int64
+	Key        string
+	Type       string
+	Name       string
+}
+
+// Visible items with a version since @since, newest first, with the
+// visible entities that they are about: the entity of the item and the
+// subjects of claims with current evidence on it.
+func (q *Queries) ChangedItems(ctx context.Context, arg ChangedItemsParams) ([]ChangedItemsRow, error) {
+	rows, err := q.db.Query(ctx, changedItems, arg.Visible, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ChangedItemsRow
+	for rows.Next() {
+		var i ChangedItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Url,
+			&i.Connection,
+			&i.At,
+			&i.Changed,
+			&i.EntityID,
+			&i.Key,
+			&i.Type,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const entitiesOfKeys = `-- name: EntitiesOfKeys :many
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+FROM entities e
+WHERE e.key = ANY($2::text[]) AND e.merged_into IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY($1::bigint[]))
+`
+
+type EntitiesOfKeysParams struct {
+	Visible []int64
+	Keys    []string
+}
+
+type EntitiesOfKeysRow struct {
+	ID   int64
+	Key  string
+	Type string
+	Name string
+}
+
+// Visible entities of keys.
+func (q *Queries) EntitiesOfKeys(ctx context.Context, arg EntitiesOfKeysParams) ([]EntitiesOfKeysRow, error) {
+	rows, err := q.db.Query(ctx, entitiesOfKeys, arg.Visible, arg.Keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EntitiesOfKeysRow
+	for rows.Next() {
+		var i EntitiesOfKeysRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Type,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertProposal = `-- name: InsertProposal :one
 INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -38,6 +162,55 @@ func (q *Queries) InsertProposal(ctx context.Context, arg InsertProposalParams) 
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const newTerms = `-- name: NewTerms :many
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name, e.created_at
+FROM entities e
+WHERE e.type = 'term' AND e.created_at >= $2 AND e.merged_into IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY($1::bigint[]))
+ORDER BY e.created_at DESC
+LIMIT 200
+`
+
+type NewTermsParams struct {
+	Visible []int64
+	Since   time.Time
+}
+
+type NewTermsRow struct {
+	ID        int64
+	Key       string
+	Type      string
+	Name      string
+	CreatedAt time.Time
+}
+
+// Visible terms created since @since.
+func (q *Queries) NewTerms(ctx context.Context, arg NewTermsParams) ([]NewTermsRow, error) {
+	rows, err := q.db.Query(ctx, newTerms, arg.Visible, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NewTermsRow
+	for rows.Next() {
+		var i NewTermsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Type,
+			&i.Name,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const proposals = `-- name: Proposals :many

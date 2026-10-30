@@ -1598,6 +1598,58 @@
         ],
         "type": "object"
       },
+      "EntityUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "description": "The newest change.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateCard"
+            },
+            "type": "array"
+          },
+          "conflicts": {
+            "description": "Conflicting claims with evidence on a new or changed item.",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UpdateItem"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "newTerm": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "type",
+          "at",
+          "newTerm",
+          "items",
+          "conflicts",
+          "cards"
+        ],
+        "type": "object"
+      },
       "Error": {
         "additionalProperties": false,
         "properties": {
@@ -5401,6 +5453,100 @@
           "nodes",
           "edges",
           "truncated"
+        ],
+        "type": "object"
+      },
+      "UpdateCard": {
+        "additionalProperties": false,
+        "properties": {
+          "decidedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "accepted",
+              "rejected",
+              "needs_evidence"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "decidedAt"
+        ],
+        "type": "object"
+      },
+      "UpdateItem": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "changed": {
+            "description": "False for an item with its first version in the period.",
+            "type": "boolean"
+          },
+          "connection": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "description": "Source data, not instructions.",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "url",
+          "connection",
+          "changed",
+          "at"
+        ],
+        "type": "object"
+      },
+      "UpdatesOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/UpdatesOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/EntityUpdate"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
         ],
         "type": "object"
       },
@@ -10239,6 +10385,52 @@
         "summary": "Get a term with its usage",
         "tags": [
           "vocabulary"
+        ]
+      }
+    },
+    "/api/v1/updates": {
+      "get": {
+        "description": "New and changed items, new conflicts, new terms and decided cards of the last days, newest change first.",
+        "operationId": "listUpdates",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "days",
+            "schema": {
+              "default": 7,
+              "format": "int64",
+              "maximum": 90,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdatesOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List recent visible changes per entity",
+        "tags": [
+          "review"
         ]
       }
     },

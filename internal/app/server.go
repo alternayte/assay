@@ -148,6 +148,7 @@ func (s *Server) services() error {
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
 		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm,
 			"correction": s.review.ApplyCorrection}}
+	s.review.Resolve = s.resolve
 	s.pages = &pages.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Extract: s.extract, Log: s.log, Now: s.now}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}

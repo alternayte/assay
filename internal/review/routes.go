@@ -75,6 +75,33 @@ func (s *Service) Register(a huma.API) {
 		return out, reviewErr(err)
 	})
 
+	type updatesIn struct {
+		Days int `query:"days" minimum:"1" maximum:"90" default:"7"`
+	}
+	type updatesOut struct {
+		Body struct {
+			Entities []EntityUpdate `json:"entities"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "listUpdates", Method: http.MethodGet, Path: "/api/v1/updates", Tags: tags,
+		Summary:     "List recent visible changes per entity",
+		Description: "New and changed items, new conflicts, new terms and decided cards of the last days, newest change first.",
+		Middlewares: members,
+	}, func(ctx context.Context, in *updatesIn) (*updatesOut, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		us, err := s.Updates(ctx, vis, s.now().AddDate(0, 0, -in.Days))
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		out := &updatesOut{}
+		out.Body.Entities = us
+		return out, nil
+	})
+
 	type mineIn struct {
 		Limit int `query:"limit" minimum:"1" maximum:"200" default:"50"`
 	}

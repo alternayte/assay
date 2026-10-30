@@ -49,3 +49,48 @@ FROM proposals p
 WHERE p.proposer_id = @proposer_id
 ORDER BY p.id DESC
 LIMIT @lim;
+
+-- name: ChangedItems :many
+-- Visible items with a version since @since, newest first, with the
+-- visible entities that they are about: the entity of the item and the
+-- subjects of claims with current evidence on it.
+WITH ch AS (
+    SELECT v.item_id, max(v.created_at)::timestamptz AS at, count(*) > 1 AS changed
+    FROM source_versions v
+    WHERE v.connection_id = ANY(@visible::bigint[])
+    GROUP BY v.item_id
+    HAVING max(v.created_at) >= @since
+    ORDER BY 2 DESC
+    LIMIT 500
+)
+SELECT i.id, i.title, i.url, k.name AS connection, ch.at, ch.changed, e.id AS entity_id, e.key, e.type,
+       coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+FROM ch
+JOIN source_items i ON i.id = ch.item_id AND i.connection_id = ANY(@visible::bigint[])
+JOIN connections k ON k.id = i.connection_id
+JOIN LATERAL (
+    SELECT c.subject_id AS entity_id
+    FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
+    WHERE ev.item_id = i.id AND ev.connection_id = ANY(@visible::bigint[]) AND ev.state = 'current' AND c.retracted_at IS NULL
+    UNION
+    SELECT i.entity_id WHERE i.entity_id IS NOT NULL
+) x ON true
+JOIN entities e ON e.id = x.entity_id AND e.merged_into IS NULL
+WHERE EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]))
+ORDER BY ch.at DESC, i.id, e.id;
+
+-- name: NewTerms :many
+-- Visible terms created since @since.
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name, e.created_at
+FROM entities e
+WHERE e.type = 'term' AND e.created_at >= @since AND e.merged_into IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]))
+ORDER BY e.created_at DESC
+LIMIT 200;
+
+-- name: EntitiesOfKeys :many
+-- Visible entities of keys.
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+FROM entities e
+WHERE e.key = ANY(@keys::text[]) AND e.merged_into IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]));

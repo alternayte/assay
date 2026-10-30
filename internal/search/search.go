@@ -434,6 +434,7 @@ func (s *Service) hits(ctx context.Context, vis visibility.Set, text string, ids
 
 // Segments splits a headline with the marks U+E000 and U+E001.
 func Segments(h string) []Segment {
+	h = plainSnippet(h)
 	out := []Segment{}
 	for h != "" {
 		i := strings.IndexRune(h, '')
@@ -454,6 +455,28 @@ func Segments(h string) []Segment {
 		h = h[j+len(""):]
 	}
 	return out
+}
+
+var (
+	mdRule     = regexp.MustCompile(`\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?`)
+	mdQuote    = regexp.MustCompile(`(^|\s)>(\s|$)`)
+	mdEmphasis = regexp.MustCompile("\\*\\*|__|```[a-z]*|`")
+	mdItalic   = regexp.MustCompile(`(^|[\s(])_([^_\s][^_]*?)_([\s.,;:!?)]|$)`)
+	mdSpace    = regexp.MustCompile(`\s+`)
+)
+
+// plainSnippet removes the Markdown marks of chunk text from a snippet:
+// emphasis, code marks, quote marks, table rules and pipes. The highlight
+// marks stay.
+func plainSnippet(h string) string {
+	h = mdRule.ReplaceAllString(h, " ")
+	h = mdEmphasis.ReplaceAllString(h, "")
+	h = mdItalic.ReplaceAllString(h, "$1$2$3")
+	for mdQuote.MatchString(h) {
+		h = mdQuote.ReplaceAllString(h, "$1$2")
+	}
+	h = strings.ReplaceAll(h, "|", " ")
+	return strings.TrimSpace(mdSpace.ReplaceAllString(h, " "))
 }
 
 // rerank orders the top 30 by the rerank function and keeps 10. Without

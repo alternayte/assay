@@ -127,22 +127,36 @@ function SubjectColumn({
   );
 }
 
-/** The plain fields of a payload, one level deep. */
+const detailLabel: Record<string, CopyKey> = {
+  problem: "report.problem",
+  reason: "report.reason",
+  note: "report.note",
+  quote: "review.quote",
+};
+const problemLabel: Record<string, CopyKey> = {
+  wrong_value: "report.wrong_value",
+  outdated: "report.outdated",
+  not_here: "report.not_here",
+};
+
+/** The text fields of a payload, one level deep. Numbers are IDs that the claims above show. */
 function Details({ payload }: { payload: unknown }) {
   if (!payload || typeof payload !== "object") return null;
-  const rows = Object.entries(payload as Record<string, unknown>).filter(
-    ([k, v]) => (typeof v === "string" && v !== "") || typeof v === "number" || (k === "quote" && v),
-  );
-  const nested = (payload as { mention?: { value?: string }; claim?: { Quote?: string } }) ?? {};
-  if (nested.mention?.value) rows.push(["mention", nested.mention.value]);
-  if (nested.claim?.Quote) rows.push(["quote", nested.claim.Quote]);
+  const p = payload as Record<string, unknown> & { mention?: { value?: string }; claim?: { Quote?: string } };
+  const rows: [string, string][] = [];
+  for (const [k, v] of Object.entries(p)) {
+    if (typeof v !== "string" || v === "") continue;
+    rows.push([k, k === "problem" && problemLabel[v] ? t(problemLabel[v]) : v]);
+  }
+  if (p.mention?.value) rows.push(["mention", p.mention.value]);
+  if (p.claim?.Quote) rows.push(["quote", p.claim.Quote]);
   if (rows.length === 0) return null;
   return (
     <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
-          <dt className="label pt-0.5">{k}</dt>
-          <dd className="break-words">{String(v)}</dd>
+          <dt className="label pt-0.5">{detailLabel[k] ? t(detailLabel[k]) : k}</dt>
+          <dd className="break-words">{v}</dd>
         </div>
       ))}
     </dl>

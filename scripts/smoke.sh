@@ -33,11 +33,30 @@ trap cleanup EXIT
 
 say() { printf 'smoke: %s\n' "$*" >&2; }
 
+# free_port prints a free port on 127.0.0.1 from 20000 to 29999. The OS gives
+# ephemeral ports to other sockets, so a port from that range can be taken
+# before Docker binds it.
+free_port() {
+	python3 -c '
+import random, socket
+for _ in range(200):
+    p = random.randint(20000, 29999)
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", p))
+    except OSError:
+        continue
+    finally:
+        s.close()
+    print(p)
+    break'
+}
+
 say "building $image"
 docker build -q -t "$image" "$root" >/dev/null
 
 # A free port on 127.0.0.1.
-port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+port=$(free_port)
 
 # SCN-INS-003: no docker, and a docker whose daemon does not answer.
 tools="$work/tools"
@@ -126,7 +145,7 @@ fi
 # of the first install out.
 start=$(now_ms)
 demo="$work/demo"
-dport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+dport=$(free_port)
 detail=""
 out=$(COMPOSE_PROJECT_NAME=assay-smoke-demo ASSAY_IMAGE=$image ASSAY_INSTALL_SRC="$root/deploy/compose" \
 	sh "$root/scripts/install.sh" --dir "$demo" --port "$dport" --demo 2>&1) && code=0 || code=$?

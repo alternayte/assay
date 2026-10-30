@@ -23,7 +23,9 @@ SELECT m.id, m.canonical_name, m.auto, m.created_at,
              ORDER BY x.id)::text[] AS names
 FROM merges m
 WHERE m.winner_id = $2 AND m.undone_at IS NULL
-  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = m.winner_id AND es.connection_id = ANY($1::bigint[]))
+  AND NOT EXISTS (SELECT 1 FROM entities x
+                  WHERE (x.id = m.winner_id OR x.merged_into = m.winner_id)
+                    AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[])))
   AND NOT EXISTS (SELECT 1 FROM entities x
                   WHERE x.id = ANY(m.loser_ids)
                     AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[])))
@@ -44,8 +46,9 @@ type ActiveMergesRow struct {
 	Names         []string
 }
 
-// The active merges into an entity whose winner and losers are all visible:
-// a merge with a hidden entity would show its canonical name (SI-16).
+// The active merges into an entity when the reader sees every entity merged
+// into it: a merge with a hidden entity would show its canonical name
+// (SI-16), as in entity_display_name.
 func (q *Queries) ActiveMerges(ctx context.Context, arg ActiveMergesParams) ([]ActiveMergesRow, error) {
 	rows, err := q.db.Query(ctx, activeMerges, arg.Visible, arg.WinnerID)
 	if err != nil {
@@ -458,6 +461,39 @@ func (q *Queries) MergeVisible(ctx context.Context, arg MergeVisibleParams) (boo
 	return column_1, err
 }
 
+const mergedOwners = `-- name: MergedOwners :many
+SELECT e.id, coalesce((SELECT m.winner_id FROM merges m WHERE m.undone_at IS NULL AND e.id = ANY(m.loser_ids)
+                       ORDER BY m.id DESC LIMIT 1), 0)::bigint AS owner
+FROM entities e WHERE e.merged_into = $1 ORDER BY e.id
+`
+
+type MergedOwnersRow struct {
+	ID    int64
+	Owner int64
+}
+
+// The entities merged into the winner, each with the winner of its newest
+// active merge, or 0.
+func (q *Queries) MergedOwners(ctx context.Context, winner *int64) ([]MergedOwnersRow, error) {
+	rows, err := q.db.Query(ctx, mergedOwners, winner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MergedOwnersRow
+	for rows.Next() {
+		var i MergedOwnersRow
+		if err := rows.Scan(&i.ID, &i.Owner); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nodes = `-- name: Nodes :many
 SELECT e.id, coalesce(entity_visible_key(e.id, $1::bigint[]), e.key)::text AS key, e.type,
        coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
@@ -516,6 +552,20 @@ func (q *Queries) RepointMerged(ctx context.Context, arg RepointMergedParams) er
 	return err
 }
 
+const setMergedInto = `-- name: SetMergedInto :exec
+UPDATE entities SET merged_into = $1, updated_at = now() WHERE id = $2
+`
+
+type SetMergedIntoParams struct {
+	Winner *int64
+	ID     int64
+}
+
+func (q *Queries) SetMergedInto(ctx context.Context, arg SetMergedIntoParams) error {
+	_, err := q.db.Exec(ctx, setMergedInto, arg.Winner, arg.ID)
+	return err
+}
+
 const sourceConnections = `-- name: SourceConnections :many
 SELECT DISTINCT es.connection_id FROM entity_sources es JOIN entities e ON e.id = es.entity_id
 WHERE e.key = ANY($1::text[]) AND es.connection_id = ANY($2::bigint[])
@@ -546,6 +596,21 @@ func (q *Queries) SourceConnections(ctx context.Context, arg SourceConnectionsPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const topWinner = `-- name: TopWinner :one
+WITH RECURSIVE up AS (SELECT e.id, e.merged_into FROM entities e WHERE e.id = $1
+                      UNION ALL
+                      SELECT e.id, e.merged_into FROM entities e JOIN up ON e.id = up.merged_into)
+SELECT up.id FROM up WHERE up.merged_into IS NULL LIMIT 1
+`
+
+// The entity that id is merged into at the top, or id itself.
+func (q *Queries) TopWinner(ctx context.Context, id int64) (int64, error) {
+	row := q.db.QueryRow(ctx, topWinner, id)
+	var id_2 int64
+	err := row.Scan(&id_2)
+	return id_2, err
 }
 
 const undoMerge = `-- name: UndoMerge :execrows
@@ -667,6 +732,22 @@ func (q *Queries) VisibleEntityByKey(ctx context.Context, arg VisibleEntityByKey
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const visibleKey = `-- name: VisibleKey :one
+SELECT coalesce(entity_visible_key($1, $2::bigint[]), '')::text AS key
+`
+
+type VisibleKeyParams struct {
+	ID      int64
+	Visible []int64
+}
+
+func (q *Queries) VisibleKey(ctx context.Context, arg VisibleKeyParams) (string, error) {
+	row := q.db.QueryRow(ctx, visibleKey, arg.ID, arg.Visible)
+	var key string
+	err := row.Scan(&key)
+	return key, err
 }
 
 const visibleSources = `-- name: VisibleSources :many

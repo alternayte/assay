@@ -98,6 +98,26 @@ SELECT * FROM merges WHERE id = @id;
 -- name: UndoMerge :execrows
 UPDATE merges SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
 
+-- name: VisibleKey :one
+SELECT coalesce(entity_visible_key(@id, @visible::bigint[]), '')::text AS key;
+
+-- name: MergedOwners :many
+-- The entities merged into the winner, each with the winner of its newest
+-- active merge, or 0.
+SELECT e.id, coalesce((SELECT m.winner_id FROM merges m WHERE m.undone_at IS NULL AND e.id = ANY(m.loser_ids)
+                       ORDER BY m.id DESC LIMIT 1), 0)::bigint AS owner
+FROM entities e WHERE e.merged_into = @winner ORDER BY e.id;
+
+-- name: TopWinner :one
+-- The entity that id is merged into at the top, or id itself.
+WITH RECURSIVE up AS (SELECT e.id, e.merged_into FROM entities e WHERE e.id = @id
+                      UNION ALL
+                      SELECT e.id, e.merged_into FROM entities e JOIN up ON e.id = up.merged_into)
+SELECT up.id FROM up WHERE up.merged_into IS NULL LIMIT 1;
+
+-- name: SetMergedInto :exec
+UPDATE entities SET merged_into = @winner, updated_at = now() WHERE id = @id;
+
 -- name: MergeVisible :one
 -- Whether the merge exists and the reader sees a source of each entity.
 SELECT EXISTS (SELECT 1 FROM merges m WHERE m.id = @id
@@ -130,8 +150,9 @@ SELECT e.id, coalesce(entity_visible_key(e.id, @visible::bigint[]), e.key)::text
 FROM entities e WHERE e.id = ANY(@ids::bigint[]);
 
 -- name: ActiveMerges :many
--- The active merges into an entity whose winner and losers are all visible:
--- a merge with a hidden entity would show its canonical name (SI-16).
+-- The active merges into an entity when the reader sees every entity merged
+-- into it: a merge with a hidden entity would show its canonical name
+-- (SI-16), as in entity_display_name.
 SELECT m.id, m.canonical_name, m.auto, m.created_at,
        array(SELECT x.key FROM entities x
              WHERE x.id = ANY(m.loser_ids)
@@ -143,7 +164,9 @@ SELECT m.id, m.canonical_name, m.auto, m.created_at,
              ORDER BY x.id)::text[] AS names
 FROM merges m
 WHERE m.winner_id = @winner_id AND m.undone_at IS NULL
-  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = m.winner_id AND es.connection_id = ANY(@visible::bigint[]))
+  AND NOT EXISTS (SELECT 1 FROM entities x
+                  WHERE (x.id = m.winner_id OR x.merged_into = m.winner_id)
+                    AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[])))
   AND NOT EXISTS (SELECT 1 FROM entities x
                   WHERE x.id = ANY(m.loser_ids)
                     AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[])))

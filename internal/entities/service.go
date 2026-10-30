@@ -447,7 +447,11 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 		if err != nil {
 			return 0, "", err
 		}
-		if shared, err = q.AllVisible(ctx, AllVisibleParams{Ids: ids, Visible: append([]int64{}, everyone...)}); err != nil {
+		group, err := q.Members(ctx, winner.ID)
+		if err != nil {
+			return 0, "", err
+		}
+		if shared, err = q.AllVisible(ctx, AllVisibleParams{Ids: group, Visible: append([]int64{}, everyone...)}); err != nil {
 			return 0, "", err
 		}
 	}
@@ -460,7 +464,12 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 			return 0, "", err
 		}
 	}
-	return mergeID, winner.Key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
+	// The caller gets the key that it sees: the winner can be hidden from it.
+	key, err := q.VisibleKey(ctx, VisibleKeyParams{ID: winner.ID, Visible: vis})
+	if err != nil {
+		return 0, "", err
+	}
+	return mergeID, key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
 		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto}})
 }
 
@@ -516,6 +525,27 @@ func (s *Service) SplitTx(ctx context.Context, tx pgx.Tx, mergeID int64) error {
 		}
 		if int(n) != len(m.LoserIds) {
 			return ErrMergeChanged
+		}
+		// A merge moves the entities merged into a loser to the winner. The
+		// entities whose newest active merge had another winner go back to
+		// the top of that winner.
+		owned, err := q.MergedOwners(ctx, &m.WinnerID)
+		if err != nil {
+			return err
+		}
+		for _, o := range owned {
+			if o.Owner == 0 || o.Owner == m.WinnerID {
+				continue
+			}
+			top, err := q.TopWinner(ctx, o.Owner)
+			if err != nil {
+				return err
+			}
+			if top != o.ID {
+				if err := q.SetMergedInto(ctx, SetMergedIntoParams{ID: o.ID, Winner: &top}); err != nil {
+					return err
+				}
+			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "entities.split", Target: fmt.Sprintf("merge:%d", mergeID),
 			Details: map[string]any{"winner": m.WinnerID, "losers": m.LoserIds}})

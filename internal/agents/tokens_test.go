@@ -28,7 +28,7 @@ func raw(t *testing.T, w *world, method, path, value string, body string) (int, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	b, _ := io.ReadAll(r.Body)
 	return r.StatusCode, string(b)
 }

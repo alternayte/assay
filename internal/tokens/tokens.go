@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -46,11 +47,12 @@ type Token struct {
 	ExpiresAt  *time.Time `json:"expiresAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
 	RevokedAt  *time.Time `json:"revokedAt"`
+	Scopes     []string   `json:"scopes" enum:"read,propose"`
 }
 
 func toToken(k store.APIKey) Token {
 	return Token{ID: k.ID, Name: k.Name, Start: k.Start, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, LastUsedAt: k.LastUsedAt,
-		RevokedAt: k.RevokedAt}
+		RevokedAt: k.RevokedAt, Scopes: k.ScopeList()}
 }
 
 // sessionOnly refuses a request that a token authenticates: a token never
@@ -91,8 +93,9 @@ func (s *Service) Register(a huma.API) {
 
 	type createIn struct {
 		Body struct {
-			Name          string `json:"name" minLength:"1" maxLength:"100"`
-			ExpiresInDays int    `json:"expiresInDays,omitempty" minimum:"1" maximum:"365" doc:"Default 90."`
+			Name          string   `json:"name" minLength:"1" maxLength:"100"`
+			ExpiresInDays int      `json:"expiresInDays,omitempty" minimum:"1" maximum:"365" doc:"Default 90."`
+			Scopes        []string `json:"scopes,omitempty" enum:"read,propose" uniqueItems:"true" doc:"read reads; propose proposes findings and reports problems. Default read."`
 		}
 	}
 	type createOut struct {
@@ -104,7 +107,7 @@ func (s *Service) Register(a huma.API) {
 	huma.Register(a, huma.Operation{
 		OperationID: "createToken", Method: http.MethodPost, Path: "/api/v1/tokens", Tags: tags,
 		Summary:     "Create an access token",
-		Description: "The token has your role and your visible set. It expires after 90 days by default, at most 365.",
+		Description: "The token has your role, your visible set and its scopes. It expires after 90 days by default, at most 365.",
 		Middlewares: mw, DefaultStatus: http.StatusCreated,
 	}, func(ctx context.Context, in *createIn) (*createOut, error) {
 		days := in.Body.ExpiresInDays
@@ -113,12 +116,13 @@ func (s *Service) Register(a huma.API) {
 		}
 		exp := s.now().Add(time.Duration(days) * 24 * time.Hour)
 		user := api.Caller(ctx).User
-		k, value, err := s.Keys.Create(ctx, user, apikeys.CreateInput{UserID: user.ID, Name: in.Body.Name, ExpiresAt: &exp})
+		k, value, err := s.Keys.Create(ctx, user, apikeys.CreateInput{UserID: user.ID, Name: in.Body.Name, ExpiresAt: &exp,
+			Scopes: strings.Join(in.Body.Scopes, " ")})
 		if err != nil {
 			return nil, api.FromAuth(err)
 		}
 		if err := audit.Write(ctx, s.Pool, audit.Entry{Action: "token.create", Target: "token:" + k.ID,
-			Details: map[string]any{"name": k.Name, "expiresAt": exp}}); err != nil {
+			Details: map[string]any{"name": k.Name, "expiresAt": exp, "scopes": k.ScopeList()}}); err != nil {
 			return nil, api.Internal(err)
 		}
 		out := &createOut{}

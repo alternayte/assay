@@ -20,6 +20,7 @@ import (
 
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
+	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
@@ -70,25 +71,31 @@ func (s *Service) server() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "assay", Version: s.Version}, &mcp.ServerOptions{
 		Instructions: "Assay answers from the sources that the token user can read. " + Notice,
 	})
-	add(s, srv, "search_context", "Search the visible sources. Returns results with excerpts, the claims of the entities that the query names, and the approved terms that it uses.", s.searchContext)
-	add(s, srv, "get_entity", "Get an entity with its aliases, claims, relations and freshness.", s.getEntity)
-	add(s, srv, "get_knowledge_page", "Get the knowledge page of an entity as Markdown with footnotes.", s.getPage)
-	add(s, srv, "trace_relationships", "Follow entity-valued claims from an entity. Each step carries its claim ID.", s.trace)
-	add(s, srv, "get_decisions", "Get the decisions of an entity, or the decisions that match a query, with status, rationale, supersedes and citations.", s.decisions)
-	add(s, srv, "get_terms", "Get the approved terms in a text, or terms by key, with definitions.", s.terms)
-	add(s, srv, "propose_finding", "Propose a new claim with exact quotes from visible items. A reviewer decides.", s.propose)
+	add(s, srv, auth.ScopeRead, "search_context", "Search the visible sources. Returns results with excerpts, the claims of the entities that the query names, and the approved terms that it uses.", s.searchContext)
+	add(s, srv, auth.ScopeRead, "get_entity", "Get an entity with its aliases, claims, relations and freshness.", s.getEntity)
+	add(s, srv, auth.ScopeRead, "get_knowledge_page", "Get the knowledge page of an entity as Markdown with footnotes.", s.getPage)
+	add(s, srv, auth.ScopeRead, "trace_relationships", "Follow entity-valued claims from an entity. Each step carries its claim ID.", s.trace)
+	add(s, srv, auth.ScopeRead, "get_decisions", "Get the decisions of an entity, or the decisions that match a query, with status, rationale, supersedes and citations.", s.decisions)
+	add(s, srv, auth.ScopeRead, "get_terms", "Get the approved terms in a text, or terms by key, with definitions.", s.terms)
+	add(s, srv, auth.ScopePropose, "propose_finding", "Propose a new claim with exact quotes from visible items. A reviewer decides.", s.propose)
 	return srv
 }
 
-// add registers a tool. Each call writes an audit entry (REQ-AGT-001).
-func add[In, Out any](s *Service, srv *mcp.Server, name, desc string, fn func(context.Context, visibility.Set, In) (Out, error)) {
+// add registers a tool that needs the token scope. Each call writes an audit
+// entry (REQ-AGT-001).
+func add[In, Out any](s *Service, srv *mcp.Server, scope, name, desc string, fn func(context.Context, visibility.Set, In) (Out, error)) {
 	mcp.AddTool(srv, &mcp.Tool{Name: name, Description: desc}, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
 		var zero Out
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {
 			return nil, zero, err
 		}
-		out, err := fn(ctx, vis, in)
+		var out Out
+		if authall.PrincipalFrom(ctx).HasScope(scope) {
+			out, err = fn(ctx, vis, in)
+		} else {
+			err = &userError{"The access token does not have the " + scope + " scope."}
+		}
 		args, _ := json.Marshal(in)
 		details := map[string]any{"tool": name, "input": json.RawMessage(args)}
 		if err != nil {

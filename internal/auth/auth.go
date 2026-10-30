@@ -47,6 +47,13 @@ type Auth struct {
 // TokenPrefix starts every access token.
 const TokenPrefix = "assay_"
 
+// Access token scopes (REQ-AGT-005). A token without a scope reads. A session
+// holds both.
+const (
+	ScopeRead    = "read"
+	ScopePropose = "propose"
+)
+
 // MaxTokenTTL is the longest life of an access token (REQ-AGT-005).
 const MaxTokenTTL = 365 * 24 * time.Hour
 
@@ -72,7 +79,8 @@ func New(pool *pgxpool.Pool, baseURL string, log *slog.Logger, opts Options) (*A
 	}
 	r := roles.New(roles.Hierarchy(RoleMember, RoleReviewer, RoleAdmin), roles.Default(RoleMember))
 	adm := admin.New(admin.AdminRole(RoleAdmin))
-	keys := apikeys.New(apikeys.Prefix(TokenPrefix), apikeys.MaxTTL(MaxTokenTTL), apikeys.AdminRole(RoleAdmin))
+	keys := apikeys.New(apikeys.Prefix(TokenPrefix), apikeys.MaxTTL(MaxTokenTTL), apikeys.AdminRole(RoleAdmin),
+		apikeys.Scopes(ScopeRead, ScopePropose), apikeys.DefaultScopes(ScopeRead))
 	secure := strings.HasPrefix(baseURL, "https://")
 	a, err := authall.New(
 		authall.WithStore(st),

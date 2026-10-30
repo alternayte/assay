@@ -3,7 +3,7 @@ module github.com/alternayte/assay
 go 1.26.2
 
 require (
-	github.com/alternayte/auth-all v0.6.0
+	github.com/alternayte/auth-all v0.7.0
 	github.com/alternayte/auth-all/humaauth v0.3.0
 	github.com/bmatcuk/doublestar/v4 v4.9.1
 	github.com/danielgtaylor/huma/v2 v2.40.0

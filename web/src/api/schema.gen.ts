@@ -1614,7 +1614,7 @@ export interface paths {
         put?: never;
         /**
          * Create an access token
-         * @description The token has your role and your visible set. It expires after 90 days by default, at most 365.
+         * @description The token has your role, your visible set and its scopes. It expires after 90 days by default, at most 365.
          */
         post: operations["createToken"];
         delete?: never;
@@ -2145,6 +2145,8 @@ export interface components {
              */
             expiresInDays?: number;
             name: string;
+            /** @description read reads; propose proposes findings and reports problems. Default read. */
+            scopes?: ("read" | "propose")[];
         };
         CreateInputBody: {
             /**
@@ -3711,6 +3713,7 @@ export interface components {
             name: string;
             /** Format: date-time */
             revokedAt: string | null;
+            scopes: ("read" | "propose")[];
             /** @description The first characters, so that a person recognizes the token. */
             start: string;
         };

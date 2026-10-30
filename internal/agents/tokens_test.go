@@ -10,8 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/alternayte/assay/internal/testkit"
 	"github.com/alternayte/assay/internal/visibility"
@@ -241,4 +244,63 @@ func visibilityOf(t *testing.T, env *testkit.Env, cl *testkit.Client) visibility
 		t.Fatal(err)
 	}
 	return vis
+}
+
+func TestSCN_AGT_003_TokenScopes(t *testing.T) {
+	w := start(t)
+	read, both, propose := token(t, w.owner), token(t, w.owner, "read", "propose"), token(t, w.owner, "propose")
+
+	// The list shows the scopes; no scope gives read; an unknown scope fails.
+	var list struct {
+		Tokens []struct {
+			Scopes []string `json:"scopes"`
+		} `json:"tokens"`
+	}
+	w.owner.Must(http.StatusOK, http.MethodGet, "/api/v1/tokens", nil).JSON(t, &list)
+	got := []string{}
+	for _, k := range list.Tokens {
+		got = append(got, strings.Join(k.Scopes, " "))
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"propose", "propose read", "read"}) {
+		t.Fatalf("token scopes %v", got)
+	}
+	w.owner.Must(http.StatusUnprocessableEntity, http.MethodPost, "/api/v1/tokens", map[string]any{"name": "x", "scopes": []string{"admin"}})
+
+	item := w.scalar(t, "SELECT id FROM source_items WHERE external_id = 'PAY-1'").(int64)
+	text := w.scalar(t, "SELECT text FROM passages WHERE item_id = $1 AND length(text) > 40 ORDER BY ordinal LIMIT 1", item).(string)
+	finding := fmt.Sprintf(`{"subject":%q,"predicate":"stated","object":{"text":"Retries back off for one hour."},"evidence":[{"itemId":%d,"quote":%q}]}`,
+		paymentsAPI, item, strings.TrimSpace(text[:30]))
+	for _, c := range []struct {
+		name, value, method, path, body string
+		want                            int
+	}{
+		{"read searches", read, http.MethodGet, "/api/v1/search?q=Payments", "", http.StatusOK},
+		{"read links terms", read, http.MethodPost, "/api/v1/terms/links", `{"text":"Payments API"}`, http.StatusOK},
+		{"read cannot propose", read, http.MethodPost, "/api/v1/findings", finding, http.StatusForbidden},
+		{"propose cannot search", propose, http.MethodGet, "/api/v1/search?q=Payments", "", http.StatusForbidden},
+		{"propose proposes", propose, http.MethodPost, "/api/v1/findings", finding, http.StatusCreated},
+		{"no scope changes settings", both, http.MethodPut, "/api/v1/settings/retention", `{"value":{"questionsDays":30},"revision":1}`, http.StatusForbidden},
+		{"no scope creates groups", both, http.MethodPost, "/api/v1/groups", `{"name":"Agents"}`, http.StatusForbidden},
+	} {
+		if code, body := raw(t, w, c.method, c.path, c.value, c.body); code != c.want {
+			t.Errorf("%s: %d, want %d: %s", c.name, code, c.want, body)
+		}
+	}
+
+	// MCP: a read token cannot call propose_finding, and the refusal is audited.
+	s := connect(t, w, read)
+	r, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "propose_finding", Arguments: map[string]any{
+		"subject": paymentsAPI, "predicate": "stated", "object": map[string]any{"text": "x"},
+		"evidence": []map[string]any{{"item_id": item, "quote": strings.TrimSpace(text[:30])}}}})
+	if err != nil || !r.IsError {
+		t.Fatalf("propose_finding with a read token: %v %+v", err, r)
+	}
+	if n := w.env.Count(`SELECT count(*) FROM audit_log WHERE action = 'mcp.propose_finding' AND details ? 'error'`); n != 1 {
+		t.Fatalf("%d audit rows for the refused call", n)
+	}
+	r, err = connect(t, w, propose).CallTool(context.Background(), &mcp.CallToolParams{Name: "search_context", Arguments: map[string]any{"query": "Payments"}})
+	if err != nil || !r.IsError {
+		t.Fatalf("search_context with a propose token: %v %+v", err, r)
+	}
 }

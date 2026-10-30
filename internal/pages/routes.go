@@ -97,7 +97,7 @@ func (s *Service) Register(a huma.API, base string) {
 		Summary: "Compile the summary of a page",
 		Description: "Streams server-sent events: delta events with the summary text, a retry event when a draft fails a check, " +
 			"then the page. A hidden entity and a missing key give the same 404.",
-		Middlewares: huma.Middlewares{api.Require(auth.RoleMember), visible},
+		Middlewares: huma.Middlewares{api.Require(auth.RoleMember), visible}, Metadata: api.TokenScope(auth.ScopeRead),
 	}, map[string]any{"delta": PageDeltaEvent{}, "retry": PageRetryEvent{}, "page": Page{}, "error": PageErrorEvent{}},
 		func(ctx context.Context, in *keyIn, send sse.Sender) {
 			vis, err := visibility.OfCaller(ctx, s.Pool)

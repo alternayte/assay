@@ -131,7 +131,7 @@ func (s *Service) Register(a huma.API) {
 	huma.Register(a, huma.Operation{
 		OperationID: "linkTerms", Method: http.MethodPost, Path: "/api/v1/terms/links", Tags: tags,
 		Summary: "Link approved terms in a text", Description: "Offsets are bytes of the text. Only approved terms with a visible source link.",
-		Middlewares: members,
+		Middlewares: members, Metadata: api.TokenScope(auth.ScopeRead),
 	}, func(ctx context.Context, in *linkIn) (*linkOut, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {

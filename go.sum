@@ -8,6 +8,8 @@ github.com/Microsoft/go-winio v0.6.3 h1:M/52tsoyTfwaxajLnXZm7PqkbMGRH8iSWP+8fcg9
 github.com/Microsoft/go-winio v0.6.3/go.mod h1:ma0QpxizD4fyyzJ1C7MIblymTD2Nxz5Mho/3CepwIZg=
 github.com/alternayte/auth-all v0.6.0 h1:MOxGJfVurzirXp6SMT8lWU2FUKKVimacwSjuu1kDwUA=
 github.com/alternayte/auth-all v0.6.0/go.mod h1:R0cqJZoxuzllxbONfiPNNNXvHJoHS7efm8pA0/JEplE=
+github.com/alternayte/auth-all v0.7.0 h1:/SEx7+r1MuX3Cl3txV4JC00B8L8wu1J9YVzYVJ4AThM=
+github.com/alternayte/auth-all v0.7.0/go.mod h1:R0cqJZoxuzllxbONfiPNNNXvHJoHS7efm8pA0/JEplE=
 github.com/alternayte/auth-all/humaauth v0.3.0 h1:V+sVpyWvS88S/4x1yPS8I3nvfv3XRCCrsXXLOqB4h2Y=
 github.com/alternayte/auth-all/humaauth v0.3.0/go.mod h1:Ne04axGVMrX9b6TzrNf53wcvAgG2s3lRFlXm1sOzBlQ=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=

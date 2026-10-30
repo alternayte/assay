@@ -43,7 +43,7 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "reportProblem", Method: http.MethodPost, Path: "/api/v1/claims/{id}/problems", Tags: tags,
 		Summary:     "Report a problem with a claim",
 		Description: "Creates a correction card. A reason is required, and wrong_value needs the correct value. The source system does not change.",
-		Middlewares: members, DefaultStatus: http.StatusCreated,
+		Middlewares: members, DefaultStatus: http.StatusCreated, Metadata: api.TokenScope(auth.ScopePropose),
 	}, func(ctx context.Context, in *reportIn) (*proposalOut, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {
@@ -64,7 +64,7 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "proposeFinding", Method: http.MethodPost, Path: "/api/v1/findings", Tags: tags,
 		Summary:     "Propose a finding",
 		Description: "Creates a finding card and a Proposed claim. Each quote must be an exact part of a visible item. A hidden item gives 404.",
-		Middlewares: members, DefaultStatus: http.StatusCreated,
+		Middlewares: members, DefaultStatus: http.StatusCreated, Metadata: api.TokenScope(auth.ScopePropose),
 	}, func(ctx context.Context, in *struct{ Body ProposedFinding }) (*findingOut, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)
 		if err != nil {

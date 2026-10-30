@@ -155,10 +155,26 @@ func Require(min string) func(huma.Context, func(huma.Context)) {
 			WriteError(ctx, Problem(http.StatusForbidden, "password_change_required", "Change your password to continue."))
 		case rank[Role(p)] < rank[min]:
 			WriteError(ctx, ErrForbidden)
+		case p.APIKey != nil && !tokenAllows(p, ctx.Operation()):
+			WriteError(ctx, Problem(http.StatusForbidden, "scope_missing", "The access token does not have the scope for this request."))
 		default:
 			next(ctx)
 		}
 	}
+}
+
+// TokenScope is the metadata of an operation that an access token with scope
+// may call. A GET operation needs read without it. An access token cannot call
+// any other operation.
+func TokenScope(scope string) map[string]any { return map[string]any{"tokenScope": scope} }
+
+// tokenAllows reports whether the access token of p may call op.
+func tokenAllows(p *authall.Principal, op *huma.Operation) bool {
+	scope, _ := op.Metadata["tokenScope"].(string)
+	if scope == "" && (op.Method == http.MethodGet || op.Method == http.MethodHead) {
+		scope = auth.ScopeRead
+	}
+	return scope != "" && p.HasScope(scope)
 }
 
 // WriteError writes the envelope of e. Middlewares use it.

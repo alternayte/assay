@@ -9,7 +9,7 @@ Each connection has an owner and zero or more groups. The visible set of a user 
 - Statuses, counts, conflicts and traversals are computed for each request from the visible evidence. A claim with only hidden evidence does not exist for the reader. A hidden object and a missing object give the same answer.
 - A knowledge page is cached per visibility key, so two readers with different sources never share a summary.
 - Review cards show only when the reviewer can read all their evidence.
-- A token reads with the visible set of its user.
+- A token reads with the visible set of its user. Its scopes limit it further: `read` reads, and `propose` proposes findings and reports problems. A token cannot review, change settings or manage tokens.
 
 The leak suite of the build plants a canary word in a restricted space and checks every REST route, every MCP tool and every screen as a member: no response holds the canary.
 

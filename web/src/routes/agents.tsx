@@ -42,14 +42,20 @@ function state(k: Token): { tone: "supported" | "neutral" | "stale"; text: strin
   return { tone: "supported", text: t("tokens.active") };
 }
 
+const SCOPES = ["read", "propose"] as const;
+type Scope = (typeof SCOPES)[number];
+
 function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (value: string) => void }) {
   const [name, setName] = useState("");
   const [days, setDays] = useState("90");
+  const [scopes, setScopes] = useState<Scope[]>(["read"]);
+  const toggle = (s: Scope, on: boolean) =>
+    setScopes((cur) => SCOPES.filter((x) => (x === s ? on : cur.includes(x))));
   const create = useMutation({
     mutationFn: async () =>
       unwrap(
         await api.POST("/api/v1/tokens", {
-          body: { name: name.trim(), expiresInDays: Number(days) || undefined },
+          body: { name: name.trim(), expiresInDays: Number(days) || undefined, scopes },
         }),
       ),
     onSuccess: (r) => onCreated(r.value),
@@ -80,9 +86,31 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
               />
             )}
           </Field>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 font-medium">{t("tokens.scopes")}</legend>
+            {SCOPES.map((s) => (
+              <label key={s} className="flex items-start gap-2 text-base">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={scopes.includes(s)}
+                  onChange={(e) => toggle(s, e.target.checked)}
+                />
+                <span className="flex flex-col">
+                  <span>{t(`tokens.${s}`)}</span>
+                  <span className="text-sm text-ink-muted">{t(`tokens.${s}Hint`)}</span>
+                </span>
+              </label>
+            ))}
+            <p className="text-sm text-ink-muted">{t("tokens.scopesHint")}</p>
+          </fieldset>
           <div className="flex gap-3">
             <Button onClick={onClose}>{t("tokens.cancel")}</Button>
-            <Button type="submit" variant="primary" disabled={!name.trim() || create.isPending}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!name.trim() || scopes.length === 0 || create.isPending}
+            >
               {t("tokens.save")}
             </Button>
           </div>
@@ -158,6 +186,7 @@ export function TokensPage() {
               <Th>{t("tokens.colStart")}</Th>
               <Th>{t("tokens.colCreated")}</Th>
               <Th>{t("tokens.colExpires")}</Th>
+              <Th>{t("tokens.colScopes")}</Th>
               <Th>{t("tokens.colUsed")}</Th>
               <Th>{t("tokens.colStatus")}</Th>
               <Th>
@@ -174,6 +203,7 @@ export function TokensPage() {
                   <Td className="font-mono text-sm">{k.start}…</Td>
                   <Td className="font-mono text-sm">{formatTime(k.createdAt)}</Td>
                   <Td className="font-mono text-sm">{k.expiresAt ? formatTime(k.expiresAt) : "—"}</Td>
+                  <Td data-testid="scopes">{k.scopes.map((s) => t(`tokens.${s}`)).join(", ")}</Td>
                   <Td className="font-mono text-sm" data-testid="last-used">
                     {k.lastUsedAt ? formatAgo(k.lastUsedAt) : t("tokens.never")}
                   </Td>

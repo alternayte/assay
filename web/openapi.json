@@ -1189,6 +1189,18 @@
             "maxLength": 100,
             "minLength": 1,
             "type": "string"
+          },
+          "scopes": {
+            "description": "read reads; propose proposes findings and reports problems. Default read.",
+            "items": {
+              "enum": [
+                "read",
+                "propose"
+              ],
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
@@ -5758,6 +5770,16 @@
               "null"
             ]
           },
+          "scopes": {
+            "items": {
+              "enum": [
+                "read",
+                "propose"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
           "start": {
             "description": "The first characters, so that a person recognizes the token.",
             "type": "string"
@@ -5770,7 +5792,8 @@
           "createdAt",
           "expiresAt",
           "lastUsedAt",
-          "revokedAt"
+          "revokedAt",
+          "scopes"
         ],
         "type": "object"
       },
@@ -10953,7 +10976,7 @@
         ]
       },
       "post": {
-        "description": "The token has your role and your visible set. It expires after 90 days by default, at most 365.",
+        "description": "The token has your role, your visible set and its scopes. It expires after 90 days by default, at most 365.",
         "operationId": "createToken",
         "requestBody": {
           "content": {

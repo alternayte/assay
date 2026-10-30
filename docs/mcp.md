@@ -4,7 +4,7 @@ Assay serves MCP at `/mcp` over Streamable HTTP. An agent sends an access token 
 
 ## Connect
 
-1. Create an access token in Access tokens. Copy the value: it shows once.
+1. Create an access token in Access tokens. Select its scopes, then copy the value: it shows once.
 2. Open Connect an agent and copy the configuration into your MCP client. Replace `YOUR_TOKEN` with the token.
 
 ```json
@@ -18,6 +18,13 @@ Assay serves MCP at `/mcp` over Streamable HTTP. An agent sends an access token 
   }
 }
 ```
+
+A token has one or two scopes:
+
+- `read` (default): the read tools, and the REST routes that read, ask and link terms.
+- `propose`: `propose_finding`, and the REST routes that propose a finding or report a problem.
+
+A token cannot do other actions, such as review, settings or token changes. A call without the scope gets an error, and REST gets 403.
 
 Revoke a token in Access tokens. The next call with it gets 401.
 

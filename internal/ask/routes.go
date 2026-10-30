@@ -57,7 +57,7 @@ func (s *Service) Register(a huma.API) {
 		Summary: "Ask a question",
 		Description: "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. " +
 			"Without the answer model, the answer event has the results and a notice.",
-		Middlewares: members,
+		Middlewares: members, Metadata: api.TokenScope(auth.ScopeRead),
 	}, map[string]any{"results": ResultsEvent{}, "delta": DeltaEvent{}, "answer": Answer{}, "error": ErrorEvent{}},
 		func(ctx context.Context, in *askIn, send sse.Sender) {
 			p := api.Caller(ctx)

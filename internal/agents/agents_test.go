@@ -44,13 +44,18 @@ func start(t *testing.T) *world {
 	return w
 }
 
-// token creates an access token for the client and returns its value.
-func token(t *testing.T, cl *testkit.Client) string {
+// token creates an access token with scopes for the client and returns its
+// value. No scope gives the default scope.
+func token(t *testing.T, cl *testkit.Client, scopes ...string) string {
 	t.Helper()
 	var out struct {
 		Value string `json:"value"`
 	}
-	cl.Must(http.StatusCreated, http.MethodPost, "/api/v1/tokens", map[string]any{"name": "agent"}).JSON(t, &out)
+	body := map[string]any{"name": "agent"}
+	if len(scopes) > 0 {
+		body["scopes"] = scopes
+	}
+	cl.Must(http.StatusCreated, http.MethodPost, "/api/v1/tokens", body).JSON(t, &out)
 	if !strings.HasPrefix(out.Value, "assay_") {
 		t.Fatalf("token value %q", out.Value)
 	}
@@ -136,7 +141,7 @@ func (w *world) scalar(t *testing.T, sql string, args ...any) any {
 
 func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
 	w := start(t)
-	s := connect(t, w, token(t, w.member))
+	s := connect(t, w, token(t, w.member, "read", "propose"))
 	tools := toolsOf(t, s)
 	want := []string{"search_context", "get_entity", "get_knowledge_page", "trace_relationships", "get_decisions", "get_terms", "propose_finding"}
 	names := make([]string, 0, len(tools))

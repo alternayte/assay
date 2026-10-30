@@ -67,7 +67,7 @@ Admins set everything else in the UI: connections, visibility groups, domains, m
 
 ## Connect an agent
 
-Create an access token in Access tokens. Then add Assay to your MCP client:
+Create an access token in Access tokens. Select `read`, and `propose` if the agent sends findings to review. Then add Assay to your MCP client:
 
 ```json
 {

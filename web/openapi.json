@@ -4241,6 +4241,10 @@
             "type": "string"
           },
           "details": {},
+          "hidden": {
+            "description": "The target and the details name content that you cannot read, so they are empty.",
+            "type": "boolean"
+          },
           "id": {
             "format": "int64",
             "type": "integer"
@@ -4255,7 +4259,8 @@
           "actorEmail",
           "action",
           "target",
-          "details"
+          "details",
+          "hidden"
         ],
         "type": "object"
       },

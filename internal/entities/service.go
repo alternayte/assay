@@ -363,7 +363,7 @@ func (s *Service) ProposeMerge(ctx context.Context, vis visibility.Set, keys []s
 			return err
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "entities.merge_proposal", Target: "entity:" + keys[0],
-			Details: map[string]any{"proposal": id, "keys": keys}})
+			Details: map[string]any{"proposal": id, "keys": keys}, Connections: conns})
 	})
 	return id, err
 }
@@ -469,8 +469,10 @@ func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, id
 	if err != nil {
 		return 0, "", err
 	}
-	return mergeID, key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + winner.Key,
-		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto}})
+	// The entry names only what the merger sees.
+	return mergeID, key, audit.Write(ctx, tx, audit.Entry{Action: "entities.merge", Target: "entity:" + key,
+		Details: map[string]any{"merge": mergeID, "entities": r.Keys, "canonicalName": canonical, "auto": r.Auto},
+		Connections: append([]int64{}, vis...)})
 }
 
 func boolFirst(b bool) int {

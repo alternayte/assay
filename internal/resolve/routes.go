@@ -554,7 +554,7 @@ func (s *Service) NotSame(ctx context.Context, vis visibility.Set, keys []string
 			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "resolve.not_same", Target: "entity:" + keys[0],
-			Details: map[string]any{"keys": keys}})
+			Details: map[string]any{"keys": keys}, Connections: append([]int64{}, vis...)})
 	})
 }
 
@@ -590,7 +590,7 @@ func (s *Service) closeCard(ctx context.Context, tx pgx.Tx, c CardForUpdateRow, 
 		}
 	}
 	return audit.Write(ctx, tx, audit.Entry{Action: "cards." + status, Target: fmt.Sprintf("card:%d", c.ID),
-		Details: map[string]any{"kind": c.Kind, "reason": reason, "decision": c.DecisionID}})
+		Details: map[string]any{"kind": c.Kind, "reason": reason, "decision": c.DecisionID}, Connections: append([]int64{}, c.Connections...)})
 }
 
 func (s *Service) verdict(ctx context.Context, tx pgx.Tx, refs []string, verdict, by string) error {

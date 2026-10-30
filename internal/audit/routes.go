@@ -11,6 +11,7 @@ import (
 
 	"github.com/alternayte/assay/internal/api"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/visibility"
 )
 
 // Record is one audit entry as the API shows it.
@@ -22,6 +23,7 @@ type Record struct {
 	Action     string          `json:"action"`
 	Target     string          `json:"target"`
 	Details    json.RawMessage `json:"details"`
+	Hidden     bool            `json:"hidden" doc:"The target and the details name content that you cannot read, so they are empty."`
 }
 
 // Register adds the read-only audit route. No route changes or deletes an
@@ -42,7 +44,11 @@ func Register(a huma.API, pool *pgxpool.Pool) {
 		OperationID: "listAudit", Method: http.MethodGet, Path: "/api/v1/audit", Tags: []string{"audit"},
 		Summary: "List audit entries, newest first", Middlewares: huma.Middlewares{api.Require(auth.RoleAdmin)},
 	}, func(ctx context.Context, in *listInput) (*listOutput, error) {
-		p := ListParams{Lim: in.Limit + 1}
+		vis, err := visibility.OfCaller(ctx, pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		p := ListParams{Lim: in.Limit + 1, Visible: vis}
 		if in.Action != "" {
 			p.Action = &in.Action
 		}
@@ -61,6 +67,10 @@ func Register(a huma.API, pool *pgxpool.Pool) {
 				break
 			}
 			rec := Record{ID: r.ID, At: r.At, ActorEmail: r.ActorEmail, Action: r.Action, Target: r.Target, Details: r.Details}
+			if !r.Readable {
+				// The entry names content outside the visible set of the admin.
+				rec.Target, rec.Details, rec.Hidden = "", json.RawMessage(`{}`), true
+			}
 			if r.ActorTokenID != nil {
 				rec.ActorToken = *r.ActorTokenID
 			}

@@ -150,7 +150,7 @@ func (s *Service) autoMerge(ctx context.Context, tx pgx.Tx, decisionID int64, re
 		return err
 	}
 	return audit.Write(ctx, tx, audit.Entry{Action: "resolve.auto_merge", Target: fmt.Sprintf("decision:%d", decisionID),
-		Details: map[string]any{"merge": mergeID, "winner": winner, "entities": refs}})
+		Details: map[string]any{"merge": mergeID, "winner": winner, "entities": refs}, Connections: append([]int64{}, conns...)})
 }
 
 func sorted(s []int64) []int64 {

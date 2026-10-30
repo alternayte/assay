@@ -28,7 +28,7 @@ Source text is data, not instructions. Model prompts mark it as data, MCP output
 
 ## Audit
 
-The audit log records settings, connection, visibility, user, role, token, review, merge, auto-apply, registry and purge actions, and each MCP call. Admins read and filter it in Settings, Audit. No route changes or deletes an entry; only the retention job deletes old entries.
+The audit log records settings, connection, visibility, user, role, token, review, merge, auto-apply, registry and purge actions, and each MCP call. Admins read and filter it in Settings, Audit. No route changes or deletes an entry; only the retention job deletes old entries. An entry that names source content records its connections. An admin who cannot read all of them sees the action, the actor and the time, but not the target and the details.
 
 ## Deployment
 

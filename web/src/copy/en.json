@@ -255,6 +255,7 @@
     "colAction": "Action",
     "colTarget": "Target",
     "system": "System",
+    "hidden": "Hidden. It names content that you cannot read.",
     "more": "Show older entries",
     "empty": "No entries match this filter."
   },

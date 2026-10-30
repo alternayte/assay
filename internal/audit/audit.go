@@ -9,11 +9,14 @@ import (
 	authall "github.com/alternayte/auth-all"
 )
 
-// Entry is one audit record.
+// Entry is one audit record. Connections names the connections whose
+// content the target or the details name; nil means none. An admin reads
+// them only with all of these connections visible (SI-01).
 type Entry struct {
-	Action  string
-	Target  string
-	Details map[string]any
+	Action      string
+	Target      string
+	Details     map[string]any
+	Connections []int64
 }
 
 // Write appends an entry for the caller of ctx. A context with no caller
@@ -36,6 +39,7 @@ func Write(ctx context.Context, db DBTX, e Entry) error {
 		Action:       e.Action,
 		Target:       e.Target,
 		Details:      details,
+		Connections:  e.Connections,
 	})
 	return err
 }
@@ -47,7 +51,8 @@ func WriteAs(ctx context.Context, db DBTX, actorUserID string, e Entry) error {
 	if err != nil {
 		return err
 	}
-	_, err = New(db).Insert(ctx, InsertParams{ActorUserID: &actorUserID, Action: e.Action, Target: e.Target, Details: details})
+	_, err = New(db).Insert(ctx, InsertParams{ActorUserID: &actorUserID, Action: e.Action, Target: e.Target, Details: details,
+		Connections: e.Connections})
 	return err
 }
 

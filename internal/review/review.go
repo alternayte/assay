@@ -169,7 +169,7 @@ func (s *Service) Report(ctx context.Context, vis visibility.Set, claimID int64,
 			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "review.report", Target: fmt.Sprintf("claim:%d", c.ID),
-			Details: map[string]any{"proposal": id, "problem": r.Problem}})
+			Details: map[string]any{"proposal": id, "problem": r.Problem}, Connections: conns})
 	})
 	return id, err
 }
@@ -285,7 +285,7 @@ func (s *Service) Propose(ctx context.Context, vis visibility.Set, f ProposedFin
 			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "review.finding", Target: "entity:" + subject.Key,
-			Details: map[string]any{"proposal": proposal, "claim": claim, "predicate": f.Predicate}})
+			Details: map[string]any{"proposal": proposal, "claim": claim, "predicate": f.Predicate}, Connections: conns})
 	})
 	return proposal, claim, err
 }

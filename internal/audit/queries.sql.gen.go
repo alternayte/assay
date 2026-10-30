@@ -24,8 +24,8 @@ func (q *Queries) DeleteBefore(ctx context.Context, before time.Time) (int64, er
 }
 
 const insert = `-- name: Insert :one
-INSERT INTO audit_log (actor_user_id, actor_token_id, action, target, details)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO audit_log (actor_user_id, actor_token_id, action, target, details, connections)
+VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id
 `
 
@@ -35,6 +35,7 @@ type InsertParams struct {
 	Action       string
 	Target       string
 	Details      json.RawMessage
+	Connections  []int64
 }
 
 func (q *Queries) Insert(ctx context.Context, arg InsertParams) (int64, error) {
@@ -44,6 +45,7 @@ func (q *Queries) Insert(ctx context.Context, arg InsertParams) (int64, error) {
 		arg.Action,
 		arg.Target,
 		arg.Details,
+		arg.Connections,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -52,16 +54,17 @@ func (q *Queries) Insert(ctx context.Context, arg InsertParams) (int64, error) {
 
 const list = `-- name: List :many
 SELECT a.id, a.at, a.actor_user_id, a.actor_token_id, a.action, a.target, a.details,
-       coalesce(u.email, '') AS actor_email
+       coalesce(u.email, '') AS actor_email, (a.connections IS NULL OR a.connections <@ $1::bigint[])::bool AS readable
 FROM audit_log a
 LEFT JOIN auth_users u ON u.id = a.actor_user_id
-WHERE ($1::text IS NULL OR a.action = $1 OR a.action LIKE $1 || '.%')
-  AND ($2::bigint IS NULL OR a.id < $2)
+WHERE ($2::text IS NULL OR a.action = $2 OR a.action LIKE $2 || '.%')
+  AND ($3::bigint IS NULL OR a.id < $3)
 ORDER BY a.id DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListParams struct {
+	Visible  []int64
 	Action   *string
 	BeforeID *int64
 	Lim      int32
@@ -76,10 +79,16 @@ type ListRow struct {
 	Target       string
 	Details      json.RawMessage
 	ActorEmail   string
+	Readable     bool
 }
 
 func (q *Queries) List(ctx context.Context, arg ListParams) ([]ListRow, error) {
-	rows, err := q.db.Query(ctx, list, arg.Action, arg.BeforeID, arg.Lim)
+	rows, err := q.db.Query(ctx, list,
+		arg.Visible,
+		arg.Action,
+		arg.BeforeID,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +105,7 @@ func (q *Queries) List(ctx context.Context, arg ListParams) ([]ListRow, error) {
 			&i.Target,
 			&i.Details,
 			&i.ActorEmail,
+			&i.Readable,
 		); err != nil {
 			return nil, err
 		}

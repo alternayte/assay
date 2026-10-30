@@ -3193,6 +3193,8 @@ export interface components {
             /** Format: date-time */
             at: string;
             details: unknown;
+            /** @description The target and the details name content that you cannot read, so they are empty. */
+            hidden: boolean;
             /** Format: int64 */
             id: number;
             target: string;

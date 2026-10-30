@@ -662,7 +662,9 @@ export function AuditPage() {
                   <Td className="whitespace-nowrap">{formatTime(r.at)}</Td>
                   <Td className="font-mono text-sm">{r.actorEmail || t("audit.system")}</Td>
                   <Td className="font-mono text-sm">{r.action}</Td>
-                  <Td className="font-mono text-sm text-ink-muted">{r.target}</Td>
+                  <Td className="font-mono text-sm text-ink-muted">
+                    {r.hidden ? t("audit.hidden") : r.target}
+                  </Td>
                 </tr>
               ))}
             </tbody>

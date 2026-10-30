@@ -100,7 +100,8 @@ func add[In, Out any](s *Service, srv *mcp.Server, scope, name, desc string, fn 
 		if err != nil {
 			details["error"] = err.Error()
 		}
-		if aerr := audit.Write(ctx, s.Pool, audit.Entry{Action: "mcp." + name, Target: "mcp", Details: details}); aerr != nil {
+		if aerr := audit.Write(ctx, s.Pool, audit.Entry{Action: "mcp." + name, Target: "mcp", Details: details,
+			Connections: append([]int64{}, vis...)}); aerr != nil {
 			s.Log.Error("mcp audit failed", "error", aerr.Error())
 		}
 		if err != nil {

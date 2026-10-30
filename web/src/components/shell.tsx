@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
-import { LogOut, Monitor, Moon, Search, Sun, UserRound } from "lucide-react";
+import { Bot, KeyRound, LogOut, Monitor, Moon, Search, Sun, UserRound } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
 import { useState } from "react";
 import { api, unwrap } from "@/api/client";
@@ -127,6 +127,24 @@ export function Shell() {
                   >
                     <UserRound className="size-4" aria-hidden />
                     {t("nav.profile")}
+                  </Link>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item asChild>
+                  <Link
+                    to="/tokens"
+                    className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-base outline-none data-[highlighted]:bg-accent-wash"
+                  >
+                    <KeyRound className="size-4" aria-hidden />
+                    {t("nav.tokens")}
+                  </Link>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item asChild>
+                  <Link
+                    to="/connect"
+                    className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-base outline-none data-[highlighted]:bg-accent-wash"
+                  >
+                    <Bot className="size-4" aria-hidden />
+                    {t("nav.connect")}
                   </Link>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-1 h-px bg-rule" />

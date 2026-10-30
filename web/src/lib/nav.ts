@@ -13,6 +13,8 @@ export const navItems: NavItem[] = [
   { to: "/review", label: "nav.review", role: "reviewer", group: "pages" },
   { to: "/settings/users", label: "settings.title", role: "admin", group: "pages" },
   { to: "/profile", label: "nav.profile", role: "member", group: "pages" },
+  { to: "/tokens", label: "nav.tokens", role: "member", group: "pages" },
+  { to: "/connect", label: "nav.connect", role: "member", group: "pages" },
   { to: "/settings/users", label: "settings.users", role: "admin", group: "settings" },
   { to: "/settings/groups", label: "settings.groups", role: "admin", group: "settings" },
   { to: "/settings/connections", label: "settings.connections", role: "admin", group: "settings" },

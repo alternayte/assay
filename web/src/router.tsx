@@ -11,6 +11,7 @@ import { Shell } from "@/components/shell";
 import { Button } from "@/components/ui/button";
 import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
+import { ConnectPage, TokensPage } from "@/routes/agents";
 import { AskPage } from "@/routes/ask";
 import { EntityPage } from "@/routes/entity";
 import { ExplorePage } from "@/routes/explore";
@@ -90,6 +91,8 @@ const review = createRoute({
     if (!atLeast(context.me, "reviewer")) throw redirect({ to: "/" });
   },
 });
+const tokensRoute = createRoute({ getParentRoute: () => authed, path: "/tokens", component: TokensPage });
+const connect = createRoute({ getParentRoute: () => authed, path: "/connect", component: ConnectPage });
 const profile = createRoute({ getParentRoute: () => authed, path: "/profile", component: ProfilePage });
 
 const settings = createRoute({
@@ -156,6 +159,8 @@ const routeTree = root.addChildren([
     updates,
     review,
     profile,
+    tokensRoute,
+    connect,
     settings.addChildren([
       settingsIndex,
       users,

@@ -163,7 +163,29 @@ func (s *Service) Register(a huma.API, base string) {
 		}
 		return &mdOut{ContentType: "text/markdown; charset=utf-8", Body: []byte(p.Markdown(strings.TrimRight(base, "/"), approved))}, nil
 	})
+
+	huma.Register(a, huma.Operation{
+		OperationID: "getGlossaryMarkdown", Method: http.MethodGet, Path: "/api/v1/glossary.md", Tags: tags,
+		Summary:     "Get the glossary as Markdown",
+		Description: "The approved terms that you can read, with definitions and links. /glossary.md gives the same document.",
+		Middlewares: members,
+		Responses: map[string]*huma.Response{"200": {Description: "The glossary as Markdown.",
+			Content: map[string]*huma.MediaType{"text/markdown": {Schema: &huma.Schema{Type: "string"}}}}},
+	}, func(ctx context.Context, _ *struct{}) (*mdOut, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		approved, err := s.Vocab.Approved(ctx, vis)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		return &mdOut{ContentType: "text/markdown; charset=utf-8", Body: []byte(GlossaryMarkdown(strings.TrimRight(base, "/"), approved))}, nil
+	})
 }
+
+// GlossaryPath is the app path of the glossary Markdown.
+const GlossaryPath = "/glossary.md"
 
 // MarkdownPath maps /e/{key}.md to the API path of the page Markdown, or
 // returns false for another path.

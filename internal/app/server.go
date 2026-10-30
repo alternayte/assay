@@ -180,6 +180,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.resolve.Register(a)
 	s.review.Register(a)
 	s.tokens.Register(a)
+	s.agents.Register(a)
 	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 	s.vocab.Register(a)
@@ -285,6 +286,11 @@ func (s *Server) routes() (http.Handler, error) {
 		s.registerAPI(a)
 		// MCP for agents with an access token (REQ-AGT-001).
 		g.Handle("/mcp", s.agents.Handler())
+		g.Get(pages.GlossaryPath, func(w http.ResponseWriter, req *http.Request) {
+			r2 := req.Clone(context.WithValue(req.Context(), chi.RouteCtxKey, nil))
+			r2.URL.Path, r2.URL.RawPath = "/api/v1/glossary.md", ""
+			r.ServeHTTP(w, r2)
+		})
 		// /e/{key}.md is the Markdown form of a page (REQ-PAG-005). The
 		// SPA serves /e/{key}.
 		g.Get("/e/*", func(w http.ResponseWriter, req *http.Request) {

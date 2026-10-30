@@ -8,6 +8,8 @@ const routes = [
   "/updates",
   "/review",
   "/profile",
+  "/tokens",
+  "/connect",
   "/settings/users",
   "/settings/groups",
   "/settings/connections",

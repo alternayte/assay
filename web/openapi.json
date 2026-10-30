@@ -733,6 +733,39 @@
         ],
         "type": "object"
       },
+      "Connect": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Connect.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "docsUrl": {
+            "type": "string"
+          },
+          "glossaryUrl": {
+            "type": "string"
+          },
+          "mcpUrl": {
+            "type": "string"
+          },
+          "openapiUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mcpUrl",
+          "glossaryUrl",
+          "openapiUrl",
+          "docsUrl"
+        ],
+        "type": "object"
+      },
       "ConnectionBody": {
         "additionalProperties": false,
         "properties": {
@@ -7244,6 +7277,38 @@
         ]
       }
     },
+    "/api/v1/connect": {
+      "get": {
+        "description": "The MCP endpoint, the glossary Markdown, the OpenAPI document and the API reference.",
+        "operationId": "getConnect",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connect"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the agent URLs of this instance",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/connections": {
       "get": {
         "operationId": "listConnections",
@@ -8680,6 +8745,45 @@
         "summary": "Propose a finding",
         "tags": [
           "review"
+        ]
+      }
+    },
+    "/api/v1/glossary.md": {
+      "get": {
+        "description": "The approved terms that you can read, with definitions and links. /glossary.md gives the same document.",
+        "operationId": "getGlossaryMarkdown",
+        "responses": {
+          "200": {
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The glossary as Markdown.",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the glossary as Markdown",
+        "tags": [
+          "pages"
         ]
       }
     },

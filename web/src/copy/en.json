@@ -25,7 +25,9 @@
     "explore": "Explore",
     "glossary": "Glossary",
     "review": "Review",
-    "updates": "Updates"
+    "updates": "Updates",
+    "tokens": "Access tokens",
+    "connect": "Connect an agent"
   },
   "palette": {
     "title": "Search and go",
@@ -907,5 +909,50 @@
     "conflict": "New conflict",
     "card": "{kind}: {status}",
     "empty": "No change in this period. Choose a longer period, or run a sync."
+  },
+  "tokens": {
+    "title": "Access tokens",
+    "body": "An agent uses a token to read Assay as you. It reads only the sources that you can read.",
+    "create": "Create a token",
+    "name": "Name",
+    "nameHint": "Name the agent or the machine that uses the token.",
+    "days": "Expires after",
+    "daysHint": "Days, 1 to 365. Default 90.",
+    "save": "Create",
+    "value": "Copy this token now. Assay does not show it again.",
+    "copy": "Copy",
+    "copied": "Copied.",
+    "colName": "Name",
+    "colStart": "Starts with",
+    "colCreated": "Created",
+    "colExpires": "Expires",
+    "colUsed": "Last used",
+    "colStatus": "Status",
+    "never": "Never",
+    "active": "Active",
+    "revoked": "Revoked",
+    "expired": "Expired",
+    "revoke": "Revoke",
+    "revokeName": "Revoke {name}",
+    "revokedDone": "The token is revoked. The next request with it fails.",
+    "empty": "You have no token. Create a token to connect an agent.",
+    "cancel": "Cancel",
+    "close": "Close"
+  },
+  "connect": {
+    "title": "Connect an agent",
+    "body": "Add Assay to an MCP client. The agent reads with your token and your permissions.",
+    "step1": "Create an access token.",
+    "step1Link": "Open Access tokens",
+    "step2": "Copy the configuration into your MCP client. Replace the token text with your token.",
+    "config": "MCP client configuration",
+    "copy": "Copy",
+    "copied": "Copied.",
+    "urls": "Other URLs",
+    "mcp": "MCP endpoint",
+    "glossary": "Glossary as Markdown",
+    "openapi": "OpenAPI document",
+    "docs": "REST reference",
+    "tokenText": "YOUR_TOKEN"
   }
 }

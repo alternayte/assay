@@ -343,6 +343,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the agent URLs of this instance
+         * @description The MCP endpoint, the glossary Markdown, the OpenAPI document and the API reference.
+         */
+        get: operations["getConnect"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connections": {
         parameters: {
             query?: never;
@@ -788,6 +808,26 @@ export interface paths {
          * @description Creates a finding card and a Proposed claim. Each quote must be an exact part of a visible item. A hidden item gives 404.
          */
         post: operations["proposeFinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/glossary.md": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the glossary as Markdown
+         * @description The approved terms that you can read, with definitions and links. /glossary.md gives the same document.
+         */
+        get: operations["getGlossaryMarkdown"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1945,6 +1985,18 @@ export interface components {
             disputed: boolean;
             predicate: string;
             subjectName: string;
+        };
+        Connect: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Connect.json
+             */
+            readonly $schema?: string;
+            docsUrl: string;
+            glossaryUrl: string;
+            mcpUrl: string;
+            openapiUrl: string;
         };
         ConnectionBody: {
             /**
@@ -4519,6 +4571,35 @@ export interface operations {
             };
         };
     };
+    getConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Connect"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listConnections: {
         parameters: {
             query?: never;
@@ -5479,6 +5560,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getGlossaryMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The glossary as Markdown. */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/markdown": string;
                 };
             };
             /** @description Error */

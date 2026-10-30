@@ -58,17 +58,33 @@ func StartProxy(t testing.TB, dial string) *Proxy {
 			http.Error(w, "no hijack", http.StatusInternalServerError)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		down, _, err := hj.Hijack()
+		// Hijack first and write the status line by hand, so that no
+		// framing of the HTTP server enters the tunnel.
+		down, buf, err := hj.Hijack()
 		if err != nil {
 			_ = up.Close()
 			return
 		}
+		if _, err := down.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+			_ = up.Close()
+			_ = down.Close()
+			return
+		}
+		if n := buf.Reader.Buffered(); n > 0 {
+			b, _ := buf.Peek(n)
+			_, _ = up.Write(b)
+		}
+		done := make(chan struct{}, 2)
 		go func() {
 			_, _ = io.Copy(up, down)
-			_ = up.Close()
+			done <- struct{}{}
 		}()
-		_, _ = io.Copy(down, up)
+		go func() {
+			_, _ = io.Copy(down, up)
+			done <- struct{}{}
+		}()
+		<-done
+		_ = up.Close()
 		_ = down.Close()
 	}))
 	t.Cleanup(srv.Close)

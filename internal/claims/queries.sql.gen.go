@@ -14,6 +14,9 @@ import (
 const claimScope = `-- name: ClaimScope :one
 SELECT c.id, c.subject_id, c.predicate, c.scope_env FROM claims c
 WHERE c.id = $1 AND c.retracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources ss WHERE ss.entity_id = c.subject_id AND ss.connection_id = ANY($2::bigint[]))
+  AND (c.object_entity_id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os
+                                             WHERE os.entity_id = c.object_entity_id AND os.connection_id = ANY($2::bigint[])))
   AND EXISTS (SELECT 1 FROM claim_evidence e
               WHERE e.claim_id = c.id AND e.connection_id = ANY($2::bigint[]) AND e.stance = 'supports')
 `
@@ -30,7 +33,8 @@ type ClaimScopeRow struct {
 	ScopeEnv  string
 }
 
-// A claim with visible support, for a resolution.
+// A claim with visible support and a visible subject and object, for a
+// resolution.
 func (q *Queries) ClaimScope(ctx context.Context, arg ClaimScopeParams) (ClaimScopeRow, error) {
 	row := q.db.QueryRow(ctx, claimScope, arg.ID, arg.Visible)
 	var i ClaimScopeRow

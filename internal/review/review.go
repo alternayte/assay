@@ -126,6 +126,22 @@ func (s *Service) Report(ctx context.Context, vis visibility.Set, claimID int64,
 		}
 		p := correction{Claim: c.ID, Problem: r.Problem, Reason: r.Reason, Value: r.Value, Source: r.Source, Items: c.Items}
 		conns := slices.Clone(c.Connections)
+		// The card names the claim entities, so a reviewer needs their
+		// sources too (REQ-REV-002, SI-02).
+		ents := []int64{c.SubjectID}
+		if c.ObjectEntityID != nil {
+			ents = append(ents, *c.ObjectEntityID)
+		}
+		srcs, err := q.EntitySourceConnections(ctx, EntitySourceConnectionsParams{Ids: ents, Visible: vis})
+		if err != nil {
+			return err
+		}
+		for _, k := range srcs {
+			if !slices.Contains(conns, k) {
+				conns = append(conns, k)
+			}
+		}
+		slices.Sort(conns)
 		quote := r.Reason
 		if r.Source != nil {
 			if n := strings.TrimSpace(r.Source.Note); n != "" {

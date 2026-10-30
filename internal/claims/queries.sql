@@ -57,9 +57,13 @@ WHERE c.predicate = 'supersedes' AND c.retracted_at IS NULL AND c.object_entity_
                 AND (p.id IS NULL OR p.status = 'accepted'));
 
 -- name: ClaimScope :one
--- A claim with visible support, for a resolution.
+-- A claim with visible support and a visible subject and object, for a
+-- resolution.
 SELECT c.id, c.subject_id, c.predicate, c.scope_env FROM claims c
 WHERE c.id = @id AND c.retracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources ss WHERE ss.entity_id = c.subject_id AND ss.connection_id = ANY(@visible::bigint[]))
+  AND (c.object_entity_id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os
+                                             WHERE os.entity_id = c.object_entity_id AND os.connection_id = ANY(@visible::bigint[])))
   AND EXISTS (SELECT 1 FROM claim_evidence e
               WHERE e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[]) AND e.stance = 'supports');
 

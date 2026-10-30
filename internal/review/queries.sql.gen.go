@@ -354,13 +354,16 @@ func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64
 }
 
 const visibleClaim = `-- name: VisibleClaim :one
-SELECT c.id, c.subject_id, c.predicate, c.scope_env, s.key AS subject_key, s.type AS subject_type,
+SELECT c.id, c.subject_id, c.object_entity_id, c.predicate, c.scope_env, s.key AS subject_key, s.type AS subject_type,
        array_agg(DISTINCT e.connection_id ORDER BY e.connection_id)::bigint[] AS connections,
        array_agg(DISTINCT e.item_id ORDER BY e.item_id)::bigint[] AS items
 FROM claims c
 JOIN entities s ON s.id = c.subject_id
 JOIN claim_evidence e ON e.claim_id = c.id AND e.connection_id = ANY($1::bigint[]) AND e.stance = 'supports'
 WHERE c.id = $2 AND c.retracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources ss WHERE ss.entity_id = c.subject_id AND ss.connection_id = ANY($1::bigint[]))
+  AND (c.object_entity_id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os
+                                             WHERE os.entity_id = c.object_entity_id AND os.connection_id = ANY($1::bigint[])))
 GROUP BY c.id, s.key, s.type
 `
 
@@ -370,24 +373,26 @@ type VisibleClaimParams struct {
 }
 
 type VisibleClaimRow struct {
-	ID          int64
-	SubjectID   int64
-	Predicate   string
-	ScopeEnv    string
-	SubjectKey  string
-	SubjectType string
-	Connections []int64
-	Items       []int64
+	ID             int64
+	SubjectID      int64
+	ObjectEntityID *int64
+	Predicate      string
+	ScopeEnv       string
+	SubjectKey     string
+	SubjectType    string
+	Connections    []int64
+	Items          []int64
 }
 
-// A claim with visible support, with the connections and items of its
-// visible evidence.
+// A claim with visible support whose subject and object entity are
+// visible, with the connections and items of its visible evidence.
 func (q *Queries) VisibleClaim(ctx context.Context, arg VisibleClaimParams) (VisibleClaimRow, error) {
 	row := q.db.QueryRow(ctx, visibleClaim, arg.Visible, arg.ID)
 	var i VisibleClaimRow
 	err := row.Scan(
 		&i.ID,
 		&i.SubjectID,
+		&i.ObjectEntityID,
 		&i.Predicate,
 		&i.ScopeEnv,
 		&i.SubjectKey,

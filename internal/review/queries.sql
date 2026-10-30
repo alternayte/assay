@@ -1,13 +1,16 @@
 -- name: VisibleClaim :one
--- A claim with visible support, with the connections and items of its
--- visible evidence.
-SELECT c.id, c.subject_id, c.predicate, c.scope_env, s.key AS subject_key, s.type AS subject_type,
+-- A claim with visible support whose subject and object entity are
+-- visible, with the connections and items of its visible evidence.
+SELECT c.id, c.subject_id, c.object_entity_id, c.predicate, c.scope_env, s.key AS subject_key, s.type AS subject_type,
        array_agg(DISTINCT e.connection_id ORDER BY e.connection_id)::bigint[] AS connections,
        array_agg(DISTINCT e.item_id ORDER BY e.item_id)::bigint[] AS items
 FROM claims c
 JOIN entities s ON s.id = c.subject_id
 JOIN claim_evidence e ON e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[]) AND e.stance = 'supports'
 WHERE c.id = @id AND c.retracted_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources ss WHERE ss.entity_id = c.subject_id AND ss.connection_id = ANY(@visible::bigint[]))
+  AND (c.object_entity_id IS NULL OR EXISTS (SELECT 1 FROM entity_sources os
+                                             WHERE os.entity_id = c.object_entity_id AND os.connection_id = ANY(@visible::bigint[])))
 GROUP BY c.id, s.key, s.type;
 
 -- name: VisibleEntity :one

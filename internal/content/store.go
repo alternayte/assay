@@ -364,8 +364,9 @@ func (in *ingest) claim(ctx context.Context, subject int64, predicate string, ob
 
 // Tombstone deletes an item in tx: its versions, passages, chunks and
 // evidence. Claims left without evidence are retracted. The entity of the
-// item loses the source of the connection when nothing else of the
-// connection names it, and goes when it has no source left.
+// item loses the source and the aliases of the connection when nothing else
+// of the connection names it. An entity without a source is visible to no
+// one; it stays, so that its retracted claims stay on record.
 func Tombstone(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time) error {
 	q := New(tx)
 	ids, err := q.ItemClaims(ctx, itemID)
@@ -390,10 +391,8 @@ func Tombstone(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time) erro
 	if ent.EntityID == nil {
 		return nil
 	}
-	if _, err := q.DropEntitySource(ctx, DropEntitySourceParams{EntityID: *ent.EntityID, ConnectionID: ent.ConnectionID}); err != nil {
-		return err
-	}
-	return DeleteSourceless(ctx, tx, []int64{*ent.EntityID})
+	_, err = q.DropEntitySource(ctx, DropEntitySourceParams{EntityID: *ent.EntityID, ConnectionID: ent.ConnectionID})
+	return err
 }
 
 // DeleteSourceless deletes the entities of ids that have no source left.

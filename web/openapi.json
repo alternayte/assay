@@ -1102,6 +1102,36 @@
         ],
         "type": "object"
       },
+      "CreateInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "expiresInDays": {
+            "description": "Default 90.",
+            "format": "int64",
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
       "CreateInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -1131,6 +1161,32 @@
         "required": [
           "email",
           "role"
+        ],
+        "type": "object"
+      },
+      "CreateOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/CreateOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "token": {
+            "$ref": "#/components/schemas/Token"
+          },
+          "value": {
+            "description": "The token value. It shows only in this response.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "value"
         ],
         "type": "object"
       },
@@ -2754,6 +2810,30 @@
             "readOnly": true,
             "type": "string"
           },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/Token"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "type": "object"
+      },
+      "ListOutBody4": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ListOutBody4.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
           "records": {
             "items": {
               "$ref": "#/components/schemas/RecordSummary"
@@ -2766,13 +2846,13 @@
         ],
         "type": "object"
       },
-      "ListOutBody4": {
+      "ListOutBody5": {
         "additionalProperties": false,
         "properties": {
           "$schema": {
             "description": "A URL to the JSON Schema for this object.",
             "examples": [
-              "https://example.com/api/v1/schemas/ListOutBody4.json"
+              "https://example.com/api/v1/schemas/ListOutBody5.json"
             ],
             "format": "uri",
             "readOnly": true,
@@ -2790,13 +2870,13 @@
         ],
         "type": "object"
       },
-      "ListOutBody5": {
+      "ListOutBody6": {
         "additionalProperties": false,
         "properties": {
           "$schema": {
             "description": "A URL to the JSON Schema for this object.",
             "examples": [
-              "https://example.com/api/v1/schemas/ListOutBody5.json"
+              "https://example.com/api/v1/schemas/ListOutBody6.json"
             ],
             "format": "uri",
             "readOnly": true,
@@ -3987,10 +4067,20 @@
             "minItems": 1,
             "type": "array"
           },
+          "note": {
+            "description": "Why the proposer proposes the finding.",
+            "maxLength": 2000,
+            "type": "string"
+          },
           "object": {
             "$ref": "#/components/schemas/ClaimValue"
           },
           "predicate": {
+            "type": "string"
+          },
+          "scope": {
+            "description": "An environment, such as production.",
+            "maxLength": 100,
             "type": "string"
           },
           "subject": {
@@ -5567,6 +5657,56 @@
         "required": [
           "type",
           "name"
+        ],
+        "type": "object"
+      },
+      "Token": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start": {
+            "description": "The first characters, so that a person recognizes the token.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "start",
+          "createdAt",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt"
         ],
         "type": "object"
       },
@@ -7826,7 +7966,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListOutBody4"
+                  "$ref": "#/components/schemas/ListOutBody5"
                 }
               }
             },
@@ -9753,7 +9893,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListOutBody3"
+                  "$ref": "#/components/schemas/ListOutBody4"
                 }
               }
             },
@@ -10537,7 +10677,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ListOutBody5"
+                  "$ref": "#/components/schemas/ListOutBody6"
                 }
               }
             },
@@ -10643,6 +10783,113 @@
         "summary": "Get a term with its usage",
         "tags": [
           "vocabulary"
+        ]
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "description": "Values never show again after create.",
+        "operationId": "listTokens",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListOutBody3"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List your access tokens",
+        "tags": [
+          "tokens"
+        ]
+      },
+      "post": {
+        "description": "The token has your role and your visible set. It expires after 90 days by default, at most 365.",
+        "operationId": "createToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateOutBody"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Create an access token",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "description": "The next request with the token gets 401.",
+        "operationId": "revokeToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Revoke an access token",
+        "tags": [
+          "tokens"
         ]
       }
     },

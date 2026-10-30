@@ -1,15 +1,17 @@
 // Package auth configures auth-all for Assay: email and password sign-in,
-// database sessions, the role hierarchy, user administration and sign-in rate
-// limits.
+// database sessions, access tokens, the role hierarchy, user administration
+// and sign-in rate limits.
 package auth
 
 import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/plugins/admin"
+	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/ratelimit/storelimit"
@@ -38,8 +40,15 @@ type Auth struct {
 	*authall.Auth
 	Roles   *roles.Plugin
 	Admin   *admin.Plugin
+	Keys    *apikeys.Plugin
 	Limiter *storelimit.Limiter
 }
+
+// TokenPrefix starts every access token.
+const TokenPrefix = "assay_"
+
+// MaxTokenTTL is the longest life of an access token (REQ-AGT-005).
+const MaxTokenTTL = 365 * 24 * time.Hour
 
 // Options change the defaults for tests.
 type Options struct {
@@ -63,6 +72,7 @@ func New(pool *pgxpool.Pool, baseURL string, log *slog.Logger, opts Options) (*A
 	}
 	r := roles.New(roles.Hierarchy(RoleMember, RoleReviewer, RoleAdmin), roles.Default(RoleMember))
 	adm := admin.New(admin.AdminRole(RoleAdmin))
+	keys := apikeys.New(apikeys.Prefix(TokenPrefix), apikeys.MaxTTL(MaxTokenTTL), apikeys.AdminRole(RoleAdmin))
 	secure := strings.HasPrefix(baseURL, "https://")
 	a, err := authall.New(
 		authall.WithStore(st),
@@ -73,10 +83,10 @@ func New(pool *pgxpool.Pool, baseURL string, log *slog.Logger, opts Options) (*A
 		authall.WithCookie(authall.CookieOptions{Name: CookieName, SameSite: http.SameSiteLaxMode, Secure: &secure}),
 		authall.WithRateLimiter(limiter),
 		authall.WithLogger(log),
-		authall.WithPlugins(r, adm),
+		authall.WithPlugins(r, adm, keys),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Auth{Auth: a, Roles: r, Admin: adm, Limiter: limiter}, nil
+	return &Auth{Auth: a, Roles: r, Admin: adm, Keys: keys, Limiter: limiter}, nil
 }

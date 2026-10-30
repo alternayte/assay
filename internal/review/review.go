@@ -68,6 +68,8 @@ type FindingQuote struct {
 type ProposedFinding struct {
 	Subject   string         `json:"subject" maxLength:"500" doc:"The key of a visible entity."`
 	Predicate string         `json:"predicate"`
+	Scope     string         `json:"scope,omitempty" maxLength:"100" doc:"An environment, such as production."`
+	Note      string         `json:"note,omitempty" maxLength:"2000" doc:"Why the proposer proposes the finding."`
 	Object    ClaimValue     `json:"object"`
 	Evidence  []FindingQuote `json:"evidence" minItems:"1" maxItems:"20"`
 }
@@ -87,6 +89,7 @@ type correction struct {
 type finding struct {
 	Claim     int64          `json:"claim"`
 	Predicate string         `json:"predicate"`
+	Note      string         `json:"note,omitempty"`
 	Evidence  []FindingQuote `json:"evidence"`
 }
 
@@ -251,10 +254,10 @@ func (s *Service) Propose(ctx context.Context, vis visibility.Set, f ProposedFin
 			}
 		}
 		if claim, err = q.UpsertClaim(ctx, UpsertClaimParams{SubjectID: subject.ID, Predicate: f.Predicate, ObjectEntityID: object.id,
-			ObjectText: object.text, ObjectNorm: object.norm}); err != nil {
+			ObjectText: object.text, ObjectNorm: object.norm, ScopeEnv: strings.TrimSpace(f.Scope)}); err != nil {
 			return err
 		}
-		payload, _ := json.Marshal(finding{Claim: claim, Predicate: f.Predicate, Evidence: f.Evidence})
+		payload, _ := json.Marshal(finding{Claim: claim, Predicate: f.Predicate, Note: strings.TrimSpace(f.Note), Evidence: f.Evidence})
 		if proposal, err = q.InsertProposal(ctx, InsertProposalParams{Kind: "finding", Target: "entity:" + subject.Key, Payload: payload,
 			ProposerID: &proposer, Via: via, Connections: conns}); err != nil {
 			return err

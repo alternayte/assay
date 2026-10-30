@@ -1559,6 +1559,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your access tokens
+         * @description Values never show again after create.
+         */
+        get: operations["listTokens"];
+        put?: never;
+        /**
+         * Create an access token
+         * @description The token has your role and your visible set. It expires after 90 days by default, at most 365.
+         */
+        post: operations["createToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an access token
+         * @description The next request with the token gets 401.
+         */
+        delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/updates": {
         parameters: {
             query?: never;
@@ -2025,6 +2069,20 @@ export interface components {
             /** Format: date-time */
             validFrom?: string;
         };
+        CreateInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CreateInBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Default 90.
+             */
+            expiresInDays?: number;
+            name: string;
+        };
         CreateInputBody: {
             /**
              * Format: uri
@@ -2036,6 +2094,17 @@ export interface components {
             email: string;
             /** @enum {string} */
             role: "member" | "reviewer" | "admin";
+        };
+        CreateOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CreateOutBody.json
+             */
+            readonly $schema?: string;
+            token: components["schemas"]["Token"];
+            /** @description The token value. It shows only in this response. */
+            value: string;
         };
         CreateOutputBody: {
             /**
@@ -2611,7 +2680,7 @@ export interface components {
              * @example https://example.com/api/v1/schemas/ListOutBody3.json
              */
             readonly $schema?: string;
-            records: components["schemas"]["RecordSummary"][];
+            tokens: components["schemas"]["Token"][];
         };
         ListOutBody4: {
             /**
@@ -2620,13 +2689,22 @@ export interface components {
              * @example https://example.com/api/v1/schemas/ListOutBody4.json
              */
             readonly $schema?: string;
-            domains: components["schemas"]["Domain"][];
+            records: components["schemas"]["RecordSummary"][];
         };
         ListOutBody5: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
              * @example https://example.com/api/v1/schemas/ListOutBody5.json
+             */
+            readonly $schema?: string;
+            domains: components["schemas"]["Domain"][];
+        };
+        ListOutBody6: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListOutBody6.json
              */
             readonly $schema?: string;
             terms: components["schemas"]["Term"][];
@@ -3011,8 +3089,12 @@ export interface components {
              */
             readonly $schema?: string;
             evidence: components["schemas"]["FindingQuote"][];
+            /** @description Why the proposer proposes the finding. */
+            note?: string;
             object: components["schemas"]["ClaimValue"];
             predicate: string;
+            /** @description An environment, such as production. */
+            scope?: string;
             /** @description The key of a visible entity. */
             subject: string;
         };
@@ -3554,6 +3636,20 @@ export interface components {
             relations?: components["schemas"]["RecordRelation"][];
             /** @description An entity type other than term. */
             type: string;
+        };
+        Token: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string | null;
+            id: string;
+            /** Format: date-time */
+            lastUsedAt: string | null;
+            name: string;
+            /** Format: date-time */
+            revokedAt: string | null;
+            /** @description The first characters, so that a person recognizes the token. */
+            start: string;
         };
         Trace: {
             /**
@@ -4974,7 +5070,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody4"];
+                    "application/json": components["schemas"]["ListOutBody5"];
                 };
             };
             /** @description Error */
@@ -6368,7 +6464,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody3"];
+                    "application/json": components["schemas"]["ListOutBody4"];
                 };
             };
             /** @description Error */
@@ -6898,7 +6994,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListOutBody5"];
+                    "application/json": components["schemas"]["ListOutBody6"];
                 };
             };
             /** @description Error */
@@ -6965,6 +7061,97 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TermDetail"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOutBody3"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

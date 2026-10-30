@@ -17,6 +17,7 @@ import (
 	"github.com/riverqueue/river"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
+	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
@@ -34,6 +35,7 @@ import (
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
 	syncer "github.com/alternayte/assay/internal/sync"
+	"github.com/alternayte/assay/internal/tokens"
 	"github.com/alternayte/assay/internal/users"
 	"github.com/alternayte/assay/internal/vocab"
 	"github.com/alternayte/assay/web"
@@ -62,6 +64,8 @@ type Server struct {
 	vocab      *vocab.Service
 	pages      *pages.Service
 	review     *review.Service
+	tokens     *tokens.Service
+	agents     *agents.Service
 	river      *river.Client[pgx.Tx]
 	metrics    *metrics
 	tracer     *sdktrace.TracerProvider
@@ -149,9 +153,12 @@ func (s *Server) services() error {
 		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm,
 			"correction": s.review.ApplyCorrection}}
 	s.review.Resolve = s.resolve
+	s.tokens = &tokens.Service{Pool: s.pool, Keys: s.auth.Keys, Now: s.now}
 	s.pages = &pages.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Extract: s.extract, Log: s.log, Now: s.now}
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}
+	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Vocab: s.vocab, Review: s.review,
+		BaseURL: s.cfg.BaseURL, Version: Version, Log: s.log}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }
@@ -172,6 +179,7 @@ func (s *Server) registerAPI(a huma.API) {
 	s.extract.Register(a)
 	s.resolve.Register(a)
 	s.review.Register(a)
+	s.tokens.Register(a)
 	s.registry.Register(a)
 	vocab.RegisterDomains(a, s.pool)
 	s.vocab.Register(a)
@@ -275,6 +283,8 @@ func (s *Server) routes() (http.Handler, error) {
 			return
 		}
 		s.registerAPI(a)
+		// MCP for agents with an access token (REQ-AGT-001).
+		g.Handle("/mcp", s.agents.Handler())
 		// /e/{key}.md is the Markdown form of a page (REQ-PAG-005). The
 		// SPA serves /e/{key}.
 		g.Get("/e/*", func(w http.ResponseWriter, req *http.Request) {

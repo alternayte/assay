@@ -100,8 +100,13 @@ type Context struct {
 // Build retrieves the context of a question: up to 10 chunks and up to 30
 // claims of the entities that the question names.
 func (s *Service) Build(ctx context.Context, vis visibility.Set, question string) (*Context, error) {
+	return s.Retrieve(ctx, vis, question, MaxChunks)
+}
+
+// Retrieve is Build with up to n chunks. MCP search_context sets n.
+func (s *Service) Retrieve(ctx context.Context, vis visibility.Set, question string, n int) (*Context, error) {
 	c := &Context{Sources: []Source{}, Claims: []ContextClaim{}, known: map[string]bool{}, byClaim: map[int64]string{}}
-	chunks, degraded, err := s.Search.Chunks(ctx, vis, question, MaxChunks)
+	chunks, degraded, err := s.Search.Chunks(ctx, vis, question, n)
 	if err != nil {
 		return nil, err
 	}

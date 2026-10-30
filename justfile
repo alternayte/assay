@@ -100,6 +100,22 @@ forbid:
 # The public gate.
 ci: gen-check fmt-check lint test contract e2e smoke bench forbid
 
+# Needs .build/SDD.md.
+# Links the specification, the ledger and the test reports.
+trace:
+    go run ./tools/trace trace --sdd .build/SDD.md --ledger .build/ledger.md --reports {{reports}}
+
+# Writes the evidence of HEAD to .build/evidence after a passed gate.
+evidence:
+    go run ./tools/trace evidence --sdd .build/SDD.md --ledger .build/ledger.md --reports {{reports}} --out .build/evidence
+
+# Passes when the tree is clean and HEAD has passed evidence for the current specification.
+evidence-check:
+    go run ./tools/trace check --sdd .build/SDD.md --evidence .build/evidence
+
+# The full gate of a release: ci, trace and evidence.
+verify: ci trace evidence
+
 # It calls the models of that instance, so verify does not run it.
 # ASSAY_EVAL_URL and ASSAY_EVAL_TOKEN select the instance; ASSAY_EVAL_FILE
 # defaults to evals/questions.yaml.

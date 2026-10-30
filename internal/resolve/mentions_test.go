@@ -194,7 +194,11 @@ JOIN connections c ON c.id = a.connection_id WHERE e.key = $1 AND a.alias_norm =
 	}
 }
 
-func TestSCN_VOC_003_WorthyPhraseGivesNewTermCard(t *testing.T) {
+// termDraft syncs a public and a restricted space that both use the
+// phrase Open Access Week, runs the term job with the fake models and
+// returns the New term card.
+func termDraft(t *testing.T) (*world, *fixtures.Models, card) {
+	t.Helper()
 	w := start(t)
 	ctx := context.Background()
 	public := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: w.base,
@@ -245,17 +249,16 @@ func TestSCN_VOC_003_WorthyPhraseGivesNewTermCard(t *testing.T) {
 	if term == nil {
 		t.Fatal("no new term card")
 	}
+	return w, fake, *term
+}
+
+func TestSCN_VOC_003_WorthyPhraseGivesNewTermCard(t *testing.T) {
+	w, _, term := termDraft(t)
+	ctx := context.Background()
+	r := w.env.Server.Resolve()
 	p := term.Payload.(map[string]any)
 	if p["phrase"] != "Open Access Week" || p["definition"] == "" || p["quote"] != "Team Hermes freezes deploys during Open Access Week." {
 		t.Errorf("payload %+v", p)
-	}
-	for _, req := range fake.Requests() {
-		if strings.Contains(fmt.Sprint(req.Body), fixtures.Canary) {
-			t.Fatal("a model request holds restricted text")
-		}
-	}
-	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'new_term' AND $1 = ANY(connections)", w.restricted); n != 0 {
-		t.Error("the card has restricted input")
 	}
 
 	// A draft whose quote is not in the passages has no definition.
@@ -275,5 +278,27 @@ WHERE e.key = 'registry:term:open-access-week' AND c.predicate = 'defined_as' AN
 	}
 	if after := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'term_worthy'"); after != before {
 		t.Errorf("a second run asked %d more questions", after-before)
+	}
+}
+
+func TestSCN_REG_005_DraftUsesOnlySharedEvidence(t *testing.T) {
+	w, fake, term := termDraft(t)
+	for _, req := range fake.Requests() {
+		if strings.Contains(fmt.Sprint(req.Body), fixtures.Canary) {
+			t.Fatal("a model request holds restricted text")
+		}
+	}
+	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'new_term' AND $1 = ANY(connections)", w.restricted); n != 0 {
+		t.Error("the card has restricted input")
+	}
+	// The accepted draft cites only evidence from connections shared with
+	// Everyone.
+	w.reviewer.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", term.ID), map[string]any{})
+	if n := w.env.Count(`SELECT count(*) FROM claims c JOIN entities e ON e.id = c.subject_id JOIN claim_evidence ev ON ev.claim_id = c.id
+WHERE e.key = 'registry:term:open-access-week' AND NOT EXISTS (
+  SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+  WHERE v.connection_id = ev.connection_id AND g.builtin)
+  AND NOT EXISTS (SELECT 1 FROM connections k WHERE k.id = ev.connection_id AND k.kind = 'registry')`); n != 0 {
+		t.Errorf("%d evidence rows of the drafted term come from a connection that is not shared with Everyone", n)
 	}
 }

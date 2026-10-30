@@ -363,20 +363,43 @@ func (in *ingest) claim(ctx context.Context, subject int64, predicate string, ob
 }
 
 // Tombstone deletes an item in tx: its versions, passages, chunks and
-// evidence. Claims left without evidence are retracted.
+// evidence. Claims left without evidence are retracted. The entity of the
+// item loses the source of the connection when nothing else of the
+// connection names it, and goes when it has no source left.
 func Tombstone(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time) error {
 	q := New(tx)
 	ids, err := q.ItemClaims(ctx, itemID)
 	if err != nil {
 		return err
 	}
+	ent, err := q.ItemEntity(ctx, itemID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	if _, err := q.DeleteItem(ctx, itemID); err != nil {
 		return err
 	}
-	if len(ids) == 0 {
+	if len(ids) > 0 {
+		if _, err := q.RetractUnsupported(ctx, RetractUnsupportedParams{Now: &now, Ids: ids}); err != nil {
+			return err
+		}
+	}
+	if ent.EntityID == nil {
 		return nil
 	}
-	_, err = q.RetractUnsupported(ctx, RetractUnsupportedParams{Now: &now, Ids: ids})
+	if _, err := q.DropEntitySource(ctx, DropEntitySourceParams{EntityID: *ent.EntityID, ConnectionID: ent.ConnectionID}); err != nil {
+		return err
+	}
+	return DeleteSourceless(ctx, tx, []int64{*ent.EntityID})
+}
+
+// DeleteSourceless deletes the entities of ids that have no source left.
+// Entities merged into a deleted entity become active again.
+func DeleteSourceless(ctx context.Context, tx pgx.Tx, ids []int64) error {
+	_, err := New(tx).DeleteSourcelessEntities(ctx, append([]int64{}, ids...))
 	return err
 }
 

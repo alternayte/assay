@@ -189,3 +189,32 @@ INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind
 SELECT @claim_id, i.connection_id, i.id, @passage_hash, 'human', 'disputes', @quote, 'current', 'review'
 FROM source_items i WHERE i.id = ANY(@items::bigint[])
 ON CONFLICT (claim_id, item_id, passage_hash, stance) DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now();
+
+-- name: DeleteSourcelessEntities :execrows
+-- Deletes the entities of ids that have no source left. Entities merged
+-- into a deleted entity become active again. Claims, profiles and pages of
+-- the deleted entities go by cascade.
+-- vis:system
+WITH gone AS (SELECT e.id FROM entities e
+              WHERE e.id = ANY(@ids::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+DELETE FROM entities WHERE id IN (SELECT id FROM gone);
+
+-- name: ItemEntity :one
+-- The entity of an item and its connection, for a tombstone.
+-- vis:system
+SELECT entity_id, connection_id FROM source_items WHERE id = @id;
+
+-- name: DropEntitySource :execrows
+-- Deletes the source and the aliases of the entity in the connection when
+-- no item and no current claim evidence of the connection names it.
+-- vis:system
+WITH src AS (DELETE FROM entity_sources s
+             WHERE s.entity_id = @entity_id AND s.connection_id = @connection_id
+               AND NOT EXISTS (SELECT 1 FROM source_items i WHERE i.entity_id = @entity_id AND i.connection_id = @connection_id)
+               AND NOT EXISTS (SELECT 1 FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+                               WHERE (c.subject_id = @entity_id OR c.object_entity_id = @entity_id)
+                                 AND ev.connection_id = @connection_id AND c.retracted_at IS NULL)
+             RETURNING s.entity_id)
+DELETE FROM entity_aliases a WHERE a.entity_id IN (SELECT entity_id FROM src) AND a.connection_id = @connection_id;

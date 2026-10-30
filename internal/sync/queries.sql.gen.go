@@ -105,26 +105,6 @@ func (q *Queries) DeleteRunsBefore(ctx context.Context, before time.Time) (int64
 	return result.RowsAffected(), nil
 }
 
-const deleteSourcelessEntities = `-- name: DeleteSourcelessEntities :execrows
-WITH gone AS (SELECT e.id FROM entities e
-              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
-freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
-          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
-DELETE FROM entities WHERE id IN (SELECT id FROM gone)
-`
-
-// Deletes the entities of ids that have no source left. Entities merged
-// into a deleted entity become active again. Claims, profiles and pages of
-// the deleted entities go by cascade.
-// vis:system
-func (q *Queries) DeleteSourcelessEntities(ctx context.Context, ids []int64) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteSourcelessEntities, ids)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
-}
-
 const dueReconciles = `-- name: DueReconciles :many
 SELECT c.id FROM connections c
 WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_sync_at IS NOT NULL

@@ -19,6 +19,7 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/settings"
 )
 
@@ -592,7 +593,7 @@ func (s *Service) Purge(ctx context.Context, id int64) error {
 		if _, err := q.DeleteConnection(ctx, id); err != nil {
 			return err
 		}
-		if _, err := q.DeleteSourcelessEntities(ctx, append([]int64{}, ents...)); err != nil {
+		if err := content.DeleteSourceless(ctx, tx, ents); err != nil {
 			return err
 		}
 		if c.SecretID != nil {

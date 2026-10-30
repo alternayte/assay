@@ -275,6 +275,26 @@ func (q *Queries) DeleteItemPassages(ctx context.Context, itemID int64) error {
 	return err
 }
 
+const deleteSourcelessEntities = `-- name: DeleteSourcelessEntities :execrows
+WITH gone AS (SELECT e.id FROM entities e
+              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+DELETE FROM entities WHERE id IN (SELECT id FROM gone)
+`
+
+// Deletes the entities of ids that have no source left. Entities merged
+// into a deleted entity become active again. Claims, profiles and pages of
+// the deleted entities go by cascade.
+// vis:system
+func (q *Queries) DeleteSourcelessEntities(ctx context.Context, ids []int64) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteSourcelessEntities, ids)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteStaleItemEvidence = `-- name: DeleteStaleItemEvidence :exec
 DELETE FROM claim_evidence WHERE item_id = $1 AND state = 'stale'
 `
@@ -283,6 +303,33 @@ DELETE FROM claim_evidence WHERE item_id = $1 AND state = 'stale'
 func (q *Queries) DeleteStaleItemEvidence(ctx context.Context, itemID int64) error {
 	_, err := q.db.Exec(ctx, deleteStaleItemEvidence, itemID)
 	return err
+}
+
+const dropEntitySource = `-- name: DropEntitySource :execrows
+WITH src AS (DELETE FROM entity_sources s
+             WHERE s.entity_id = $2 AND s.connection_id = $1
+               AND NOT EXISTS (SELECT 1 FROM source_items i WHERE i.entity_id = $2 AND i.connection_id = $1)
+               AND NOT EXISTS (SELECT 1 FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+                               WHERE (c.subject_id = $2 OR c.object_entity_id = $2)
+                                 AND ev.connection_id = $1 AND c.retracted_at IS NULL)
+             RETURNING s.entity_id)
+DELETE FROM entity_aliases a WHERE a.entity_id IN (SELECT entity_id FROM src) AND a.connection_id = $1
+`
+
+type DropEntitySourceParams struct {
+	ConnectionID int64
+	EntityID     int64
+}
+
+// Deletes the source and the aliases of the entity in the connection when
+// no item and no current claim evidence of the connection names it.
+// vis:system
+func (q *Queries) DropEntitySource(ctx context.Context, arg DropEntitySourceParams) (int64, error) {
+	result, err := q.db.Exec(ctx, dropEntitySource, arg.ConnectionID, arg.EntityID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getItemByExternalID = `-- name: GetItemByExternalID :one
@@ -499,6 +546,24 @@ func (q *Queries) ItemClaims(ctx context.Context, itemID int64) ([]int64, error)
 		return nil, err
 	}
 	return items, nil
+}
+
+const itemEntity = `-- name: ItemEntity :one
+SELECT entity_id, connection_id FROM source_items WHERE id = $1
+`
+
+type ItemEntityRow struct {
+	EntityID     *int64
+	ConnectionID int64
+}
+
+// The entity of an item and its connection, for a tombstone.
+// vis:system
+func (q *Queries) ItemEntity(ctx context.Context, id int64) (ItemEntityRow, error) {
+	row := q.db.QueryRow(ctx, itemEntity, id)
+	var i ItemEntityRow
+	err := row.Scan(&i.EntityID, &i.ConnectionID)
+	return i, err
 }
 
 const latestClaim = `-- name: LatestClaim :one

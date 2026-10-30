@@ -348,3 +348,20 @@ ORDER BY d.id;
 -- name: ItemExternalIDs :many
 -- vis:system
 SELECT id, external_id FROM source_items WHERE id = ANY(@ids::bigint[]);
+
+-- name: Impact :many
+-- The impact of entities for the queue order (REQ-REV-010): the visible
+-- claims about them, their pages and the questions since @since whose
+-- context holds one of these claims.
+WITH ents AS (SELECT e.id, e.key FROM entities e WHERE e.key = ANY(@keys::text[])),
+cl AS (SELECT ents.key, c.id
+       FROM ents JOIN claims c ON (c.subject_id = ents.id OR c.object_entity_id = ents.id) AND c.retracted_at IS NULL
+       WHERE EXISTS (SELECT 1 FROM claim_evidence ev WHERE ev.claim_id = c.id AND ev.connection_id = ANY(@visible::bigint[])))
+SELECT ents.key,
+       ((SELECT count(*) FROM cl WHERE cl.key = ents.key)
+        + (SELECT count(*) FROM pages p WHERE p.entity_id = ents.id AND p.connections <@ @visible::bigint[])
+        + (SELECT count(*) FROM questions q
+           WHERE q.created_at >= @since
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
+                         JOIN cl ON cl.id = x.id::bigint AND cl.key = ents.key)))::bigint AS impact
+FROM ents;

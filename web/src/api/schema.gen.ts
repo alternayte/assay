@@ -1709,6 +1709,11 @@ export interface components {
             decisionId?: number;
             /** Format: int64 */
             id: number;
+            /**
+             * Format: int64
+             * @description Visible claims, pages and questions of the last 30 days that touch the subjects.
+             */
+            impact: number;
             kind: string;
             /** Format: double */
             p?: number;
@@ -1716,6 +1721,11 @@ export interface components {
             /** @description The measured precision of the band. */
             precision?: components["schemas"]["Precision"];
             reasons: string[];
+            /**
+             * Format: double
+             * @description Impact multiplied by uncertainty. The queue shows the highest score first.
+             */
+            score: number;
             subjects: components["schemas"]["Subject"][];
             target: string;
         };

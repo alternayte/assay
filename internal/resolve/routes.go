@@ -40,7 +40,11 @@ type Card struct {
 	Precision  *Precision `json:"precision,omitempty" doc:"The measured precision of the band."`
 	Reasons    []string   `json:"reasons"`
 	Subjects   []Subject  `json:"subjects"`
+	Impact     int        `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
+	Score      float64    `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
 	CreatedAt  time.Time  `json:"createdAt"`
+
+	refs []string
 }
 
 // DecisionView is a stored decision as the API shows it.
@@ -89,33 +93,63 @@ func reasonsOf(raw []byte) []string {
 	return orEmpty(rs)
 }
 
-// Cards lists the open cards whose inputs are all visible.
+// maxQueue is the number of open cards that the queue order ranks.
+const maxQueue = 5000
+
+// Cards lists the open cards whose inputs are all visible, in queue order
+// (REQ-REV-010).
 func (s *Service) Cards(ctx context.Context, vis visibility.Set, kind string, limit int) ([]Card, error) {
 	var k *string
 	if kind != "" {
 		k = &kind
 	}
-	rows, err := New(s.Pool).VisibleCards(ctx, VisibleCardsParams{Visible: vis, Kind: k, Lim: int32(limit)}) //nolint:gosec // The limit is at most 500.
+	q := New(s.Pool)
+	rows, err := q.VisibleCards(ctx, VisibleCardsParams{Visible: vis, Kind: k, Lim: maxQueue})
 	if err != nil {
 		return nil, err
 	}
-	cals := map[string]Calibration{}
-	out := []Card{}
+	out := make([]Card, 0, len(rows))
+	var keys []string
 	for _, r := range rows {
-		c := Card{ID: r.ID, Kind: r.Kind, Target: r.Target, DecisionID: r.DecisionID, P: r.RawP, Reasons: reasonsOf(r.Reasons), CreatedAt: r.CreatedAt}
+		c := Card{ID: r.ID, Kind: r.Kind, Target: r.Target, DecisionID: r.DecisionID, P: r.RawP, Reasons: reasonsOf(r.Reasons), CreatedAt: r.CreatedAt,
+			refs: r.SubjectRefs}
 		_ = json.Unmarshal(r.Payload, &c.Payload)
 		if r.Band != nil {
 			c.Band = *r.Band
 		}
-		refs := r.SubjectRefs
-		if refs == nil && len(r.Target) > len("entity:") && r.Target[:len("entity:")] == "entity:" {
-			refs = []string{r.Target[len("entity:"):]}
+		if c.refs == nil && strings.HasPrefix(r.Target, "entity:") {
+			c.refs = []string{strings.TrimPrefix(r.Target, "entity:")}
 		}
-		if c.Subjects, err = s.subjects(ctx, vis, refs); err != nil {
+		keys = append(keys, c.refs...)
+		out = append(out, c)
+	}
+	impact := map[string]int{}
+	if len(keys) > 0 {
+		is, err := q.Impact(ctx, ImpactParams{Keys: keys, Visible: vis, Since: s.now().AddDate(0, 0, -30)})
+		if err != nil {
 			return nil, err
 		}
-		if r.DecisionID != nil {
-			kind := r.Kind
+		for _, i := range is {
+			impact[i.Key] = int(i.Impact)
+		}
+	}
+	for i := range out {
+		for _, ref := range out[i].refs {
+			out[i].Impact += impact[ref]
+		}
+	}
+	SortQueue(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	cals := map[string]Calibration{}
+	for i := range out {
+		c := &out[i]
+		if c.Subjects, err = s.subjects(ctx, vis, c.refs); err != nil {
+			return nil, err
+		}
+		if c.DecisionID != nil {
+			kind := c.Kind
 			if kind == "merge" {
 				kind = KindSameEntity
 			}
@@ -131,7 +165,6 @@ func (s *Service) Cards(ctx context.Context, vis visibility.Set, kind string, li
 				c.Precision = &p
 			}
 		}
-		out = append(out, c)
 	}
 	return out, nil
 }

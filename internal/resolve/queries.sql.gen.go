@@ -542,6 +542,55 @@ func (q *Queries) GetCalibration(ctx context.Context, kind string) (GetCalibrati
 	return i, err
 }
 
+const impact = `-- name: Impact :many
+WITH ents AS (SELECT e.id, e.key FROM entities e WHERE e.key = ANY($3::text[])),
+cl AS (SELECT ents.key, c.id
+       FROM ents JOIN claims c ON (c.subject_id = ents.id OR c.object_entity_id = ents.id) AND c.retracted_at IS NULL
+       WHERE EXISTS (SELECT 1 FROM claim_evidence ev WHERE ev.claim_id = c.id AND ev.connection_id = ANY($1::bigint[])))
+SELECT ents.key,
+       ((SELECT count(*) FROM cl WHERE cl.key = ents.key)
+        + (SELECT count(*) FROM pages p WHERE p.entity_id = ents.id AND p.connections <@ $1::bigint[])
+        + (SELECT count(*) FROM questions q
+           WHERE q.created_at >= $2
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(coalesce(q.flags->'claimIds', '[]'::jsonb)) AS x (id)
+                         JOIN cl ON cl.id = x.id::bigint AND cl.key = ents.key)))::bigint AS impact
+FROM ents
+`
+
+type ImpactParams struct {
+	Visible []int64
+	Since   time.Time
+	Keys    []string
+}
+
+type ImpactRow struct {
+	Key    string
+	Impact int64
+}
+
+// The impact of entities for the queue order (REQ-REV-010): the visible
+// claims about them, their pages and the questions since @since whose
+// context holds one of these claims.
+func (q *Queries) Impact(ctx context.Context, arg ImpactParams) ([]ImpactRow, error) {
+	rows, err := q.db.Query(ctx, impact, arg.Visible, arg.Since, arg.Keys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ImpactRow
+	for rows.Next() {
+		var i ImpactRow
+		if err := rows.Scan(&i.Key, &i.Impact); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertDecision = `-- name: InsertDecision :one
 INSERT INTO decisions (kind, subject_refs, input_hash, model, probs, raw_p, band, connections, outcome, reasons, at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)

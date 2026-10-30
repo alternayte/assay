@@ -299,6 +299,11 @@
             "format": "int64",
             "type": "integer"
           },
+          "impact": {
+            "description": "Visible claims, pages and questions of the last 30 days that touch the subjects.",
+            "format": "int64",
+            "type": "integer"
+          },
           "kind": {
             "type": "string"
           },
@@ -316,6 +321,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "score": {
+            "description": "Impact multiplied by uncertainty. The queue shows the highest score first.",
+            "format": "double",
+            "type": "number"
           },
           "subjects": {
             "items": {
@@ -335,6 +345,8 @@
           "calibrated",
           "reasons",
           "subjects",
+          "impact",
+          "score",
           "createdAt"
         ],
         "type": "object"

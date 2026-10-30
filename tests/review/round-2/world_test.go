@@ -4,7 +4,6 @@ package round2
 import (
 	"context"
 	"net/http"
-	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -12,8 +11,6 @@ import (
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
-
-const canary = "canary-7q4z"
 
 // world has the owner of acme-restricted, a second admin, a reviewer and a
 // member. acme-eng is shared with Everyone; acme-restricted is owner-only.
@@ -95,17 +92,6 @@ func (w *world) mcp(t *testing.T, value string) *mcp.ClientSession {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s
-}
-
-func hasCanary(body []byte) bool { return strings.Contains(strings.ToLower(string(body)), canary) }
-
-func excerpt(body []byte) string {
-	s := string(body)
-	i := strings.Index(strings.ToLower(s), canary)
-	if i < 0 {
-		return ""
-	}
-	return s[max(0, i-120):min(len(s), i+60)]
 }
 
 // key returns the key of the entity of a connection whose key ends with

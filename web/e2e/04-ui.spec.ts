@@ -28,6 +28,8 @@ async function setTheme(page: Page, theme: "light" | "dark") {
 test("SCN-UI-002 main routes fit 360 px in both themes, with skeletons and empty states", async ({
   page,
 }) => {
+  // The test visits every main route in both themes.
+  test.setTimeout(120_000);
   await signIn(page, owner);
   await page.setViewportSize({ width: 360, height: 780 });
   for (const theme of ["light", "dark"] as const) {
@@ -66,6 +68,8 @@ test("SCN-UI-002 main routes fit 360 px in both themes, with skeletons and empty
 test("SCN-UI-003 main routes pass axe in both themes; badges have text; reduced motion stops transitions", async ({
   page,
 }) => {
+  // The test visits every main route in both themes.
+  test.setTimeout(120_000);
   await signIn(page, owner);
   for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);

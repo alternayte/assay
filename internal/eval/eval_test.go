@@ -29,7 +29,7 @@ func TestSCN_EVL_002_QuestionSetAndScorer(t *testing.T) {
 		t.Fatalf("%d no-evidence questions of %d", none, len(qs))
 	}
 	for _, bad := range []string{
-		"- id: a\n  question: x\n",                                   // no sources and facts
+		"- id: a\n  question: x\n",                                    // no sources and facts
 		"- id: a\n  question: x\n  no_evidence: true\n  facts: [y]\n", // facts on a no-evidence question
 		"- id: a\n  question: x\n  sources: [s]\n  facts: [f]\n- id: a\n  question: y\n  sources: [s]\n  facts: [f]\n",
 		"- id: a\n  question: x\n  sources: [s]\n  facts: [f]\n  extra: 1\n",

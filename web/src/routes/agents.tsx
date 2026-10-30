@@ -87,7 +87,7 @@ function CreateDialog({ onClose, onCreated }: { onClose: () => void; onCreated: 
             )}
           </Field>
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 font-medium">{t("tokens.scopes")}</legend>
+            <legend className="label mb-1">{t("tokens.scopes")}</legend>
             {SCOPES.map((s) => (
               <label key={s} className="flex items-start gap-2 text-base">
                 <input
@@ -203,7 +203,11 @@ export function TokensPage() {
                   <Td className="font-mono text-sm">{k.start}…</Td>
                   <Td className="font-mono text-sm">{formatTime(k.createdAt)}</Td>
                   <Td className="font-mono text-sm">{k.expiresAt ? formatTime(k.expiresAt) : "—"}</Td>
-                  <Td data-testid="scopes">{k.scopes.map((s) => t(`tokens.${s}`)).join(", ")}</Td>
+                  <Td data-testid="scopes">
+                    {SCOPES.filter((s) => k.scopes.includes(s))
+                      .map((s) => t(`tokens.${s}`))
+                      .join(", ")}
+                  </Td>
                   <Td className="font-mono text-sm" data-testid="last-used">
                     {k.lastUsedAt ? formatAgo(k.lastUsedAt) : t("tokens.never")}
                   </Td>

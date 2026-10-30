@@ -312,8 +312,8 @@ function Filters({
     </Field>
   );
   return (
-    <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
-      <Field label={t("review.search")}>
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-[minmax(0,2fr)_repeat(5,minmax(0,1fr))]">
+      <Field label={t("review.search")} className="col-span-2 sm:col-span-3 lg:col-span-1">
         {(p) => <Input {...p} type="search" value={f.q} onChange={(e) => set({ ...f, q: e.target.value })} />}
       </Field>
       {sel(

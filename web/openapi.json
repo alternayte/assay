@@ -307,9 +307,24 @@
           "kind": {
             "type": "string"
           },
+          "members": {
+            "description": "The entities of a merge cluster. Accept merges the members that you pick.",
+            "items": {
+              "$ref": "#/components/schemas/Subject"
+            },
+            "type": "array"
+          },
           "p": {
             "format": "double",
             "type": "number"
+          },
+          "pairs": {
+            "description": "The merge cards of a cluster.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
           },
           "payload": {},
           "precision": {
@@ -1339,6 +1354,14 @@
             "description": "The definition of a new term.",
             "maxLength": 4000,
             "type": "string"
+          },
+          "members": {
+            "description": "The entity keys of a merge cluster to merge. Empty merges all members.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
           }
         },
         "type": "object"

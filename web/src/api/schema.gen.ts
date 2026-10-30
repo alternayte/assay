@@ -1715,8 +1715,12 @@ export interface components {
              */
             impact: number;
             kind: string;
+            /** @description The entities of a merge cluster. Accept merges the members that you pick. */
+            members?: components["schemas"]["Subject"][];
             /** Format: double */
             p?: number;
+            /** @description The merge cards of a cluster. */
+            pairs?: number[];
             payload: unknown;
             /** @description The measured precision of the band. */
             precision?: components["schemas"]["Precision"];
@@ -2045,6 +2049,8 @@ export interface components {
             canonicalName?: string;
             /** @description The definition of a new term. */
             definition?: string;
+            /** @description The entity keys of a merge cluster to merge. Empty merges all members. */
+            members?: string[];
         };
         EndpointBody: {
             /**

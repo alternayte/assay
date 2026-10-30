@@ -42,8 +42,9 @@ type ApplyFunc func(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload 
 // Edits are the values that a reviewer changes before accept
 // (REQ-REV-008). Empty fields keep the card values.
 type Edits struct {
-	Name       string `json:"canonicalName,omitempty" maxLength:"200" doc:"The canonical name of a merge, or the name of a new entity or term."`
-	Definition string `json:"definition,omitempty" maxLength:"4000" doc:"The definition of a new term."`
+	Name       string   `json:"canonicalName,omitempty" maxLength:"200" doc:"The canonical name of a merge, or the name of a new entity or term."`
+	Definition string   `json:"definition,omitempty" maxLength:"4000" doc:"The definition of a new term."`
+	Members    []string `json:"members,omitempty" maxItems:"50" doc:"The entity keys of a merge cluster to merge. Empty merges all members."`
 }
 
 // ProfileText is the deterministic profile of an entity: display name,

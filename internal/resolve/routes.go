@@ -40,6 +40,8 @@ type Card struct {
 	Precision  *Precision `json:"precision,omitempty" doc:"The measured precision of the band."`
 	Reasons    []string   `json:"reasons"`
 	Subjects   []Subject  `json:"subjects"`
+	Members    []Subject  `json:"members,omitempty" doc:"The entities of a merge cluster. Accept merges the members that you pick."`
+	Pairs      []int64    `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
 	Impact     int        `json:"impact" doc:"Visible claims, pages and questions of the last 30 days that touch the subjects."`
 	Score      float64    `json:"score" doc:"Impact multiplied by uncertainty. The queue shows the highest score first."`
 	CreatedAt  time.Time  `json:"createdAt"`
@@ -123,6 +125,7 @@ func (s *Service) Cards(ctx context.Context, vis visibility.Set, kind string, li
 		keys = append(keys, c.refs...)
 		out = append(out, c)
 	}
+	out = Cluster(out)
 	impact := map[string]int{}
 	if len(keys) > 0 {
 		is, err := q.Impact(ctx, ImpactParams{Keys: keys, Visible: vis, Since: s.now().AddDate(0, 0, -30)})
@@ -147,6 +150,9 @@ func (s *Service) Cards(ctx context.Context, vis visibility.Set, kind string, li
 		c := &out[i]
 		if c.Subjects, err = s.subjects(ctx, vis, c.refs); err != nil {
 			return nil, err
+		}
+		if c.Kind == "merge" {
+			c.Members = c.Subjects
 		}
 		if c.DecisionID != nil {
 			kind := c.Kind
@@ -205,12 +211,7 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 		}
 		switch c.Kind {
 		case "merge":
-			if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: c.SubjectRefs, Canonical: canonical, By: by}); err != nil {
-				return err
-			}
-			if err := s.verdict(ctx, tx, c.SubjectRefs, "same", by); err != nil {
-				return err
-			}
+			return s.acceptCluster(ctx, tx, vis, c.ID, edits.Members, canonical, by)
 		case "mention_link":
 			if err := s.acceptMention(ctx, tx, c.Payload); err != nil {
 				return err
@@ -250,9 +251,7 @@ func (s *Service) Reject(ctx context.Context, vis visibility.Set, id int64, reas
 		}
 		switch c.Kind {
 		case "merge":
-			if err := s.verdict(ctx, tx, c.SubjectRefs, "different", by); err != nil {
-				return err
-			}
+			return s.rejectCluster(ctx, tx, vis, c.ID, reason, by)
 		case "unnamed":
 			if err := s.rejectUnnamed(ctx, tx, c.Payload); err != nil {
 				return err
@@ -273,6 +272,99 @@ func (s *Service) NeedsEvidence(ctx context.Context, vis visibility.Set, id int6
 		return s.closeCard(ctx, tx, c, "needs_evidence", reason, by)
 	})
 }
+
+// errMembers means that the picked members are not two or more entities of
+// the cluster.
+var errMembers = errors.New("resolve: pick two or more members of the cluster")
+
+// clusterOf returns the open merge cards of the cluster of a card, with the
+// subject keys of each.
+func (s *Service) clusterOf(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64) (Card, map[int64][]string, error) {
+	rows, err := New(tx).VisibleCards(ctx, VisibleCardsParams{Visible: vis, Kind: ptr("merge"), Lim: maxQueue})
+	if err != nil {
+		return Card{}, nil, err
+	}
+	pairs := map[int64][]string{}
+	cs := make([]Card, 0, len(rows))
+	for _, r := range rows {
+		pairs[r.ID] = r.SubjectRefs
+		c := Card{ID: r.ID, Kind: r.Kind, refs: r.SubjectRefs}
+		if r.Band != nil {
+			c.Band = *r.Band
+		}
+		cs = append(cs, c)
+	}
+	for _, c := range Cluster(cs) {
+		if slices.Contains(c.Pairs, id) {
+			return c, pairs, nil
+		}
+	}
+	return Card{}, nil, ErrNotFound
+}
+
+// acceptCluster merges the picked members of the cluster of a card, by
+// default all, and accepts each pair card with both entities among them.
+func (s *Service) acceptCluster(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64, members []string, canonical, by string) error {
+	cl, pairs, err := s.clusterOf(ctx, tx, vis, id)
+	if err != nil {
+		return err
+	}
+	if len(members) == 0 {
+		members = cl.refs
+	}
+	if len(members) < 2 {
+		return errMembers
+	}
+	for _, m := range members {
+		if !slices.Contains(cl.refs, m) {
+			return errMembers
+		}
+	}
+	if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: members, Canonical: canonical, By: by}); err != nil {
+		return err
+	}
+	for _, pid := range cl.Pairs {
+		refs := pairs[pid]
+		if len(refs) != 2 || !slices.Contains(members, refs[0]) || !slices.Contains(members, refs[1]) {
+			continue
+		}
+		pc, err := s.openCard(ctx, tx, vis, pid)
+		if err != nil {
+			return err
+		}
+		if err := s.verdict(ctx, tx, refs, "same", by); err != nil {
+			return err
+		}
+		if err := s.closeCard(ctx, tx, pc, "accepted", "", by); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rejectCluster rejects every pair card of the cluster of a card and
+// stores the verdict different for each pair (REQ-RES-006).
+func (s *Service) rejectCluster(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64, reason, by string) error {
+	cl, pairs, err := s.clusterOf(ctx, tx, vis, id)
+	if err != nil {
+		return err
+	}
+	for _, pid := range cl.Pairs {
+		pc, err := s.openCard(ctx, tx, vis, pid)
+		if err != nil {
+			return err
+		}
+		if err := s.verdict(ctx, tx, pairs[pid], "different", by); err != nil {
+			return err
+		}
+		if err := s.closeCard(ctx, tx, pc, "rejected", reason, by); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ptr[T any](v T) *T { return &v }
 
 func (s *Service) openCard(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64) (CardForUpdateRow, error) {
 	c, err := New(tx).CardForUpdate(ctx, id)
@@ -391,6 +483,8 @@ func (s *Service) Register(a huma.API) {
 			return api.ErrNotFound
 		case errors.Is(err, ErrCardDone):
 			return api.Problem(http.StatusConflict, "decided", "The card already has a decision.")
+		case errors.Is(err, errMembers):
+			return api.Problem(http.StatusUnprocessableEntity, "members", "Pick two or more members of the cluster.")
 		case errors.Is(err, errCardKind):
 			return api.Problem(http.StatusUnprocessableEntity, "card_kind", "Decide this card on its own page.")
 		}

@@ -135,6 +135,17 @@ func (q *Queries) DueSyncs(ctx context.Context, now *time.Time) ([]int64, error)
 	return items, nil
 }
 
+const everyoneGroup = `-- name: EveryoneGroup :one
+SELECT id FROM groups WHERE builtin
+`
+
+func (q *Queries) EveryoneGroup(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, everyoneGroup)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const failStaleRuns = `-- name: FailStaleRuns :execrows
 UPDATE sync_runs SET status = 'failed', finished_at = $1, error = 'The run stopped without a result.'
 WHERE status = 'running' AND started_at < $2

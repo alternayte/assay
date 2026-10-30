@@ -121,6 +121,45 @@ else
 	result SCN-INS-002 false $(($(now_ms) - start)) "$detail"
 fi
 
+# SCN-INS-008: --demo starts the fixture server, and setup creates the Acme
+# connections, whose first sync completes. A separate project keeps the data
+# of the first install out.
+start=$(now_ms)
+demo="$work/demo"
+dport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+detail=""
+out=$(COMPOSE_PROJECT_NAME=assay-smoke-demo ASSAY_IMAGE=$image ASSAY_INSTALL_SRC="$root/deploy/compose" \
+	sh "$root/scripts/install.sh" --dir "$demo" --port "$dport" --demo 2>&1) && code=0 || code=$?
+[ "$code" -eq 0 ] || detail="install failed: $out"
+printf '%s' "$out" | grep -q "The demo is on" || detail="$detail the output does not name the demo"
+dtoken=$(sed -n 's/^ASSAY_SETUP_TOKEN=//p' "$demo/.env" 2>/dev/null || true)
+dbase="http://127.0.0.1:$dport"
+jar="$work/demo-cookies"
+curl -fsS -o /dev/null -H 'Content-Type: application/json' -H "Origin: http://localhost:$dport" \
+	-d "{\"token\":\"$dtoken\",\"email\":\"owner@acme.test\",\"name\":\"Owner\",\"password\":\"owner-password-1\"}" \
+	"$dbase/api/v1/setup" || detail="$detail setup failed"
+curl -fsS -o /dev/null -c "$jar" -H 'Content-Type: application/json' -H "Origin: http://localhost:$dport" \
+	-d '{"email":"owner@acme.test","password":"owner-password-1"}' "$dbase/api/auth/sign-in/email" || detail="$detail sign-in failed"
+synced=""
+i=0
+while [ -z "$detail" ] && [ "$i" -lt 120 ]; do
+	synced=$(curl -fsS -b "$jar" "$dbase/api/v1/connections" | python3 -c '
+import json, sys
+cs = json.load(sys.stdin)["connections"]
+names = sorted(c["name"] for c in cs if c.get("lastSyncAt") and c.get("items", 0) > 0)
+print(" ".join(names))' 2>/dev/null || true)
+	[ "$synced" = "acme-azdo acme-engineering acme-github acme-jira acme-restricted" ] && break
+	i=$((i + 1))
+	sleep 1
+done
+[ "$synced" = "acme-azdo acme-engineering acme-github acme-jira acme-restricted" ] || detail="$detail synced connections: [$synced]"
+docker compose --project-directory "$demo" -f "$demo/compose.yaml" -p assay-smoke-demo --profile demo down -v >/dev/null 2>&1 || true
+if [ -z "$detail" ]; then
+	result SCN-INS-008 true $(($(now_ms) - start))
+else
+	result SCN-INS-008 false $(($(now_ms) - start)) "$detail"
+fi
+
 # SCN-INS-005: the image has amd64 and arm64, a non-root user, and 80 MB or
 # less for each architecture.
 start=$(now_ms)
@@ -140,6 +179,38 @@ if [ -z "$detail" ]; then
 	result SCN-INS-005 true $(($(now_ms) - start))
 else
 	result SCN-INS-005 false $(($(now_ms) - start)) "$detail"
+fi
+
+# SCN-OPS-005: a goreleaser snapshot gives the binaries, the image for both
+# architectures, the install assets and their checksums.
+start=$(now_ms)
+detail=""
+gr="$root/bin/goreleaser"
+[ -x "$gr" ] || detail="goreleaser is missing; run just setup"
+if [ -z "$detail" ]; then
+	(cd "$root" && "$gr" release --snapshot --clean --skip=publish >"$work/goreleaser.log" 2>&1) ||
+		detail="snapshot failed: $(tail -5 "$work/goreleaser.log")"
+fi
+if [ -z "$detail" ]; then
+	tag=$(cd "$root" && git describe --tags --abbrev=0)
+	for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
+		[ -f "$root/dist/assay_${tag}_${target}.tar.gz" ] || detail="$detail no archive for $target"
+		grep -q "assay_${tag}_${target}.tar.gz" "$root/dist/checksums.txt" || detail="$detail no checksum for $target"
+	done
+	for f in install.sh compose.yaml .env.example; do
+		grep -q " $f\$" "$root/dist/checksums.txt" || detail="$detail no checksum for $f"
+	done
+	for arch in amd64 arm64; do
+		got=$(docker image inspect -f '{{.Architecture}} {{.Config.User}}' "ghcr.io/alternayte/assay:${tag}-${arch}" 2>/dev/null || true)
+		[ "$got" = "$arch nonroot:nonroot" ] || detail="$detail image $arch is [$got]"
+	done
+	out=$("$root/dist/assay_$(go env GOOS)_$(go env GOARCH)"*/assay version 2>&1 || true)
+	[ "$out" = "$tag" ] || detail="$detail the binary prints version [$out]"
+fi
+if [ -z "$detail" ]; then
+	result SCN-OPS-005 true $(($(now_ms) - start))
+else
+	result SCN-OPS-005 false $(($(now_ms) - start)) "$detail"
 fi
 
 exit "$status"

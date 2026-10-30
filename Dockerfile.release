@@ -1,0 +1,9 @@
+# The release image: the binary that goreleaser built, on distroless as a
+# non-root user. The Dockerfile builds the same image from source.
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY assay /usr/local/bin/assay
+USER nonroot:nonroot
+EXPOSE 8080
+ENV ASSAY_LISTEN=:8080
+ENTRYPOINT ["/usr/local/bin/assay"]
+CMD ["serve"]

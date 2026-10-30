@@ -123,3 +123,6 @@ WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_syn
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= @now)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
                   AND r.status IN ('queued', 'running'));
+
+-- name: EveryoneGroup :one
+SELECT id FROM groups WHERE builtin;

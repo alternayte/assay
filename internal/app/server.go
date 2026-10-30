@@ -159,6 +159,9 @@ func (s *Server) services() error {
 		Orientation: s.pages.Orientation}
 	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Vocab: s.vocab, Review: s.review,
 		BaseURL: s.cfg.BaseURL, Version: Version, Log: s.log}
+	if s.cfg.Demo {
+		s.users.OnSetup = func(ctx context.Context, adminID string) error { return s.sync.Demo(ctx, adminID, s.cfg.DemoURL) }
+	}
 	s.doctor = &doctor.Doctor{Pool: s.pool, Secrets: s.secrets, Models: s.models, Sync: s.sync, Outbound: s.cfg.Outbound}
 	return nil
 }

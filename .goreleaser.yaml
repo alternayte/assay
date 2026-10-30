@@ -1,0 +1,68 @@
+# Release of Assay (REQ-OPS-006): binaries, the multi-arch image on GHCR,
+# the install assets and checksums. A pushed v* tag runs it in
+# .github/workflows/release.yml. just smoke runs a snapshot.
+version: 2
+project_name: assay
+
+before:
+  hooks:
+    - sh -c "cd web && bun install --frozen-lockfile && bun run build"
+
+builds:
+  - id: assay
+    main: ./cmd/assay
+    binary: assay
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{ .Tag }}"]
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+  extra_files:
+    - glob: scripts/install.sh
+    - glob: deploy/compose/compose.yaml
+    - glob: deploy/compose/.env.example
+
+dockers:
+  - image_templates: ["ghcr.io/alternayte/assay:{{ .Tag }}-amd64"]
+    dockerfile: Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.source=https://github.com/alternayte/assay
+      - --label=org.opencontainers.image.version={{ .Tag }}
+      - --label=org.opencontainers.image.licenses=MIT
+  - image_templates: ["ghcr.io/alternayte/assay:{{ .Tag }}-arm64"]
+    dockerfile: Dockerfile.release
+    use: buildx
+    goos: linux
+    goarch: arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.source=https://github.com/alternayte/assay
+      - --label=org.opencontainers.image.version={{ .Tag }}
+      - --label=org.opencontainers.image.licenses=MIT
+
+docker_manifests:
+  - name_template: ghcr.io/alternayte/assay:{{ .Tag }}
+    image_templates: ["ghcr.io/alternayte/assay:{{ .Tag }}-amd64", "ghcr.io/alternayte/assay:{{ .Tag }}-arm64"]
+  - name_template: ghcr.io/alternayte/assay:latest
+    image_templates: ["ghcr.io/alternayte/assay:{{ .Tag }}-amd64", "ghcr.io/alternayte/assay:{{ .Tag }}-arm64"]
+
+release:
+  extra_files:
+    - glob: scripts/install.sh
+    - glob: deploy/compose/compose.yaml
+    - glob: deploy/compose/.env.example
+
+changelog:
+  use: git

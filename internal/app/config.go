@@ -32,8 +32,10 @@ type Config struct {
 	ExtraCAPEM   string
 	ExtraCAFile  string
 	Demo         bool
-	LogLevel     slog.Level
-	Outbound     outbound.Settings
+	// DemoURL is the fixture server of the demo connections.
+	DemoURL  string
+	LogLevel slog.Level
+	Outbound outbound.Settings
 }
 
 var knownVars = map[string]bool{
@@ -47,6 +49,7 @@ var knownVars = map[string]bool{
 	"ASSAY_EXTRA_CA_PEM":   true,
 	"ASSAY_EXTRA_CA_FILE":  true,
 	"ASSAY_DEMO":           true,
+	"ASSAY_DEMO_URL":       true,
 	"ASSAY_LOG_LEVEL":      true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
@@ -79,6 +82,7 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		ExtraCAPEM:  env["ASSAY_EXTRA_CA_PEM"],
 		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
 		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
+		DemoURL:     valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
 	}
 	cfg.Outbound = outbound.Settings{
 		HTTPProxy:   valueOr(env["HTTP_PROXY"], env["http_proxy"]),

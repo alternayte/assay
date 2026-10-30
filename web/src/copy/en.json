@@ -204,7 +204,21 @@
     "summaryWords": "Words per summary, at most",
     "extractPassages": "Passages to extract per compile",
     "bannedWords": "Banned words",
-    "bannedWordsHint": "One word or phrase on each line."
+    "bannedWordsHint": "One word or phrase on each line.",
+    "connectorsTitle": "Connector rules",
+    "connectorsBody": "Rules that connectors use to read sources. A change applies at the next sync.",
+    "initiativeTypes": "Jira initiative types",
+    "initiativeTypesHint": "One issue type on each line. These issues become initiatives.",
+    "blockLinkType": "Jira block link type",
+    "blockLinkTypeHint": "The link type that gives blocks claims.",
+    "decisionLabels": "Decision labels",
+    "decisionLabelsHint": "One Confluence label on each line. Pages with one become decisions.",
+    "glossaryLabels": "Glossary labels",
+    "glossaryLabelsHint": "One Confluence label on each line. Term tables on these pages give terms.",
+    "defaultGlobs": "Repository include globs",
+    "defaultGlobsHint": "One glob on each line. New repository connections start with these.",
+    "maxFileKb": "Largest item in KB",
+    "maxFilesPerRepo": "Most files per repository"
   },
   "smtp": {
     "title": "Email",

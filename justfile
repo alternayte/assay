@@ -13,6 +13,7 @@ setup:
     GOBIN={{bin}} go install golang.org/x/tools/cmd/goimports@v0.52.0
     GOBIN={{bin}} go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
     GOBIN={{bin}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+    GOBIN={{bin}} go install github.com/goreleaser/goreleaser/v2@v2.18.3
     go mod download
     cd web && bun install --frozen-lockfile
     cd web && bunx playwright install chromium

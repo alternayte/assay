@@ -81,6 +81,11 @@ func (s *Service) registerSetup(a huma.API) {
 		if err := audit.WriteAs(ctx, s.Pool, u.ID, audit.Entry{Action: "user.setup", Target: "user:" + u.ID}); err != nil {
 			return nil, api.Internal(err)
 		}
+		if s.OnSetup != nil {
+			if err := s.OnSetup(ctx, u.ID); err != nil {
+				return nil, api.Internal(err)
+			}
+		}
 		out, err := s.user(ctx, u.ID)
 		return &userOutput{Body: out}, err
 	})

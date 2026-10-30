@@ -282,24 +282,9 @@ func (s *Service) Register(a huma.API) {
 		if b.Token == "" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 		}
-		owner := api.Caller(ctx).User.ID
 		out := &idOut{}
-		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-			id, err := New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
-				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
-				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), SyncMinutes: b.SyncMinutes,
-				ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
-				OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
-			if err != nil {
-				return dbError(err)
-			}
-			out.Body.ID = id
-			if err := s.setToken(ctx, tx, id, b.Token); err != nil {
-				return err
-			}
-			return audit.Write(ctx, tx, audit.Entry{Action: "connections.create", Target: fmt.Sprintf("connection:%d", id),
-				Details: map[string]any{"name": b.Name, "kind": b.Kind, "baseUrl": b.BaseURL, "scope": b.Scope}})
-		})
+		id, err := s.create(ctx, api.Caller(ctx).User.ID, b)
+		out.Body.ID = id
 		return out, wrap(err)
 	})
 
@@ -360,7 +345,7 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "setConnectionVisibility", Method: http.MethodPut, Path: "/api/v1/connections/{id}/visibility", Tags: tags,
 		Summary: "Share a connection with groups", DefaultStatus: http.StatusNoContent, Middlewares: admins,
 	}, func(ctx context.Context, in *visibilityIn) (*struct{}, error) {
-		return nil, wrap(s.setVisibility(ctx, in.ID, in.Body.GroupIDs, in.Body.Confirm))
+		return nil, wrap(s.setVisibility(ctx, in.ID, in.Body.GroupIDs, in.Body.Confirm, api.Caller(ctx).User.ID))
 	})
 
 	type runOut struct {
@@ -486,6 +471,28 @@ func registryProblem() error {
 	return api.Problem(http.StatusConflict, "registry", "The registry is built in. It cannot be changed, paused or purged.")
 }
 
+// create inserts a connection owned by owner, visible only to the owner.
+func (s *Service) create(ctx context.Context, owner string, b connectionBody) (int64, error) {
+	var id int64
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var err error
+		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
+			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
+			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), SyncMinutes: b.SyncMinutes,
+			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
+			OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
+		if err != nil {
+			return dbError(err)
+		}
+		if err := s.setToken(ctx, tx, id, b.Token); err != nil {
+			return err
+		}
+		return audit.Write(ctx, tx, audit.Entry{Action: "connections.create", Target: fmt.Sprintf("connection:%d", id),
+			Details: map[string]any{"name": b.Name, "kind": b.Kind, "baseUrl": b.BaseURL, "scope": b.Scope}})
+	})
+	return id, err
+}
+
 func (s *Service) setToken(ctx context.Context, tx pgx.Tx, id int64, token string) error {
 	sid, err := s.Secrets.Put(ctx, tx, secretName(id), []byte(token))
 	if err != nil {
@@ -496,7 +503,8 @@ func (s *Service) setToken(ctx context.Context, tx pgx.Tx, id int64, token strin
 
 // setVisibility shares a connection with groups. Adding a group needs the
 // confirmation (REQ-VIS-003).
-func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64, confirm bool) error {
+// setVisibility sets the groups of a connection. by confirms the new groups.
+func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64, confirm bool, by string) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		q := New(tx)
 		c, err := q.GetConnection(ctx, id)
@@ -539,10 +547,9 @@ func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64,
 		if err != nil {
 			return err
 		}
-		caller := api.Caller(ctx).User.ID
 		now := s.now()
 		for _, g := range added {
-			if _, err := q.AddVisibility(ctx, AddVisibilityParams{ConnectionID: id, GroupID: g, ConfirmedBy: &caller, ConfirmedAt: now}); err != nil {
+			if _, err := q.AddVisibility(ctx, AddVisibilityParams{ConnectionID: id, GroupID: g, ConfirmedBy: &by, ConfirmedAt: now}); err != nil {
 				return err
 			}
 		}

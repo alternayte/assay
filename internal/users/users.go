@@ -37,6 +37,9 @@ type Service struct {
 	// Mail sends a message when SMTP is configured. It reports false when
 	// SMTP is not configured.
 	Mail func(ctx context.Context, to, subject, body string) (bool, error)
+	// OnSetup runs after setup creates the first admin. The demo creates
+	// its connections here.
+	OnSetup func(ctx context.Context, adminID string) error
 }
 
 func (s *Service) now() time.Time {

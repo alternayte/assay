@@ -7,6 +7,8 @@
 #   --dir DIR        Install directory. Default: $HOME/.assay
 #   --port PORT      Port on 127.0.0.1. Default: 8080
 #   --version VER    Release tag, such as v0.1.0. Default: latest
+#   --demo           Also start the Acme fixture server. After setup, Assay
+#                    creates the Acme demo connections.
 #   --down           Stop Assay. The data stays.
 #
 # Variables:
@@ -19,6 +21,7 @@ dir="${HOME}/.assay"
 port=8080
 version=latest
 down=0
+demo=0
 
 say() { printf '%s\n' "$*"; }
 fail() {
@@ -47,8 +50,12 @@ while [ $# -gt 0 ]; do
 		down=1
 		shift
 		;;
+	--demo)
+		demo=1
+		shift
+		;;
 	-h | --help)
-		sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+		sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
 		exit 0
 		;;
 	*) fail "unknown flag $1. Use --help." ;;
@@ -72,7 +79,7 @@ compose() { docker compose --project-directory "$dir" -f "$dir/compose.yaml" "$@
 
 if [ "$down" -eq 1 ]; then
 	[ -f compose.yaml ] || fail "No install in $dir."
-	compose down
+	compose --profile demo down
 	say "Assay is stopped. The data stays in the Docker volume. Run the script again to start it."
 	exit 0
 fi
@@ -135,12 +142,25 @@ if [ ! -f .env ]; then
 		[ -n "$value" ] && set_var "$v" "$value"
 	done
 	if [ -n "${NO_PROXY:-}" ]; then
-		set_var NO_PROXY "$NO_PROXY,db,localhost,127.0.0.1"
+		set_var NO_PROXY "$NO_PROXY,db,fixtures,localhost,127.0.0.1"
 	fi
 	if [ -n "${ASSAY_IMAGE:-}" ]; then
 		printf 'ASSAY_IMAGE=%s\n' "$ASSAY_IMAGE" >>.env
 	fi
 	say "Created $dir/.env with a new secret key. Keep a backup of this file."
+fi
+
+# --demo turns the demo on in .env; a later run keeps it.
+if [ "$demo" -eq 1 ]; then
+	if grep -q '^ASSAY_DEMO=' .env; then
+		set_var ASSAY_DEMO true
+	else
+		printf 'ASSAY_DEMO=true\n' >>.env
+	fi
+fi
+profile=""
+if grep -q '^ASSAY_DEMO=true' .env; then
+	profile="--profile demo"
 fi
 
 # The port and the image come from .env, so that a second run keeps them.
@@ -151,7 +171,7 @@ if [ -n "$image" ]; then
 	export ASSAY_IMAGE="$image"
 fi
 
-for img in $(compose config --images); do
+for img in $(compose $profile config --images); do
 	if [ "$img" = "$image" ] && docker image inspect "$img" >/dev/null 2>&1; then
 		say "Using the local image $img."
 		continue
@@ -159,6 +179,9 @@ for img in $(compose config --images); do
 	docker pull -q "$img" >/dev/null || fail "cannot pull $img. Check the network and the proxy settings."
 done
 compose up -d db
+if [ -n "$profile" ]; then
+	compose $profile up -d fixtures
+fi
 compose up -d --force-recreate assay
 
 url="http://localhost:$port"
@@ -182,5 +205,9 @@ if [ "$first" -eq 1 ]; then
 else
 	say "Assay is updated and restarted. Your data and .env did not change."
 	say "If setup is not done yet, open $url/setup. Setup token: $token"
+fi
+if [ -n "$profile" ]; then
+	say "The demo is on. After setup, Assay creates the Acme connections and syncs them."
+	say "Turn on the models in Settings, Models, with the endpoint http://fixtures:8090/v1 or your own."
 fi
 say "Stop Assay: sh install.sh --down --dir $dir"

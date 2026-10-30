@@ -8,7 +8,7 @@ import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Table, Td, Th } from "@/components/ui/table";
-import { t } from "@/copy";
+import { type CopyKey, t } from "@/copy";
 import { formatTime } from "@/lib/format";
 import { navItems } from "@/lib/nav";
 
@@ -134,6 +134,8 @@ export function GeneralPage() {
       <History settingKey="priority" />
       <PagesSheet />
       <History settingKey="pages" />
+      <ConnectorRulesSheet />
+      <History settingKey="connectors" />
     </div>
   );
 }
@@ -207,6 +209,136 @@ function PagesSheet() {
         <Field label={t("general.bannedWords")} hint={t("general.bannedWordsHint")}>
           {(p) => <Textarea {...p} rows={6} value={banned} onChange={(e) => setBanned(e.target.value)} />}
         </Field>
+        <div>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            {t("general.save")}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+type RulesValue = {
+  initiativeTypes: string[];
+  blockLinkType: string;
+  decisionLabels: string[];
+  glossaryLabels: string[];
+  defaultGlobs: string[];
+  maxFileKb: number;
+  maxFilesPerRepo: number;
+};
+type RulesList = "initiativeTypes" | "decisionLabels" | "glossaryLabels" | "defaultGlobs";
+
+const rulesLists: { key: RulesList; label: CopyKey; hint: CopyKey }[] = [
+  { key: "initiativeTypes", label: "general.initiativeTypes", hint: "general.initiativeTypesHint" },
+  { key: "decisionLabels", label: "general.decisionLabels", hint: "general.decisionLabelsHint" },
+  { key: "glossaryLabels", label: "general.glossaryLabels", hint: "general.glossaryLabelsHint" },
+  { key: "defaultGlobs", label: "general.defaultGlobs", hint: "general.defaultGlobsHint" },
+];
+
+const lines = (s: string) =>
+  s
+    .split("\n")
+    .map((w) => w.trim())
+    .filter(Boolean);
+
+/** The connector rules: Jira and Confluence rules, globs and limits (REQ-SYN-011). */
+function ConnectorRulesSheet() {
+  const setting = useSetting("connectors");
+  const [value, setValue] = useState<RulesValue>();
+  const [text, setText] = useState<Record<RulesList, string>>();
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
+  useEffect(() => {
+    if (!setting.data) return;
+    const v = setting.data.value as RulesValue;
+    setValue(v);
+    setText({
+      initiativeTypes: v.initiativeTypes.join("\n"),
+      decisionLabels: v.decisionLabels.join("\n"),
+      glossaryLabels: v.glossaryLabels.join("\n"),
+      defaultGlobs: v.defaultGlobs.join("\n"),
+    });
+  }, [setting.data]);
+  const save = useSaveSetting(
+    "connectors",
+    (s) => setMsg({ tone: "success", text: t("general.saved", { revision: s.revision }) }),
+    (m) => setMsg({ tone: "danger", text: m }),
+  );
+  if (setting.isPending || !value || !text) return <SkeletonRows label={t("app.loading")} />;
+  if (setting.isError || !setting.data) return <Notice tone="danger">{t("app.error")}</Notice>;
+  const revision = setting.data.revision;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setMsg(undefined);
+    save.mutate({
+      value: {
+        ...value,
+        initiativeTypes: lines(text.initiativeTypes),
+        decisionLabels: lines(text.decisionLabels),
+        glossaryLabels: lines(text.glossaryLabels),
+        defaultGlobs: lines(text.defaultGlobs),
+      },
+      revision,
+    });
+  };
+  return (
+    <Sheet title={t("general.connectorsTitle")} description={t("general.connectorsBody")}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label={t("general.blockLinkType")} hint={t("general.blockLinkTypeHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                value={value.blockLinkType}
+                onChange={(e) => setValue({ ...value, blockLinkType: e.target.value })}
+              />
+            )}
+          </Field>
+          <Field label={t("general.maxFileKb")}>
+            {(p) => (
+              <Input
+                {...p}
+                type="number"
+                min={1}
+                required
+                className="font-mono"
+                value={value.maxFileKb}
+                onChange={(e) => setValue({ ...value, maxFileKb: Number(e.target.value) })}
+              />
+            )}
+          </Field>
+          <Field label={t("general.maxFilesPerRepo")}>
+            {(p) => (
+              <Input
+                {...p}
+                type="number"
+                min={1}
+                required
+                className="font-mono"
+                value={value.maxFilesPerRepo}
+                onChange={(e) => setValue({ ...value, maxFilesPerRepo: Number(e.target.value) })}
+              />
+            )}
+          </Field>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {rulesLists.map((f) => (
+            <Field key={f.key} label={t(f.label)} hint={t(f.hint)}>
+              {(p) => (
+                <Textarea
+                  {...p}
+                  rows={f.key === "defaultGlobs" ? 8 : 3}
+                  className="font-mono text-sm"
+                  value={text[f.key]}
+                  onChange={(e) => setText({ ...text, [f.key]: e.target.value })}
+                />
+              )}
+            </Field>
+          ))}
+        </div>
         <div>
           <Button type="submit" variant="primary" disabled={save.isPending}>
             {t("general.save")}

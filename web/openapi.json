@@ -254,6 +254,36 @@
               "low"
             ],
             "type": "string"
+          },
+          "connection": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "domain": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "correction",
+              "finding",
+              "merge",
+              "mention_link",
+              "unnamed",
+              "new_term",
+              "term_edit",
+              "conflict",
+              "needs_edit",
+              ""
+            ],
+            "type": "string"
+          },
+          "q": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
           }
         },
         "required": [
@@ -6665,6 +6695,83 @@
         "description": "A card shows only when all its inputs are visible to you. Open cards come in queue order: impact multiplied by uncertainty.",
         "operationId": "listCards",
         "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "enum": [
+                "correction",
+                "finding",
+                "merge",
+                "mention_link",
+                "unnamed",
+                "new_term",
+                "term_edit",
+                "conflict",
+                "needs_edit",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "band",
+            "schema": {
+              "enum": [
+                "high",
+                "medium",
+                "low",
+                ""
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "A connection of the card inputs.",
+            "explode": false,
+            "in": "query",
+            "name": "connection",
+            "schema": {
+              "description": "A connection of the card inputs.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "An entity type of a subject.",
+            "explode": false,
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "description": "An entity type of a subject.",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A domain of a subject.",
+            "explode": false,
+            "in": "query",
+            "name": "domain",
+            "schema": {
+              "description": "A domain of a subject.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Text in the subject keys, names, aliases or the card.",
+            "explode": false,
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "description": "Text in the subject keys, names, aliases or the card.",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
           {
             "description": "open lists the queue in order; decided lists the newest decisions first.",
             "explode": false,

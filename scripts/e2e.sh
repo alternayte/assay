@@ -51,6 +51,6 @@ done
 
 cd "$root/web"
 status=0
-ASSAY_REPORTS="$reports" E2E_FIXTURES_URL=http://fixtures:8090 E2E_FIXTURES_CONTROL=http://127.0.0.1:18090 E2E_BASE_URL="http://localhost:$port" E2E_SETUP_TOKEN=e2e-setup-token bunx playwright test || status=$?
+ASSAY_REPORTS="$reports" E2E_FIXTURES_URL=http://fixtures:8090 E2E_FIXTURES_CONTROL=http://127.0.0.1:18090 E2E_DB_CONTAINER="$(compose ps -q db)" E2E_BASE_URL="http://localhost:$port" E2E_SETUP_TOKEN=e2e-setup-token bunx playwright test || status=$?
 [ "$status" -eq 0 ] || compose logs --tail 100 assay >&2
 exit "$status"

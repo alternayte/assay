@@ -156,7 +156,7 @@ func (f CardFilter) match(c Card) bool {
 		text, _ := json.Marshal(c.Payload)
 		hay := strings.ToLower(c.Kind + " " + string(text))
 		for _, x := range c.Subjects {
-			hay += " " + strings.ToLower(x.Name+" "+strings.Join(x.Aliases, " "))
+			hay += " " + strings.ToLower(x.Key+" "+x.Name+" "+strings.Join(x.Aliases, " "))
 		}
 		return strings.Contains(hay, q)
 	}
@@ -636,15 +636,6 @@ func (s *Service) Undo(ctx context.Context, vis visibility.Set, id int64) error 
 	})
 }
 
-// filterBody is a card filter in a request body.
-type filterBody struct {
-	Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
-	Connection int64  `json:"connection,omitempty"`
-	Type       string `json:"type,omitempty"`
-	Domain     int64  `json:"domain,omitempty"`
-	Q          string `json:"q,omitempty" maxLength:"200"`
-}
-
 // AcceptBand accepts each open card of the band of f that f selects, and
 // returns the accepted card IDs (REQ-REV-011).
 func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilter, by string) ([]int64, error) {
@@ -675,21 +666,15 @@ func (s *Service) Register(a huma.API) {
 	admins := huma.Middlewares{api.Require(auth.RoleAdmin)}
 	tags := []string{"review"}
 
-	type filterIn struct {
+	type cardsIn struct {
 		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
 		Band       string `query:"band" enum:"high,medium,low,"`
 		Connection int64  `query:"connection" doc:"A connection of the card inputs."`
 		Type       string `query:"type" doc:"An entity type of a subject."`
 		Domain     int64  `query:"domain" doc:"A domain of a subject."`
-		Q          string `query:"q" maxLength:"200" doc:"Text in the subject names, aliases or the card."`
-	}
-	filter := func(f filterIn, decided bool) CardFilter {
-		return CardFilter{Decided: decided, Kind: f.Kind, Band: f.Band, Connection: f.Connection, Type: f.Type, Domain: f.Domain, Query: f.Q}
-	}
-	type cardsIn struct {
-		filterIn
-		Status string `query:"status" enum:"open,decided" default:"open" doc:"open lists the queue in order; decided lists the newest decisions first."`
-		Limit  int    `query:"limit" minimum:"1" maximum:"500" default:"200"`
+		Q          string `query:"q" maxLength:"200" doc:"Text in the subject keys, names, aliases or the card."`
+		Status     string `query:"status" enum:"open,decided" default:"open" doc:"open lists the queue in order; decided lists the newest decisions first."`
+		Limit      int    `query:"limit" minimum:"1" maximum:"500" default:"200"`
 	}
 	type cardsOut struct {
 		Body struct {
@@ -705,7 +690,9 @@ func (s *Service) Register(a huma.API) {
 		if err != nil {
 			return nil, api.Internal(err)
 		}
-		cs, err := s.Cards(ctx, vis, filter(in.filterIn, in.Status == "decided"), in.Limit)
+		f := CardFilter{Decided: in.Status == "decided", Kind: in.Kind, Band: in.Band, Connection: in.Connection, Type: in.Type,
+			Domain: in.Domain, Query: in.Q}
+		cs, err := s.Cards(ctx, vis, f, in.Limit)
 		if err != nil {
 			return nil, api.Internal(err)
 		}
@@ -776,8 +763,12 @@ func (s *Service) Register(a huma.API) {
 
 	type bandIn struct {
 		Body struct {
-			Band string `json:"band" enum:"high,medium,low"`
-			filterBody
+			Band       string `json:"band" enum:"high,medium,low"`
+			Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
+			Connection int64  `json:"connection,omitempty"`
+			Type       string `json:"type,omitempty"`
+			Domain     int64  `json:"domain,omitempty"`
+			Q          string `json:"q,omitempty" maxLength:"200"`
 		}
 	}
 	type bandOut struct {

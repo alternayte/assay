@@ -5,6 +5,8 @@ import { owner, signIn } from "./env";
 const routes = [
   "/",
   "/explore",
+  "/updates",
+  "/review",
   "/profile",
   "/settings/users",
   "/settings/groups",

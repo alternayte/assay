@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { type BrowserContext, expect, type Page } from "@playwright/test";
 
 export const setupToken = process.env.E2E_SETUP_TOKEN ?? "e2e-setup-token";
@@ -118,33 +119,124 @@ export async function createDomain(page: Page, name: string) {
   await expect(page.getByRole("cell", { name })).toBeVisible();
 }
 
-/** Creates the Jira connection once and waits for its first sync. */
-export async function jira(page: Page) {
+type ConnectionSpec = {
+  name: string;
+  kind: string;
+  path: string;
+  scope: Record<string, unknown>;
+  share?: boolean;
+};
+
+/** The ID of a connection by name, or undefined. */
+export async function connectionId(page: Page, name: string): Promise<number | undefined> {
   const list = await call(page, "GET", "/api/v1/connections");
-  let id = list.json.connections.find((c: { name: string }) => c.name === "acme-jira")?.id;
+  return list.json.connections.find((c: { name: string }) => c.name === name)?.id;
+}
+
+/** Starts a sync and waits until one more run has succeeded. */
+export async function syncNow(page: Page, id: number) {
+  const done = async () => {
+    const r = await call(page, "GET", `/api/v1/connections/${id}/runs`);
+    return r.json.runs.filter((run: { status: string }) => run.status === "succeeded").length;
+  };
+  const before = await done();
+  await call(page, "POST", `/api/v1/connections/${id}/sync`);
+  await expect.poll(done, { timeout: 30_000 }).toBeGreaterThan(before);
+}
+
+/** Creates a connection once, as the signed-in admin, and waits for its first sync. */
+async function connection(page: Page, c: ConnectionSpec): Promise<number> {
+  let id = await connectionId(page, c.name);
   if (!id) {
     const r = await call(page, "POST", "/api/v1/connections", {
-      name: "acme-jira",
-      kind: "jira",
-      baseUrl: `${fixturesURL}/jira`,
+      name: c.name,
+      kind: c.kind,
+      baseUrl: `${fixturesURL}${c.path}`,
       token: sourceToken,
-      scope: { projects: ["PAY", "REM"] },
+      scope: c.scope,
       syncMinutes: 30,
       reconcileHours: 24,
       rateConcurrency: 4,
       ratePerSecond: 50,
     });
     expect(r.status).toBe(201);
-    id = r.json.id;
-    await call(page, "POST", `/api/v1/connections/${id}/sync`);
+    id = r.json.id as number;
+    if (c.share) {
+      const groups = await call(page, "GET", "/api/v1/groups");
+      const everyone = groups.json.groups.find((g: { builtin: boolean }) => g.builtin).id;
+      const v = await call(page, "PUT", `/api/v1/connections/${id}/visibility`, {
+        groupIds: [everyone],
+        confirm: true,
+      });
+      expect(v.status).toBe(204);
+    }
+    await syncNow(page, id);
   }
-  await expect
-    .poll(
-      async () => {
-        const r = await call(page, "GET", `/api/v1/connections/${id}/runs`);
-        return r.json.runs.some((run: { status: string }) => run.status === "succeeded");
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true);
+  return id;
+}
+
+/** Creates the Jira connection once and waits for its first sync. */
+export async function jira(page: Page) {
+  return connection(page, {
+    name: "acme-jira",
+    kind: "jira",
+    path: "/jira",
+    scope: { projects: ["PAY", "REM"] },
+  });
+}
+
+/** Creates the GitHub connection with the catalog files once, shared with Everyone. */
+export async function github(page: Page) {
+  return connection(page, {
+    name: "acme-github",
+    kind: "github",
+    path: "/github",
+    scope: { repositories: ["acme/payments-api", "acme/reminder-service"] },
+    share: true,
+  });
+}
+
+/** Creates the restricted Confluence space once, readable by the owner only. */
+export async function restricted(page: Page) {
+  return connection(page, {
+    name: "acme-restricted",
+    kind: "confluence",
+    path: "/confluence",
+    scope: { spaces: ["RST"] },
+  });
+}
+
+/** The fixture server as the test runner reaches it, for the control routes. */
+const fixturesControl = process.env.E2E_FIXTURES_CONTROL ?? "http://127.0.0.1:18090";
+
+/** Appends storage-format text to a fixture Confluence page. */
+export async function appendToPage(id: string, html: string) {
+  const r = await fetch(`${fixturesControl}/control/pages/${id}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ append: html }),
+  });
+  expect(r.status).toBe(204);
+}
+
+/** The HTTP methods that the fixture sources received. */
+export async function fixtureMethods(): Promise<string[]> {
+  const r = await fetch(`${fixturesControl}/control/hits`);
+  return ((await r.json()) as { method: string }[]).map((h) => h.method);
+}
+
+/**
+ * Runs SQL in the database of the e2e project. Tests use it to seed review
+ * cards whose real source is a model decision.
+ */
+export function sql(text: string): string {
+  const container = process.env.E2E_DB_CONTAINER ?? "assay-e2e-db-1";
+  return execFileSync(
+    "docker",
+    ["exec", "-i", container, "psql", "-U", "assay", "-d", "assay", "-v", "ON_ERROR_STOP=1", "-qAt"],
+    {
+      input: text,
+      encoding: "utf8",
+    },
+  ).trim();
 }

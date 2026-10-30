@@ -69,6 +69,24 @@ func TestSCN_REV_008_ClusterCard(t *testing.T) {
 		t.Fatal("no cluster card")
 	}
 
+	// The query filters select cards by band and text.
+	count := func(query string) int {
+		var out struct {
+			Cards []struct{} `json:"cards"`
+		}
+		w.reviewer.Must(http.StatusOK, http.MethodGet, "/api/v1/cards?"+query, nil).JSON(t, &out)
+		return len(out.Cards)
+	}
+	if n := count("kind=merge&band=medium&q=ledger-a"); n != 1 {
+		t.Fatalf("%d medium cards of ledger-a", n)
+	}
+	if n := count("kind=merge&band=high&q=ledger-a"); n != 0 {
+		t.Fatalf("%d high cards of ledger-a: the cluster band is medium", n)
+	}
+	if n := count("kind=correction&q=ledger-a"); n != 0 {
+		t.Fatalf("%d correction cards of ledger-a", n)
+	}
+
 	// Members outside the cluster, or fewer than two, fail.
 	path := fmt.Sprintf("/api/v1/cards/%d/accept", cluster)
 	w.reviewer.Must(http.StatusUnprocessableEntity, http.MethodPost, path, map[string]any{"members": []string{a}})

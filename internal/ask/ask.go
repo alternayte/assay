@@ -123,10 +123,15 @@ func (s *Service) Build(ctx context.Context, vis visibility.Set, question string
 	if err != nil {
 		return nil, err
 	}
-	cs, err := claims.About(ctx, s.Pool, vis, ids, MaxClaims)
+	all, err := claims.About(ctx, s.Pool, vis, ids, MaxClaims)
 	if err != nil {
 		return nil, err
 	}
+	// A Superseded claim lost to a reviewer choice, and a Proposed claim
+	// waits for review. The model reads no status, so neither is context.
+	cs := slices.DeleteFunc(all, func(cl claims.Claim) bool {
+		return cl.Status == claims.Superseded || cl.Status == claims.Proposed
+	})
 	for i, cl := range cs {
 		id := fmt.Sprintf("C%d", i+1)
 		c.known[id] = true

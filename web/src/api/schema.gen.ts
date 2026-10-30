@@ -1753,6 +1753,14 @@ export interface components {
             readonly $schema?: string;
             /** @enum {string} */
             band: "high" | "medium" | "low";
+            /** Format: int64 */
+            connection?: number;
+            /** Format: int64 */
+            domain?: number;
+            /** @enum {string} */
+            kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+            q?: string;
+            type?: string;
         };
         BandOutBody: {
             /**
@@ -4177,6 +4185,16 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
+                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+                band?: "high" | "medium" | "low" | "";
+                /** @description A connection of the card inputs. */
+                connection?: number;
+                /** @description An entity type of a subject. */
+                type?: string;
+                /** @description A domain of a subject. */
+                domain?: number;
+                /** @description Text in the subject keys, names, aliases or the card. */
+                q?: string;
                 /** @description open lists the queue in order; decided lists the newest decisions first. */
                 status?: "open" | "decided";
                 limit?: number;

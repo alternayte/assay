@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckCheck, Pencil, SkipForward, Undo2, X } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import type { paths } from "@/api/schema.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -16,7 +17,7 @@ import { claimText } from "@/routes/ask";
 import { ClaimStatus, EntityLink } from "@/routes/entity";
 
 type Card = Schemas["Card"];
-type Kind = NonNullable<Card["kind"]>;
+type Kind = NonNullable<NonNullable<paths["/api/v1/cards"]["get"]["parameters"]["query"]>["kind"]>;
 type Band = "high" | "medium" | "low";
 type Tab = "needs" | "auto" | "decided";
 type Filter = { kind: string; band: string; connection: string; type: string; domain: string; q: string };
@@ -38,7 +39,7 @@ const kinds: Kind[] = [
   "needs_edit",
 ];
 const bandTone = { high: "supported", medium: "stale", low: "conflict" } as const;
-const editable: Kind[] = ["merge", "unnamed", "new_term", "term_edit"];
+const editable: string[] = ["merge", "unnamed", "new_term", "term_edit"];
 
 const kindLabel = (k: string) => t(`review.kinds.${k}` as CopyKey);
 const bandLabel = (b?: string) => t(`review.bands.${b || "none"}` as CopyKey);

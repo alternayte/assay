@@ -35,6 +35,8 @@ type ChatResult struct {
 	Model     string
 	TokensIn  int
 	TokensOut int
+	// CostUSD is the cost from the tokens and the prices of the function.
+	CostUSD float64
 }
 
 type chatResponse struct {
@@ -101,6 +103,7 @@ func (g *Gateway) chat(ctx context.Context, t *target, req ChatRequest) (*ChatRe
 	if err := g.record(ctx, t, resp.Model, res.TokensIn, res.TokensOut, req.Ref); err != nil {
 		return nil, err
 	}
+	res.CostUSD = Cost(res.TokensIn, res.TokensOut, t.priceIn, t.priceOut)
 	return res, nil
 }
 
@@ -583,5 +586,6 @@ func (g *Gateway) ChatStream(ctx context.Context, fn Function, req ChatRequest, 
 	if err := g.record(ctx, t, res.Model, res.TokensIn, res.TokensOut, req.Ref); err != nil {
 		return nil, err
 	}
+	res.CostUSD = Cost(res.TokensIn, res.TokensOut, t.priceIn, t.priceOut)
 	return res, nil
 }

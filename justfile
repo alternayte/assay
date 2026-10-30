@@ -98,3 +98,14 @@ forbid:
 
 # The public gate.
 ci: gen-check fmt-check lint test contract e2e smoke bench forbid
+
+# It calls the models of that instance, so verify does not run it.
+# ASSAY_EVAL_URL and ASSAY_EVAL_TOKEN select the instance; ASSAY_EVAL_FILE
+# defaults to evals/questions.yaml.
+# Live evaluation: writes the report to the reports directory.
+eval:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ASSAY_EVAL_URL:?set ASSAY_EVAL_URL}" "${ASSAY_EVAL_TOKEN:?set ASSAY_EVAL_TOKEN}"
+    mkdir -p {{reports}}
+    go run ./cmd/assay eval --url "$ASSAY_EVAL_URL" --token "$ASSAY_EVAL_TOKEN" --file "${ASSAY_EVAL_FILE:-evals/questions.yaml}" --out {{reports}}/eval.md

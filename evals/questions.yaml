@@ -1,0 +1,240 @@
+# The Acme evaluation set (REQ-EVL-002). Each question names parts of the
+# titles or URLs of the items that a right answer cites, and words that it
+# states. A no_evidence question has no answer in the Acme corpus.
+#
+#   assay eval --url http://localhost:8080 --token assay_... --file evals/questions.yaml
+
+- id: own-payments-api
+  question: Who owns the Payments API?
+  sources: [acme/payments-api/catalog-info.yaml]
+  facts: [payments-team]
+
+- id: own-reminder-service
+  question: Which team owns the reminder service?
+  sources: [acme/reminder-service/catalog-info.yaml]
+  facts: [reminders-team]
+
+- id: own-ledger-service
+  question: Who owns the ledger service?
+  sources: [ledger-service/catalog-info.yaml]
+  facts: [platform-team]
+
+- id: team-hermes-owns
+  question: What does Team Hermes build and run?
+  sources: [Team Hermes]
+  facts: [Payments API, reminder service]
+
+- id: team-hermes-members
+  question: Who are the members of Team Hermes?
+  sources: [Team Hermes]
+  facts: [Alex Acme, Priya Acme, Sam Acme]
+
+- id: payments-purpose
+  question: What does the Payments API do?
+  sources: [Payments API overview, acme/payments-api/README.md]
+  facts: [card payments, Acme Journals]
+
+- id: payments-system
+  question: Which system is the Payments API part of?
+  sources: [Payments API overview]
+  facts: [Billing]
+
+- id: payments-endpoints
+  question: Which endpoint refunds a payment?
+  sources: [Payments API overview]
+  facts: ["/payments/{id}/refund"]
+
+- id: payments-dependencies
+  question: Which services does the Payments API depend on?
+  sources: [Payments API overview, acme/payments-api/catalog-info.yaml]
+  facts: [ledger]
+
+- id: fraud-timeout
+  question: After how long does the call to the Fraud check API time out?
+  sources: [Payments API overview]
+  facts: [2 seconds]
+
+- id: payments-language
+  question: In which language is the Payments API written?
+  sources: [acme/payments-api/docs/architecture.md]
+  facts: [Go]
+
+- id: payments-database
+  question: Where does the Payments API store payments?
+  sources: [acme/payments-api/docs/architecture.md, 0001-use-postgres]
+  facts: [PostgreSQL]
+
+- id: payments-port
+  question: On which port does the Payments API start with make run?
+  sources: [acme/payments-api/README.md]
+  facts: ["8080"]
+
+- id: payments-replicas
+  question: How many replicas does the Payments API run in production?
+  sources: [acme/payments-api/deploy/prod.yaml]
+  facts: ["3"]
+
+- id: alert-threshold
+  question: When do we page the on-call engineer for the Payments API?
+  sources: [Payments API runbook]
+  facts: [2 percent]
+
+- id: restart-payments
+  question: How do I restart the Payments API?
+  sources: [Payments API runbook]
+  facts: [Drain the queue]
+
+- id: refund-retry
+  question: Can I retry a refund by hand?
+  sources: [Payments API runbook]
+  facts: [Do not retry a refund by hand]
+
+- id: retry-policy
+  question: How many times does the Payments API retry a failed card call?
+  sources: ["Decision: retry policy for payments"]
+  facts: [three times, exponential backoff]
+
+- id: retry-policy-supersedes
+  question: Which rule does the retry policy decision supersede?
+  sources: ["Decision: retry policy for payments"]
+  facts: [single retry rule]
+
+- id: retry-policy-approver
+  question: Who accepted the retry policy decision?
+  sources: ["Decision: retry policy for payments"]
+  facts: [Review Board]
+
+- id: retry-queue-hold
+  question: How long does the retry queue hold failed calls?
+  sources: [PAY-2]
+  facts: [one hour]
+
+- id: retry-queue-assignee
+  question: Who works on the retry queue for the Payments API?
+  sources: [PAY-2]
+  facts: [Priya Acme]
+
+- id: payment-retries-status
+  question: What is the status of the Payment retries epic?
+  sources: [PAY-1]
+  facts: [In Progress]
+
+- id: payment-retries-due
+  question: When is the Payment retries epic due?
+  sources: [PAY-1]
+  facts: [2027-03-31]
+
+- id: retry-dashboard
+  question: What does the retry dashboard show?
+  sources: [PAY-3]
+  facts: [retry count per hour]
+
+- id: pay2-blocks
+  question: Which issue does the retry queue story block?
+  sources: [PAY-2]
+  facts: [PAY-3]
+
+- id: duplicate-charge
+  question: What caused the duplicate charge bug?
+  sources: [PAY-4]
+  facts: [Fraud check API]
+
+- id: duplicate-charge-status
+  question: Is the duplicate charge on timeout bug fixed?
+  sources: [PAY-4]
+  facts: [Done]
+
+- id: reminder-purpose
+  question: What does the reminder service do?
+  sources: [Reminder service, acme/reminder-service/README.md]
+  facts: [reminder emails]
+
+- id: reminder-due-dates
+  question: Where does the reminder service read due dates from?
+  sources: [Reminder service]
+  facts: [Peer Review Service]
+
+- id: second-reminder
+  question: When does the reminder service send a second reminder?
+  sources: [REM-1]
+  facts: [seven days]
+
+- id: open-access-week
+  question: What happens to reminders during Open Access Week?
+  sources: [REM-1]
+  facts: [Pause second reminders]
+
+- id: job-queue-decision
+  question: Which datastore does the reminder service use for its job queue?
+  sources: [ADR-001]
+  facts: [PostgreSQL]
+
+- id: job-queue-rationale
+  question: Why does the reminder service not use a message broker?
+  sources: [ADR-001]
+  facts: [One datastore is easier to operate]
+
+- id: reminder-cron
+  question: When can the reminder cron job be removed?
+  sources: [REM-3]
+  facts: [after the queue runs]
+
+- id: reminder-version
+  question: Which version is the reminder service package?
+  sources: [acme/reminder-service/package.json]
+  facts: [0.3.0]
+
+- id: ledger-purpose
+  question: What does the ledger service record?
+  sources: [Platform/ledger-service/README.md]
+  facts: [settled payments]
+
+- id: ledger-restart
+  question: Who must approve a restart of the ledger service?
+  sources: [Platform/ledger-service/docs/runbook.md]
+  facts: [finance team]
+
+- id: ledger-chart
+  question: Which chart version does the ledger service deploy?
+  sources: [Platform/ledger-service/Chart.yaml]
+  facts: [2.1.0]
+
+- id: oncall-start
+  question: When does the on-call week start?
+  sources: [On-call handbook]
+  facts: [Monday at 09:00]
+
+- id: oncall-escalate
+  question: When do we escalate an incident to the engineering manager?
+  sources: [On-call handbook]
+  facts: [30 minutes]
+
+- id: glossary-apc
+  question: What is an Article Processing Charge?
+  sources: [Acme glossary]
+  facts: [fee that an author pays]
+
+- id: glossary-editor
+  question: What does an editor do?
+  sources: [Acme glossary]
+  facts: [decides whether a journal accepts a manuscript]
+
+- id: none-cafeteria
+  question: What is on the cafeteria menu on Fridays?
+  no_evidence: true
+
+- id: none-parking
+  question: How many parking spaces does the Acme office have?
+  no_evidence: true
+
+- id: none-kubernetes-version
+  question: Which Kubernetes version runs the reminder service cluster?
+  no_evidence: true
+
+- id: none-salary
+  question: What is the salary band of an engineering manager?
+  no_evidence: true
+
+- id: none-mobile-app
+  question: Who owns the Acme mobile app?
+  no_evidence: true

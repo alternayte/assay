@@ -255,7 +255,16 @@ type Answer struct {
 	// deprecated forms (REQ-VOC-005, REQ-VOC-006).
 	Links     vocab.Linked    `json:"links"`
 	Lint      []vocab.Finding `json:"lint"`
+	Usage     *AnswerUsage    `json:"usage,omitempty" doc:"The answer model call. Absent without an answer."`
 	CreatedAt time.Time       `json:"createdAt"`
+}
+
+// AnswerUsage is the model use of one answer.
+type AnswerUsage struct {
+	Model     string  `json:"model"`
+	TokensIn  int     `json:"tokensIn"`
+	TokensOut int     `json:"tokensOut"`
+	CostUSD   float64 `json:"costUsd"`
 }
 
 // Notice tells the user that Assay shows results without an answer.
@@ -328,6 +337,7 @@ func (s *Service) Ask(ctx context.Context, userID string, vis visibility.Set, qu
 			Sources: c.Sources, Claims: c.Claims, Results: c.Results, Notice: noticeOf(err), Links: vocab.LinkText(nil, "", 0), Lint: []vocab.Finding{}}
 	} else {
 		a = c.Finish(question, res.Content)
+		a.Usage = &AnswerUsage{Model: res.Model, TokensIn: res.TokensIn, TokensOut: res.TokensOut, CostUSD: res.CostUSD}
 		s.queueCited(ctx, vis, &a)
 	}
 	a.CreatedAt = s.now()

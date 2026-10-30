@@ -1802,6 +1802,17 @@ export interface components {
             /** @description Sentences without a valid citation. */
             uncited: string[];
             unknowns: string[];
+            /** @description The answer model call. Absent without an answer. */
+            usage?: components["schemas"]["AnswerUsage"];
+        };
+        AnswerUsage: {
+            /** Format: double */
+            costUsd: number;
+            model: string;
+            /** Format: int64 */
+            tokensIn: number;
+            /** Format: int64 */
+            tokensOut: number;
         };
         AskInBody: {
             /**

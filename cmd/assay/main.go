@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/alternayte/assay/internal/app"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/doctor"
+	"github.com/alternayte/assay/internal/eval"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/users"
@@ -35,6 +38,9 @@ Commands:
                          Then set ASSAY_SECRET_KEY to that key and restart.
   fixtures serve         Serve the fake model API and the fake source APIs for
                          tests and the demo: --addr, default :8090.
+  eval                   Ask a question set and write a Markdown report:
+                         --url, --token, --file, optional --out (default
+                         stdout) and --title.
   version                Print the version.
 
 Without --password, the command prints a generated password once.
@@ -59,6 +65,8 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return 0
 	case "fixtures":
 		return fixturesServe(args[1:], stderr)
+	case "eval":
+		return runEval(args[1:], stdout, stderr)
 	case "serve", "migrate", "admin", "secrets", "doctor":
 	default:
 		fmt.Fprintf(stderr, "assay: unknown command %q\n\n%s", args[0], usage)
@@ -222,5 +230,45 @@ func fixturesServe(args []string, stderr io.Writer) int {
 		log.Error("fixtures stopped", "error", err.Error())
 		return 1
 	}
+	return 0
+}
+
+// runEval asks each question of a set with an access token and writes the
+// report (REQ-EVL-003).
+func runEval(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("assay eval", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	base := fs.String("url", "", "the URL of the Assay instance")
+	token := fs.String("token", "", "an access token; ASSAY_TOKEN when empty")
+	file := fs.String("file", "", "the question set, such as evals/questions.yaml")
+	out := fs.String("out", "", "the report file; empty writes to stdout")
+	title := fs.String("title", "Assay evaluation", "the report title")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *token == "" {
+		*token = os.Getenv("ASSAY_TOKEN")
+	}
+	if *base == "" || *token == "" || *file == "" {
+		fmt.Fprintln(stderr, "assay eval: give --url, --token and --file")
+		return 2
+	}
+	qs, err := eval.Load(*file)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay eval: %v\n", err)
+		return 1
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	report := eval.Score(eval.Run(ctx, &http.Client{Timeout: 2 * time.Minute}, *base, *token, qs)).Markdown(*title)
+	if *out == "" {
+		fmt.Fprint(stdout, report)
+		return 0
+	}
+	if err := os.WriteFile(*out, []byte(report), 0o644); err != nil { //nolint:gosec // A report holds no secret.
+		fmt.Fprintf(stderr, "assay eval: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "assay eval: %d questions, report in %s\n", len(qs), *out)
 	return 0
 }

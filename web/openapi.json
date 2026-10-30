@@ -147,6 +147,10 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/AnswerUsage",
+            "description": "The answer model call. Absent without an answer."
           }
         },
         "required": [
@@ -164,6 +168,33 @@
           "links",
           "lint",
           "createdAt"
+        ],
+        "type": "object"
+      },
+      "AnswerUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "costUsd": {
+            "format": "double",
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "tokensIn": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tokensOut": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model",
+          "tokensIn",
+          "tokensOut",
+          "costUsd"
         ],
         "type": "object"
       },

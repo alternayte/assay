@@ -23,6 +23,7 @@ SELECT m.id, m.canonical_name, m.auto, m.created_at,
              ORDER BY x.id)::text[] AS names
 FROM merges m
 WHERE m.winner_id = $2 AND m.undone_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = m.winner_id AND es.connection_id = ANY($1::bigint[]))
   AND NOT EXISTS (SELECT 1 FROM entities x
                   WHERE x.id = ANY(m.loser_ids)
                     AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($1::bigint[])))
@@ -43,8 +44,8 @@ type ActiveMergesRow struct {
 	Names         []string
 }
 
-// The active merges into an entity whose losers are all visible: a merge
-// with a hidden loser would show its canonical name (SI-16).
+// The active merges into an entity whose winner and losers are all visible:
+// a merge with a hidden entity would show its canonical name (SI-16).
 func (q *Queries) ActiveMerges(ctx context.Context, arg ActiveMergesParams) ([]ActiveMergesRow, error) {
 	rows, err := q.db.Query(ctx, activeMerges, arg.Visible, arg.WinnerID)
 	if err != nil {
@@ -128,8 +129,8 @@ func (q *Queries) Edges(ctx context.Context, arg EdgesParams) ([]EdgesRow, error
 }
 
 const explore = `-- name: Explore :many
-SELECT e.id, e.key, e.type, e.status, e.domain_id, coalesce(d.name, '')::text AS domain_name,
-       coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
+SELECT e.id, coalesce(entity_visible_key(e.id, $1::bigint[]), e.key)::text AS key, e.type, e.status, e.domain_id,
+       coalesce(d.name, '')::text AS domain_name, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
        greatest(e.updated_at,
                 (SELECT max(ev.updated_at) FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
                  WHERE (c.subject_id = e.id OR c.subject_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
@@ -391,7 +392,8 @@ func (q *Queries) Members(ctx context.Context, id int64) ([]int64, error) {
 }
 
 const nodes = `-- name: Nodes :many
-SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+SELECT e.id, coalesce(entity_visible_key(e.id, $1::bigint[]), e.key)::text AS key, e.type,
+       coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
 FROM entities e WHERE e.id = ANY($2::bigint[])
 `
 
@@ -550,7 +552,7 @@ func (q *Queries) VisibleAliases(ctx context.Context, arg VisibleAliasesParams) 
 }
 
 const visibleEntityByKey = `-- name: VisibleEntityByKey :one
-SELECT w.id, w.key, w.type, w.status, w.domain_id, coalesce(d.name, '')::text AS domain_name,
+SELECT w.id, coalesce(entity_visible_key(w.id, $1::bigint[]), w.key)::text AS key, w.type, w.status, w.domain_id, coalesce(d.name, '')::text AS domain_name,
        coalesce(entity_display_name(w.id, $1::bigint[]), w.key)::text AS name, w.created_at
 FROM entities e
 JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
@@ -579,7 +581,8 @@ type VisibleEntityByKeyRow struct {
 }
 
 // An entity by key, for a reader. A merged entity resolves to its winner.
-// A hidden entity and a missing key give no row.
+// A hidden entity and a missing key give no row. The key is the visible key
+// of the winner.
 func (q *Queries) VisibleEntityByKey(ctx context.Context, arg VisibleEntityByKeyParams) (VisibleEntityByKeyRow, error) {
 	row := q.db.QueryRow(ctx, visibleEntityByKey, arg.Visible, arg.Key)
 	var i VisibleEntityByKeyRow

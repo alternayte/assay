@@ -1,8 +1,8 @@
 -- name: Explore :many
 -- Visible entities with filters, newest change first. An entity is visible
 -- when it has a visible source. Merged entities show as their winner.
-SELECT e.id, e.key, e.type, e.status, e.domain_id, coalesce(d.name, '')::text AS domain_name,
-       coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
+SELECT e.id, coalesce(entity_visible_key(e.id, @visible::bigint[]), e.key)::text AS key, e.type, e.status, e.domain_id,
+       coalesce(d.name, '')::text AS domain_name, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
        greatest(e.updated_at,
                 (SELECT max(ev.updated_at) FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
                  WHERE (c.subject_id = e.id OR c.subject_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
@@ -25,8 +25,9 @@ LIMIT @lim;
 
 -- name: VisibleEntityByKey :one
 -- An entity by key, for a reader. A merged entity resolves to its winner.
--- A hidden entity and a missing key give no row.
-SELECT w.id, w.key, w.type, w.status, w.domain_id, coalesce(d.name, '')::text AS domain_name,
+-- A hidden entity and a missing key give no row. The key is the visible key
+-- of the winner.
+SELECT w.id, coalesce(entity_visible_key(w.id, @visible::bigint[]), w.key)::text AS key, w.type, w.status, w.domain_id, coalesce(d.name, '')::text AS domain_name,
        coalesce(entity_display_name(w.id, @visible::bigint[]), w.key)::text AS name, w.created_at
 FROM entities e
 JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
@@ -104,12 +105,13 @@ WHERE c.retracted_at IS NULL
 ORDER BY c.id;
 
 -- name: Nodes :many
-SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
+SELECT e.id, coalesce(entity_visible_key(e.id, @visible::bigint[]), e.key)::text AS key, e.type,
+       coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name
 FROM entities e WHERE e.id = ANY(@ids::bigint[]);
 
 -- name: ActiveMerges :many
--- The active merges into an entity whose losers are all visible: a merge
--- with a hidden loser would show its canonical name (SI-16).
+-- The active merges into an entity whose winner and losers are all visible:
+-- a merge with a hidden entity would show its canonical name (SI-16).
 SELECT m.id, m.canonical_name, m.auto, m.created_at,
        array(SELECT x.key FROM entities x
              WHERE x.id = ANY(m.loser_ids)
@@ -121,6 +123,7 @@ SELECT m.id, m.canonical_name, m.auto, m.created_at,
              ORDER BY x.id)::text[] AS names
 FROM merges m
 WHERE m.winner_id = @winner_id AND m.undone_at IS NULL
+  AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = m.winner_id AND es.connection_id = ANY(@visible::bigint[]))
   AND NOT EXISTS (SELECT 1 FROM entities x
                   WHERE x.id = ANY(m.loser_ids)
                     AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[])))

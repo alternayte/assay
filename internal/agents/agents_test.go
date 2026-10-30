@@ -112,7 +112,7 @@ func call(t *testing.T, s *mcp.ClientSession, tools map[string]*mcp.Tool, name s
 	return out
 }
 
-func listTools(t *testing.T, s *mcp.ClientSession) map[string]*mcp.Tool {
+func toolsOf(t *testing.T, s *mcp.ClientSession) map[string]*mcp.Tool {
 	t.Helper()
 	r, err := s.ListTools(context.Background(), nil)
 	if err != nil {
@@ -137,7 +137,7 @@ func (w *world) scalar(t *testing.T, sql string, args ...any) any {
 func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
 	w := start(t)
 	s := connect(t, w, token(t, w.member))
-	tools := listTools(t, s)
+	tools := toolsOf(t, s)
 	want := []string{"search_context", "get_entity", "get_knowledge_page", "trace_relationships", "get_decisions", "get_terms", "propose_finding"}
 	names := make([]string, 0, len(tools))
 	for n := range tools {
@@ -188,7 +188,7 @@ func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
 func TestSCN_AGT_002_MaxTokensAndExcerpts(t *testing.T) {
 	w := start(t)
 	s := connect(t, w, token(t, w.member))
-	tools := listTools(t, s)
+	tools := toolsOf(t, s)
 
 	full := call(t, s, tools, "search_context", map[string]any{"query": "payments retry queue ledger"})
 	if full["truncated"] != false {

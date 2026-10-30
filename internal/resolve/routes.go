@@ -871,6 +871,9 @@ func (s *Service) Register(a huma.API) {
 		if errors.Is(err, ErrCardDone) {
 			return nil, api.Problem(http.StatusConflict, "not_auto", "The decision is not auto-applied.")
 		}
+		if errors.Is(err, entities.ErrMergeChanged) {
+			return nil, api.Problem(http.StatusConflict, "merge_changed", "A later merge includes these entities. Split the later merge first.")
+		}
 		return nil, cardErr(err)
 	})
 

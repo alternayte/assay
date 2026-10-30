@@ -391,6 +391,25 @@ func (q *Queries) Members(ctx context.Context, id int64) ([]int64, error) {
 	return items, nil
 }
 
+const mergeVisible = `-- name: MergeVisible :one
+SELECT EXISTS (SELECT 1 FROM merges m WHERE m.id = $1
+  AND NOT EXISTS (SELECT 1 FROM unnest(m.winner_id || m.loser_ids) x(id)
+                  WHERE NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY($2::bigint[]))))::bool
+`
+
+type MergeVisibleParams struct {
+	ID      int64
+	Visible []int64
+}
+
+// Whether the merge exists and the reader sees a source of each entity.
+func (q *Queries) MergeVisible(ctx context.Context, arg MergeVisibleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, mergeVisible, arg.ID, arg.Visible)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const nodes = `-- name: Nodes :many
 SELECT e.id, coalesce(entity_visible_key(e.id, $1::bigint[]), e.key)::text AS key, e.type,
        coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
@@ -498,7 +517,7 @@ func (q *Queries) UndoMerge(ctx context.Context, arg UndoMergeParams) (int64, er
 	return result.RowsAffected(), nil
 }
 
-const unmerge = `-- name: Unmerge :exec
+const unmerge = `-- name: Unmerge :execrows
 UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
 WHERE id = ANY($1::bigint[]) AND merged_into = $2
 `
@@ -508,9 +527,12 @@ type UnmergeParams struct {
 	Winner *int64
 }
 
-func (q *Queries) Unmerge(ctx context.Context, arg UnmergeParams) error {
-	_, err := q.db.Exec(ctx, unmerge, arg.Ids, arg.Winner)
-	return err
+func (q *Queries) Unmerge(ctx context.Context, arg UnmergeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unmerge, arg.Ids, arg.Winner)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const visibleAliases = `-- name: VisibleAliases :many

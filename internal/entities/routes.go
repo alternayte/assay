@@ -217,12 +217,18 @@ func (s *Service) Register(a huma.API) {
 	}, func(ctx context.Context, in *struct {
 		ID int64 `path:"id"`
 	}) (*struct{}, error) {
-		err := s.Split(ctx, in.ID)
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		err = s.Split(ctx, vis, in.ID)
 		switch {
 		case errors.Is(err, ErrNotFound):
 			return nil, api.ErrNotFound
 		case errors.Is(err, ErrMergeUndone):
 			return nil, api.Problem(http.StatusConflict, "already_split", "The merge is already split.")
+		case errors.Is(err, ErrMergeChanged):
+			return nil, api.Problem(http.StatusConflict, "merge_changed", "A later merge includes these entities. Split the later merge first.")
 		case err != nil:
 			return nil, api.Internal(err)
 		}

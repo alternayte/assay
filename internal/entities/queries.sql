@@ -84,7 +84,13 @@ SELECT * FROM merges WHERE id = @id;
 -- name: UndoMerge :execrows
 UPDATE merges SET undone_at = @now WHERE id = @id AND undone_at IS NULL;
 
--- name: Unmerge :exec
+-- name: MergeVisible :one
+-- Whether the merge exists and the reader sees a source of each entity.
+SELECT EXISTS (SELECT 1 FROM merges m WHERE m.id = @id
+  AND NOT EXISTS (SELECT 1 FROM unnest(m.winner_id || m.loser_ids) x(id)
+                  WHERE NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[]))))::bool;
+
+-- name: Unmerge :execrows
 UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
 WHERE id = ANY(@ids::bigint[]) AND merged_into = @winner;
 

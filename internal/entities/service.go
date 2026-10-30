@@ -462,9 +462,22 @@ func boolFirst(b bool) int {
 // ErrMergeUndone means that the merge is already split.
 var ErrMergeUndone = errors.New("entities: the merge is already split")
 
-// Split undoes a merge: the losers become active again.
-func (s *Service) Split(ctx context.Context, mergeID int64) error {
-	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.SplitTx(ctx, tx, mergeID) })
+// ErrMergeChanged means that a later merge moved the entities of the merge.
+var ErrMergeChanged = errors.New("entities: a later merge includes the entities")
+
+// Split undoes a merge for a reader who sees every entity of it: the losers
+// become active again. A merge with a hidden entity is not found (SI-02).
+func (s *Service) Split(ctx context.Context, vis visibility.Set, mergeID int64) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		ok, err := New(tx).MergeVisible(ctx, MergeVisibleParams{ID: mergeID, Visible: vis})
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrNotFound
+		}
+		return s.SplitTx(ctx, tx, mergeID)
+	})
 }
 
 // SplitTx splits a merge in the transaction tx.
@@ -485,8 +498,12 @@ func (s *Service) SplitTx(ctx context.Context, tx pgx.Tx, mergeID int64) error {
 		if n == 0 {
 			return ErrMergeUndone
 		}
-		if err := q.Unmerge(ctx, UnmergeParams{Ids: m.LoserIds, Winner: &m.WinnerID}); err != nil {
+		n, err = q.Unmerge(ctx, UnmergeParams{Ids: m.LoserIds, Winner: &m.WinnerID})
+		if err != nil {
 			return err
+		}
+		if int(n) != len(m.LoserIds) {
+			return ErrMergeChanged
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "entities.split", Target: fmt.Sprintf("merge:%d", mergeID),
 			Details: map[string]any{"winner": m.WinnerID, "losers": m.LoserIds}})

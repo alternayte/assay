@@ -734,7 +734,7 @@ func (s *Service) Register(a huma.API) {
 	type rejectIn struct {
 		ID   int64 `path:"id"`
 		Body struct {
-			Reason string `json:"reason" minLength:"1" maxLength:"1000"`
+			Reason string `json:"reason" minLength:"1" maxLength:"1000" pattern:"\\S" patternDescription:"text"`
 		}
 	}
 	huma.Register(a, huma.Operation{

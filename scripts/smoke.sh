@@ -216,7 +216,7 @@ if [ -z "$detail" ]; then
 		[ -f "$root/dist/assay_${tag}_${target}.tar.gz" ] || detail="$detail no archive for $target"
 		grep -q "assay_${tag}_${target}.tar.gz" "$root/dist/checksums.txt" || detail="$detail no checksum for $target"
 	done
-	for f in install.sh compose.yaml .env.example; do
+	for f in install.sh compose.yaml env.example; do
 		grep -q " $f\$" "$root/dist/checksums.txt" || detail="$detail no checksum for $f"
 	done
 	for arch in amd64 arm64; do

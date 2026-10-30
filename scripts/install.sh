@@ -13,7 +13,7 @@
 #
 # Variables:
 #   ASSAY_IMAGE        Use this image. A local image is not pulled.
-#   ASSAY_INSTALL_SRC  Read compose.yaml and .env.example from this directory
+#   ASSAY_INSTALL_SRC  Read compose.yaml and env.example from this directory
 #                      or URL instead of the release.
 set -eu
 
@@ -72,7 +72,10 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 is not availab
 command -v curl >/dev/null 2>&1 || fail "curl is not installed. Install curl and run this script again."
 docker info >/dev/null 2>&1 || fail "The Docker daemon does not respond. Start Docker Desktop and wait until it runs. Then run this script again."
 
+# .env holds secrets: every file that this script writes is for the owner only.
+umask 077
 mkdir -p "$dir"
+dir=$(cd "$dir" && pwd)
 cd "$dir"
 
 compose() { docker compose --project-directory "$dir" -f "$dir/compose.yaml" "$@"; }
@@ -106,7 +109,7 @@ fetch() {
 }
 
 fetch compose.yaml compose.yaml
-fetch .env.example .env.example
+fetch env.example env.example
 
 random_base64() {
 	if command -v openssl >/dev/null 2>&1; then
@@ -130,7 +133,7 @@ first=0
 if [ ! -f .env ]; then
 	first=1
 	umask 077
-	cp .env.example .env
+	cp env.example .env
 	set_var ASSAY_SECRET_KEY "$(random_base64 32)"
 	set_var POSTGRES_PASSWORD "$(random_token 32 32)"
 	set_var ASSAY_SETUP_TOKEN "$(random_token 32 24)"

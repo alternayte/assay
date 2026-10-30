@@ -13,7 +13,7 @@ curl -fsSL https://github.com/alternayte/assay/releases/latest/download/install.
 The script does these steps:
 
 1. It checks Docker, Compose v2 and the Docker daemon. If one is missing, it stops and names Docker Desktop.
-2. It downloads `compose.yaml` and `.env.example` from the release.
+2. It downloads `compose.yaml` and `env.example` from the release.
 3. On the first run only, it creates `.env` with a new secret key, a database password and a setup token.
 4. It pulls the image and starts the services. Assay binds to `127.0.0.1` only.
 5. It waits until `/readyz` answers, then prints the URL and the setup token.
@@ -32,7 +32,7 @@ Open `/setup` and create the first admin with the setup token. Then add connecti
 
 To pass flags through the pipe, use `sh -s --`, for example `... | sh -s -- --port 9090`.
 
-`ASSAY_IMAGE` selects another image, for example a local build. `ASSAY_INSTALL_SRC` reads `compose.yaml` and `.env.example` from a directory or URL instead of the release.
+`ASSAY_IMAGE` selects another image, for example a local build. `ASSAY_INSTALL_SRC` reads `compose.yaml` and `env.example` from a directory or URL instead of the release.
 
 ### The demo
 

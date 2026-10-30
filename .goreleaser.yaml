@@ -28,7 +28,7 @@ checksum:
   extra_files:
     - glob: scripts/install.sh
     - glob: deploy/compose/compose.yaml
-    - glob: deploy/compose/.env.example
+    - glob: deploy/compose/env.example
 
 dockers:
   - image_templates: ["ghcr.io/alternayte/assay:{{ .Tag }}-amd64"]
@@ -62,7 +62,7 @@ release:
   extra_files:
     - glob: scripts/install.sh
     - glob: deploy/compose/compose.yaml
-    - glob: deploy/compose/.env.example
+    - glob: deploy/compose/env.example
 
 changelog:
   use: git

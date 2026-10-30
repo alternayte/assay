@@ -138,7 +138,7 @@ func orStrings(s []string) []string {
 }
 
 // resolve returns the source of a request body, with the stored token when
-// the body has none.
+// the body has none and names the stored kind and base URL.
 func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 	if err := checkURL(b.BaseURL); err != nil {
 		return source{}, err
@@ -157,7 +157,10 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 		if err != nil {
 			return source{}, err
 		}
-		src.Token = stored.Token
+		// The stored token goes only to the host that it belongs to (SI-04).
+		if stored.Kind == src.Kind && stored.BaseURL == src.BaseURL {
+			src.Token = stored.Token
+		}
 	}
 	if src.Token == "" {
 		return source{}, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
@@ -294,7 +297,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "updateConnection", Method: http.MethodPut, Path: "/api/v1/connections/{id}", Tags: tags,
-		Summary: "Change a connection", Description: "The kind cannot change. An empty token keeps the stored token.",
+		Summary: "Change a connection", Description: "The kind cannot change. An empty token keeps the stored token, and then the base URL cannot change.",
 		DefaultStatus: http.StatusNoContent, Middlewares: admins,
 	}, func(ctx context.Context, in *updateIn) (*struct{}, error) {
 		b := in.Body
@@ -315,6 +318,10 @@ func (s *Service) Register(a huma.API) {
 			}
 			if cur.Kind != b.Kind {
 				return api.Problem(http.StatusUnprocessableEntity, "kind_fixed", "The kind of a connection cannot change.")
+			}
+			// The stored token goes only to the host that it belongs to (SI-04).
+			if b.Token == "" && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
+				return api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter the token again for the new URL.")
 			}
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),

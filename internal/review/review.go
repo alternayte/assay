@@ -52,7 +52,7 @@ type ReportSource struct {
 // ProblemReport is a problem report on one claim.
 type ProblemReport struct {
 	Problem string        `json:"problem" enum:"wrong_value,outdated,not_here"`
-	Reason  string        `json:"reason" minLength:"1" maxLength:"2000"`
+	Reason  string        `json:"reason" minLength:"1" maxLength:"2000" pattern:"\\S" patternDescription:"text"`
 	Value   *ClaimValue   `json:"value,omitempty" doc:"The correct value. Required for wrong_value."`
 	Source  *ReportSource `json:"source,omitempty"`
 }

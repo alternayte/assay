@@ -435,7 +435,7 @@ export interface paths {
         get: operations["getConnection"];
         /**
          * Change a connection
-         * @description The kind cannot change. An empty token keeps the stored token.
+         * @description The kind cannot change. An empty token keeps the stored token, and then the base URL cannot change.
          */
         put: operations["updateConnection"];
         post?: never;

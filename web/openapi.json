@@ -4027,6 +4027,8 @@
           "reason": {
             "maxLength": 2000,
             "minLength": 1,
+            "pattern": "\\S",
+            "patternDescription": "text",
             "type": "string"
           },
           "source": {
@@ -4407,6 +4409,8 @@
           "reason": {
             "maxLength": 1000,
             "minLength": 1,
+            "pattern": "\\S",
+            "patternDescription": "text",
             "type": "string"
           }
         },
@@ -7594,7 +7598,7 @@
         ]
       },
       "put": {
-        "description": "The kind cannot change. An empty token keeps the stored token.",
+        "description": "The kind cannot change. An empty token keeps the stored token, and then the base URL cannot change.",
         "operationId": "updateConnection",
         "parameters": [
           {

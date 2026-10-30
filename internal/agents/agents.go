@@ -96,8 +96,7 @@ func add[In, Out any](s *Service, srv *mcp.Server, scope, name, desc string, fn 
 		} else {
 			err = &userError{"The access token does not have the " + scope + " scope."}
 		}
-		args, _ := json.Marshal(in)
-		details := map[string]any{"tool": name, "input": json.RawMessage(args)}
+		details := map[string]any{"tool": name, "input": auditInput(in)}
 		if err != nil {
 			details["error"] = err.Error()
 		}
@@ -114,6 +113,33 @@ func add[In, Out any](s *Service, srv *mcp.Server, scope, name, desc string, fn 
 		}
 		return nil, out, nil
 	})
+}
+
+// auditInput returns the tool input for the audit log without quote fields.
+// A quote is source text, and admins outside its visible set read the log
+// (SI-01).
+func auditInput(in any) any {
+	b, _ := json.Marshal(in)
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return nil
+	}
+	var strip func(any)
+	strip = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			delete(x, "quote")
+			for _, e := range x {
+				strip(e)
+			}
+		case []any:
+			for _, e := range x {
+				strip(e)
+			}
+		}
+	}
+	strip(v)
+	return v
 }
 
 // userError is an error that the caller can fix. A hidden object and a

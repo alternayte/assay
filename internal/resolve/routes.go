@@ -611,7 +611,7 @@ func (s *Service) acceptConflict(ctx context.Context, tx pgx.Tx, vis visibility.
 // skippable reports whether an accept failed for a reason of the card
 // alone, so that a bulk accept goes on.
 func skippable(err error) bool {
-	for _, e := range []error{ErrCardDone, ErrNotFound, errMembers, errCardKind, entities.ErrNotFound, entities.ErrMergeChanged} {
+	for _, e := range []error{ErrCardDone, ErrNotFound, ErrStale, errMembers, errCardKind, entities.ErrNotFound, entities.ErrMergeChanged} {
 		if errors.Is(err, e) {
 			return true
 		}

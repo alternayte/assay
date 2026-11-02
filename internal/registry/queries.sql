@@ -15,7 +15,8 @@ ORDER BY c.id;
 -- Everyone is a source: only such an entity can appear in the registry,
 -- which everyone reads.
 SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, @everyone::bigint[]), e.key)::text AS name,
-       EXISTS (SELECT 1 FROM entity_sources p WHERE p.entity_id = e.id AND p.connection_id = ANY(@everyone::bigint[]))::boolean AS public
+       EXISTS (SELECT 1 FROM entity_sources p WHERE p.entity_id = e.id AND p.connection_id = ANY(@everyone::bigint[])
+                                                    AND p.connection_id = ANY(@visible::bigint[]))::boolean AS public
 FROM entities e
 WHERE e.key = ANY(@keys::text[]) AND e.status <> 'merged'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY(@visible::bigint[]));

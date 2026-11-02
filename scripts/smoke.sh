@@ -167,7 +167,7 @@ else
 fi
 
 # SCN-INS-008: --demo starts the fixture server, and setup creates the Acme
-# connections, whose first sync completes. A separate project keeps the data
+# connections, whose first sync completes. --no-demo removes them again. A separate project keeps the data
 # of the first install out.
 start=$(now_ms)
 demo="$work/demo"
@@ -198,6 +198,20 @@ print(" ".join(names))' 2>/dev/null || true)
 	sleep 1
 done
 [ "$synced" = "acme-azdo acme-engineering acme-github acme-jira acme-restricted" ] || detail="$detail synced connections: [$synced]"
+# --no-demo removes the demo connections and stops the fixture server.
+if [ -z "$detail" ]; then
+	out=$(COMPOSE_PROJECT_NAME=assay-smoke-demo ASSAY_IMAGE=$image ASSAY_INSTALL_SRC="$root/deploy/compose" \
+		sh "$root/scripts/install.sh" --dir "$demo" --port "$dport" --no-demo 2>&1) && code=0 || code=$?
+	[ "$code" -eq 0 ] || detail="$detail --no-demo failed: $out"
+	printf '%s' "$out" | grep -q "Removed the demo connections" || detail="$detail --no-demo removed nothing: $out"
+	left=$(curl -fsS -b "$jar" "$dbase/api/v1/connections" | python3 -c '
+import json, sys
+print(" ".join(sorted(c["name"] for c in json.load(sys.stdin)["connections"])))' 2>/dev/null || true)
+	[ "$left" = "Registry" ] || detail="$detail connections after --no-demo: [$left]"
+	grep -q '^ASSAY_DEMO=false' "$demo/.env" || detail="$detail .env keeps the demo on"
+	fx=$(docker compose --project-directory "$demo" -f "$demo/compose.yaml" -p assay-smoke-demo --profile demo ps -q fixtures 2>/dev/null | wc -l | tr -d ' ')
+	[ "$fx" = 0 ] || detail="$detail the fixture server still runs"
+fi
 docker compose --project-directory "$demo" -f "$demo/compose.yaml" -p assay-smoke-demo --profile demo down -v >/dev/null 2>&1 || true
 if [ -z "$detail" ]; then
 	result SCN-INS-008 true $(($(now_ms) - start))

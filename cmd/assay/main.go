@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,6 +49,8 @@ Commands:
                          --url, --token, --file, optional --out (default
                          stdout), --title and --labels (a labels file or the
                          fixture manifest URL, for the decision bands).
+  demo remove            Purge the Acme demo connections with their data.
+                         Data that people added stays.
   version                Print the version.
 
 Without --password, the command prints a generated password once.
@@ -74,7 +77,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return fixturesServe(args[1:], stderr)
 	case "eval":
 		return runEval(args[1:], stdout, stderr)
-	case "serve", "migrate", "admin", "secrets", "doctor", "reindex":
+	case "serve", "migrate", "admin", "secrets", "doctor", "reindex", "demo":
 	default:
 		fmt.Fprintf(stderr, "assay: unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -100,6 +103,8 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return runDoctor(ctx, cfg, stdout)
 	case "reindex":
 		return runReindex(ctx, cfg, log, stdout, stderr)
+	case "demo":
+		return removeDemo(ctx, cfg, log, args[1:], stdout, stderr)
 	case "migrate":
 		pool, _, err := app.Open(ctx, cfg, log, auth.Options{})
 		if err != nil {
@@ -218,6 +223,31 @@ func runDoctor(ctx context.Context, cfg app.Config, stdout io.Writer) int {
 	if doctor.Failed(checks) {
 		return 1
 	}
+	return 0
+}
+
+// removeDemo purges the demo connections with their data.
+func removeDemo(ctx context.Context, cfg app.Config, log *slog.Logger, args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 || args[0] != "remove" {
+		fmt.Fprint(stderr, usage)
+		return 2
+	}
+	s, err := app.New(ctx, cfg, log, app.Options{})
+	if err != nil {
+		log.Error("start failed", "error", err.Error())
+		return 1
+	}
+	defer s.Close()
+	names, err := s.Sync().RemoveDemo(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: the removal stopped after %d connections: %v\n", len(names), err)
+		return 1
+	}
+	if len(names) == 0 {
+		fmt.Fprintln(stdout, "No demo connection exists.")
+		return 0
+	}
+	fmt.Fprintf(stdout, "Removed the demo connections and their data: %s.\n", strings.Join(names, ", "))
 	return 0
 }
 

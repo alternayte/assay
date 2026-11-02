@@ -22,7 +22,7 @@ To try Assay with the synthetic Acme data and no real source, add `--demo`:
 curl -fsSL https://github.com/alternayte/assay/releases/latest/download/install.sh | sh -s -- --demo
 ```
 
-After setup, Assay creates the Acme connections and syncs them. To get answers and page summaries, turn on the models in Settings, Models. [docs/install.md](docs/install.md) has the flags, updates, backups and the corporate proxy settings.
+After setup, Assay creates the Acme connections and syncs them. To get answers, page summaries and design pages, turn on the models in Settings, Models. To remove the demo data later, select **Remove the demo** in Settings, Connections, or run the install script with `--no-demo`. [docs/install.md](docs/install.md) has the flags, updates, backups and the corporate proxy settings.
 
 ## What Assay does
 

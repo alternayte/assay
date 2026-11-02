@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Plus } from "lucide-react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -58,58 +58,113 @@ export function ConnectionsPage() {
     </Button>
   );
   return (
-    <Sheet title={t("connections.title")} description={t("connections.body")} actions={add}>
-      {list.isPending ? (
-        <SkeletonRows label={t("app.loading")} rows={3} />
-      ) : list.isError ? (
-        <Notice tone="danger">{t("app.error")}</Notice>
-      ) : (
-        <>
-          <div className="overflow-x-auto">
-            <Table>
-              <thead>
-                <tr>
-                  <Th>{t("connections.colName")}</Th>
-                  <Th>{t("connections.colStatus")}</Th>
-                  <Th className="text-right">{t("connections.colItems")}</Th>
-                  <Th>{t("connections.colSync")}</Th>
-                  <Th>{t("connections.colShared")}</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.connections.map((c) => (
-                  <tr key={c.id}>
-                    <Td>
-                      <Link
-                        to="/settings/connections/$id"
-                        params={{ id: String(c.id) }}
-                        className="font-medium text-accent underline-offset-4 hover:underline"
-                      >
-                        {c.name}
-                      </Link>
-                      <div className="font-mono text-xs text-ink-muted">{kindLabel(c.kind)}</div>
-                    </Td>
-                    <Td>
-                      <StatusBadge c={c} />
-                    </Td>
-                    <Td className="text-right font-mono">{c.items}</Td>
-                    <Td className="font-mono text-sm">
-                      {c.kind === "registry"
-                        ? t("connections.none")
-                        : c.lastSyncAt
-                          ? formatAgo(c.lastSyncAt)
-                          : t("connections.never")}
-                    </Td>
-                    <Td className="text-sm">{sharedWith(c)}</Td>
+    <div className="flex flex-col gap-6">
+      <DemoNotice />
+      <Sheet title={t("connections.title")} description={t("connections.body")} actions={add}>
+        {list.isPending ? (
+          <SkeletonRows label={t("app.loading")} rows={3} />
+        ) : list.isError ? (
+          <Notice tone="danger">{t("app.error")}</Notice>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>{t("connections.colName")}</Th>
+                    <Th>{t("connections.colStatus")}</Th>
+                    <Th className="text-right">{t("connections.colItems")}</Th>
+                    <Th>{t("connections.colSync")}</Th>
+                    <Th>{t("connections.colShared")}</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          </div>
-          {list.data.connections.length <= 1 && <Empty action={add}>{t("connections.empty")}</Empty>}
-        </>
+                </thead>
+                <tbody>
+                  {list.data.connections.map((c) => (
+                    <tr key={c.id}>
+                      <Td>
+                        <Link
+                          to="/settings/connections/$id"
+                          params={{ id: String(c.id) }}
+                          className="font-medium text-accent underline-offset-4 hover:underline"
+                        >
+                          {c.name}
+                        </Link>
+                        <div className="font-mono text-xs text-ink-muted">{kindLabel(c.kind)}</div>
+                      </Td>
+                      <Td>
+                        <StatusBadge c={c} />
+                      </Td>
+                      <Td className="text-right font-mono">{c.items}</Td>
+                      <Td className="font-mono text-sm">
+                        {c.kind === "registry"
+                          ? t("connections.none")
+                          : c.lastSyncAt
+                            ? formatAgo(c.lastSyncAt)
+                            : t("connections.never")}
+                      </Td>
+                      <Td className="text-sm">{sharedWith(c)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            </div>
+            {list.data.connections.length <= 1 && <Empty action={add}>{t("connections.empty")}</Empty>}
+          </>
+        )}
+      </Sheet>
+    </div>
+  );
+}
+
+/** While the Acme demo connections exist, admins can remove them with their data in one step. */
+function DemoNotice() {
+  const qc = useQueryClient();
+  const [asking, setAsking] = useState(false);
+  const demo = useQuery({
+    queryKey: ["demo"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/demo")).connections,
+  });
+  const remove = useMutation({
+    mutationFn: async () => unwrap(await api.POST("/api/v1/demo/remove")).connections,
+    onSuccess: () => {
+      setAsking(false);
+      qc.invalidateQueries();
+    },
+  });
+  if (remove.isSuccess) {
+    return <Notice tone="success">{t("connections.demoRemoved", { names: remove.data.join(", ") })}</Notice>;
+  }
+  const names = demo.data ?? [];
+  if (names.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-rule bg-paper-raised p-4 shadow-sheet sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-1">
+        <p className="font-medium">{t("connections.demoTitle")}</p>
+        <p className="text-base text-ink-muted">{t("connections.demoBody", { names: names.join(", ") })}</p>
+      </div>
+      <Button onClick={() => setAsking(true)} className="shrink-0">
+        <Trash2 aria-hidden />
+        {t("connections.demoRemove")}
+      </Button>
+      {asking && (
+        <Dialog open onOpenChange={(o) => !o && setAsking(false)}>
+          <DialogContent
+            title={t("connections.demoConfirmTitle")}
+            description={t("connections.demoConfirmBody", { names: names.join(", ") })}
+            closeLabel={t("connections.cancel")}
+          >
+            {remove.isError && <Notice tone="danger">{messageOf(remove.error)}</Notice>}
+            <div className="flex gap-3">
+              <Button onClick={() => setAsking(false)}>{t("connections.cancel")}</Button>
+              <Button variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>
+                <Trash2 aria-hidden />
+                {t("connections.demoRemove")}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
-    </Sheet>
+    </div>
   );
 }
 

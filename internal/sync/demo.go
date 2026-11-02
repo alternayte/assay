@@ -34,6 +34,7 @@ func (s *Service) Demo(ctx context.Context, ownerID, base string) error {
 	}
 	for _, c := range conns {
 		c.body.Token = fixtures.SourceToken
+		c.body.Options = map[string]any{"demo": true}
 		c.body.SyncMinutes, c.body.ReconcileHours, c.body.RateConcurrency, c.body.RatePerSecond = 30, 24, 4, 50
 		id, err := s.create(ctx, ownerID, c.body)
 		if err != nil {
@@ -49,4 +50,35 @@ func (s *Service) Demo(ctx context.Context, ownerID, base string) error {
 		}
 	}
 	return nil
+}
+
+// DemoNames lists the names of the demo connections.
+func (s *Service) DemoNames(ctx context.Context) ([]string, error) {
+	rows, err := New(s.Pool).DemoConnections(ctx, strings.TrimRight(s.DemoURL, "/"))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Name
+	}
+	return out, nil
+}
+
+// RemoveDemo purges the demo connections with all their data, as a purge
+// of each connection in Settings does. Data that people added, such as
+// registry records, stays. It returns the names of the purged connections.
+func (s *Service) RemoveDemo(ctx context.Context) ([]string, error) {
+	rows, err := New(s.Pool).DemoConnections(ctx, strings.TrimRight(s.DemoURL, "/"))
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, r := range rows {
+		if err := s.Purge(ctx, r.ID); err != nil {
+			return out, err
+		}
+		out = append(out, r.Name)
+	}
+	return out, nil
 }

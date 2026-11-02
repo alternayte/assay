@@ -10,6 +10,9 @@
 #                    sets the version again.
 #   --demo           Also start the Acme fixture server. After setup, Assay
 #                    creates the Acme demo connections.
+#   --no-demo        Turn the demo off: remove the Acme demo connections with
+#                    their data and stop the fixture server. Your own data
+#                    stays.
 #   --down           Stop Assay. The data stays.
 #
 # Variables:
@@ -34,6 +37,7 @@ port=8080
 version=latest
 down=0
 demo=0
+nodemo=0
 
 say() { printf '%s\n' "$*"; }
 fail() {
@@ -64,6 +68,10 @@ while [ $# -gt 0 ]; do
 		;;
 	--demo)
 		demo=1
+		shift
+		;;
+	--no-demo)
+		nodemo=1
 		shift
 		;;
 	-h | --help)
@@ -186,7 +194,12 @@ fi
 # for the latest release, updates the image.
 set_var ASSAY_VERSION "$version"
 
-# --demo turns the demo on in .env; a later run keeps it.
+[ "$demo" -eq 1 ] && [ "$nodemo" -eq 1 ] && fail "use --demo or --no-demo, not both."
+# --demo turns the demo on in .env; a later run keeps it. --no-demo turns it
+# off.
+if [ "$nodemo" -eq 1 ] && grep -q '^ASSAY_DEMO=' .env; then
+	set_var ASSAY_DEMO false
+fi
 if [ "$demo" -eq 1 ]; then
 	if grep -q '^ASSAY_DEMO=' .env; then
 		set_var ASSAY_DEMO true
@@ -218,6 +231,9 @@ compose up -d db
 if [ -n "$profile" ]; then
 	compose $profile up -d fixtures
 fi
+if [ "$nodemo" -eq 1 ]; then
+	compose --profile demo rm -sf fixtures >/dev/null 2>&1 || true
+fi
 compose up -d --force-recreate assay
 
 url="http://localhost:$port"
@@ -232,6 +248,10 @@ until curl --noproxy '*' -fsS "$url/readyz" >/dev/null 2>&1; do
 	fi
 	sleep 1
 done
+
+if [ "$nodemo" -eq 1 ]; then
+	compose exec -T assay assay demo remove || fail "the removal of the demo data failed. Run the script again with --no-demo."
+fi
 
 token=$(sed -n 's/^ASSAY_SETUP_TOKEN=//p' .env | tail -n 1)
 say ""

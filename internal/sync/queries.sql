@@ -148,3 +148,11 @@ SELECT coalesce(EXISTS (SELECT 1 FROM connections c WHERE c.id = @id AND c.owner
 SELECT g.id FROM groups g
 WHERE g.id = ANY(@ids::bigint[])
   AND (g.builtin OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = @user_id));
+
+-- name: DemoConnections :many
+-- The connections of the demo: those that setup created with the demo
+-- marker, and those of an older release whose base URL is the fixture
+-- server.
+SELECT id, name FROM connections
+WHERE kind <> 'registry' AND ((options->>'demo')::boolean IS TRUE OR (@base::text <> '' AND base_url LIKE @base::text || '/%'))
+ORDER BY id;

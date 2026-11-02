@@ -482,6 +482,40 @@ func (s *Service) Register(a huma.API) {
 		return nil, wrap(s.Purge(ctx, in.ID))
 	})
 
+	type demoOut struct {
+		Body struct {
+			Connections []string `json:"connections" doc:"The names of the demo connections."`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "getDemo", Method: http.MethodGet, Path: "/api/v1/demo", Tags: tags,
+		Summary: "List the demo connections", Description: "The connections that setup created for the Acme demo.",
+		Middlewares: admins,
+	}, func(ctx context.Context, _ *struct{}) (*demoOut, error) {
+		names, err := s.DemoNames(ctx)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		out := &demoOut{}
+		out.Body.Connections = orStrings(names)
+		return out, nil
+	})
+	huma.Register(a, huma.Operation{
+		OperationID: "removeDemo", Method: http.MethodPost, Path: "/api/v1/demo/remove", Tags: tags,
+		Summary: "Remove the demo data",
+		Description: "Purges the demo connections with their items, entities, claims, cards and pages. Data that people added, " +
+			"such as registry records, stays. assay demo remove does the same.",
+		Middlewares: admins,
+	}, func(ctx context.Context, _ *struct{}) (*demoOut, error) {
+		names, err := s.RemoveDemo(ctx)
+		if err != nil {
+			return nil, wrap(err)
+		}
+		out := &demoOut{}
+		out.Body.Connections = names
+		return out, nil
+	})
+
 	type runsOut struct {
 		Body struct {
 			Runs []RunRecord `json:"runs"`

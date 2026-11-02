@@ -28,6 +28,7 @@ Open `/setup` and create the first admin with the setup token. Then add connecti
 | `--port PORT` | The port on `127.0.0.1`. Default: `8080`. |
 | `--version VER` | A release tag, such as `v1.0.0`. Default: the newest release. Each run writes the version to `.env`. |
 | `--demo` | Also start the Acme fixture server. After setup, Assay creates the Acme connections. |
+| `--no-demo` | Remove the Acme demo data, turn the demo off and stop the fixture server. Your own data stays. |
 | `--down` | Stop Assay. The data stays. |
 
 To pass flags through the pipe, use `sh -s --`, for example `... | sh -s -- --port 9090`.
@@ -41,10 +42,20 @@ With `--demo`, setup creates five connections to the fixture server:
 - `acme-engineering`: the Confluence space ENG, shared with Everyone.
 - `acme-restricted`: the Confluence space RST, visible to the first admin only. Its pages hold the canary word `CANARY-7Q4Z`. No other user sees it.
 - `acme-jira`: the Jira projects PAY and REM, shared with Everyone.
-- `acme-github`: two GitHub repositories, shared with Everyone.
+- `acme-github`: five GitHub repositories with code, shared with Everyone. Three of them have no catalog data.
 - `acme-azdo`: one Azure DevOps Server repository, shared with Everyone.
 
 The fixture server also has a fake model API. To try answers and page summaries with no real model, add a model endpoint in Settings, Models, with the URL `http://fixtures:8090/v1` and the key `fake-key`.
+
+### Remove the demo
+
+Remove the demo data before you add your own sources. Use one of these ways:
+
+- In Settings, Connections, select **Remove the demo**.
+- Run the install script with `--no-demo`: `sh ~/.assay/install.sh --no-demo`. The script removes the demo data, sets `ASSAY_DEMO=false` and stops the fixture server.
+- In the install directory, run `docker compose exec assay assay demo remove`.
+
+Each way purges the five Acme connections with their items, entities, claims, review cards and pages. Users, groups, settings, model endpoints and registry records that people added stay. If you added a model endpoint for the fixture server, delete it in Settings, Models.
 
 ## Update
 

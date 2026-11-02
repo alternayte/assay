@@ -497,7 +497,13 @@
     "excludeGlobsHint": "Optional. Write one glob on each line.",
     "codeGlobs": "Code globs",
     "codeGlobsHint": "Source files for the design pages, one glob per line. Leave it empty to index no code.",
-    "testRepoOk": "Connected as {user}. The token reads {count} repositories."
+    "testRepoOk": "Connected as {user}. The token reads {count} repositories.",
+    "demoTitle": "The Acme demo data is installed",
+    "demoBody": "The demo connections are {names}. Remove them when you add your own sources.",
+    "demoRemove": "Remove the demo",
+    "demoConfirmTitle": "Remove the demo data",
+    "demoConfirmBody": "Assay purges {names} with their items, entities, claims, cards and pages. Data that people added stays. You cannot undo this.",
+    "demoRemoved": "Assay removed the demo connections: {names}."
   },
   "domains": {
     "title": "Domains",

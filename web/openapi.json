@@ -1472,6 +1472,31 @@
         ],
         "type": "object"
       },
+      "DemoOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/DemoOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "connections": {
+            "description": "The names of the demo connections.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "connections"
+        ],
+        "type": "object"
+      },
       "DesignCite": {
         "additionalProperties": false,
         "properties": {
@@ -8718,6 +8743,70 @@
         "summary": "Undo an auto-applied decision",
         "tags": [
           "review"
+        ]
+      }
+    },
+    "/api/v1/demo": {
+      "get": {
+        "description": "The connections that setup created for the Acme demo.",
+        "operationId": "getDemo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the demo connections",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/demo/remove": {
+      "post": {
+        "description": "Purges the demo connections with their items, entities, claims, cards and pages. Data that people added, such as registry records, stays. assay demo remove does the same.",
+        "operationId": "removeDemo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove the demo data",
+        "tags": [
+          "connections"
         ]
       }
     },

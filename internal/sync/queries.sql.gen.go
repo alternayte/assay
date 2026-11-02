@@ -105,6 +105,40 @@ func (q *Queries) DeleteRunsBefore(ctx context.Context, before time.Time) (int64
 	return result.RowsAffected(), nil
 }
 
+const demoConnections = `-- name: DemoConnections :many
+SELECT id, name FROM connections
+WHERE kind <> 'registry' AND ((options->>'demo')::boolean IS TRUE OR ($1::text <> '' AND base_url LIKE $1::text || '/%'))
+ORDER BY id
+`
+
+type DemoConnectionsRow struct {
+	ID   int64
+	Name string
+}
+
+// The connections of the demo: those that setup created with the demo
+// marker, and those of an older release whose base URL is the fixture
+// server.
+func (q *Queries) DemoConnections(ctx context.Context, base string) ([]DemoConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, demoConnections, base)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DemoConnectionsRow
+	for rows.Next() {
+		var i DemoConnectionsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const dueReconciles = `-- name: DueReconciles :many
 SELECT c.id FROM connections c
 WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_sync_at IS NOT NULL

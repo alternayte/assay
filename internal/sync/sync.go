@@ -93,6 +93,9 @@ type Service struct {
 	// Backoff is the first retry delay of the connector clients. Zero
 	// means 1 second. Tests set it.
 	Backoff time.Duration
+	// DemoURL is the fixture server of the demo. Connections below it are
+	// demo connections.
+	DemoURL string
 	// AfterRun runs in the transaction that finishes a successful run of a
 	// connection with code globs. The design pages queue their build.
 	AfterRun func(ctx context.Context, tx pgx.Tx, connectionID int64) error

@@ -57,6 +57,42 @@ const kinds: Kind[] = [
 const bandTone = { high: "supported", medium: "stale", low: "conflict" } as const;
 const editable: string[] = ["merge", "unnamed", "new_term", "term_edit", "repo_system", ...designKinds];
 
+type TextPair = { markdown?: string; diagram?: string };
+type EditablePayload = {
+  option?: string;
+  newName?: string;
+  phrase?: string;
+  definition?: string;
+  record?: { term?: { name?: string; definition?: string } };
+  current?: TextPair;
+  proposed?: TextPair;
+};
+
+/** Whether the reviewer can change a card before accept. A repo_system card for an existing system has nothing to change. */
+function canEdit(card: Card) {
+  const p = (card.payload ?? {}) as EditablePayload;
+  return editable.includes(card.kind) && !(card.kind === "repo_system" && p.option !== "new");
+}
+
+/** The edit fields start from the values of the card, so that accept saves what the reviewer sees. */
+function startEdits(card: Card): Edits {
+  const p = (card.payload ?? {}) as EditablePayload;
+  switch (card.kind) {
+    case "term_edit":
+      return { canonicalName: p.record?.term?.name, definition: p.record?.term?.definition };
+    case "new_term":
+      return { canonicalName: p.phrase, definition: p.definition };
+    case "repo_system":
+      return { canonicalName: p.newName };
+    case "design_problem":
+      return { text: p.current?.markdown ?? "", diagram: p.current?.diagram ?? "" };
+    case "design_edit":
+    case "design_update":
+      return { text: p.proposed?.markdown ?? "", diagram: p.proposed?.diagram ?? "" };
+  }
+  return {};
+}
+
 const editPayload = (card: Card) => (card.payload ?? {}) as EditPayload;
 const summaryOf = (card: Card, a: Answer) => a.summary ?? editPayload(card).draft ?? "";
 
@@ -598,7 +634,8 @@ function Needs({ f }: { f: Filter }) {
     setEditing(false);
   };
   const edit = () => {
-    if (!card || !editable.includes(card.kind)) return;
+    if (!card || !canEdit(card)) return;
+    setEdits(startEdits(card));
     setEditing(true);
   };
 
@@ -702,7 +739,7 @@ function Needs({ f }: { f: Filter }) {
                 {t("review.skip")}
                 <kbd className="font-mono text-xs opacity-70">S</kbd>
               </Button>
-              {editable.includes(card.kind) && (
+              {canEdit(card) && (
                 <Button variant="ghost" onClick={edit} disabled={editing}>
                   <Pencil aria-hidden />
                   {t("review.edit")}

@@ -154,21 +154,29 @@ LEFT JOIN LATERAL (
     SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
     WHERE c.subject_id = e.id AND c.predicate = 'status' AND c.retracted_at IS NULL AND ev.state = 'current'
       AND ev.connection_id = ANY($1::bigint[]) AND ev.source_type IN ('registry', 'review')
-    ORDER BY c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1) st ON true
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+    ORDER BY EXISTS (SELECT 1 FROM resolutions r WHERE r.chosen_claim_id = c.id AND r.reopened_at IS NULL) DESC,
+             c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1) st ON true
 LEFT JOIN LATERAL (
     SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
     WHERE c.subject_id = e.id AND c.predicate = 'defined_as' AND c.retracted_at IS NULL AND ev.state = 'current'
       AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
     ORDER BY (ev.source_type IN ('registry', 'review')) DESC, c.id LIMIT 1) df ON true
 LEFT JOIN LATERAL (
     SELECT o.key AS value, ev.connection_id FROM claims c JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
     WHERE c.subject_id = e.id AND c.predicate = 'preferred_term' AND c.retracted_at IS NULL AND ev.state = 'current'
-      AND ev.connection_id = ANY($1::bigint[]) ORDER BY c.id LIMIT 1) pf ON true
+      AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+      AND EXISTS (SELECT 1 FROM entity_sources os WHERE os.entity_id = o.id AND os.connection_id = ANY($1::bigint[]))
+    ORDER BY c.id LIMIT 1) pf ON true
 LEFT JOIN LATERAL (
     SELECT entity_display_name(c.object_entity_id, $1::bigint[]) AS value, ev.connection_id
     FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
     WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL AND ev.state = 'current'
-      AND ev.connection_id = ANY($1::bigint[]) ORDER BY c.id LIMIT 1) ow ON true
+      AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+    ORDER BY c.id LIMIT 1) ow ON true
 WHERE e.type = 'term' AND e.status = 'active'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY($1::bigint[]))
 ORDER BY lower(coalesce(entity_display_name(e.id, $1::bigint[]), e.key)), e.id
@@ -189,7 +197,10 @@ type VisibleTermsRow struct {
 }
 
 // Active terms with a visible source. Status comes from visible registry
-// or review evidence, the newest value first. Names and aliases come from
+// or review evidence: the claim that an open resolution chose, else the
+// newest value. Status, definition, preferred term and owner use only
+// evidence with no proposal or an accepted proposal. The preferred term
+// needs a visible source. Names and aliases come from
 // visible connections only (SI-16). Connections are the visible connections
 // that give the name, the aliases, the status, the definition, the
 // preferred term and the owner: a text that shows the term depends on them.

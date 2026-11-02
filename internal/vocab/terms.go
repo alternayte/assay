@@ -34,6 +34,20 @@ type Term struct {
 	Preferred       string   `json:"preferred,omitempty"`
 	Synonyms        []string `json:"synonyms"`
 	DeprecatedForms []string `json:"deprecatedForms" doc:"Forms of deprecated terms that name this term as preferred."`
+	// Connections are the visible connections that give the name, aliases,
+	// status, definition, preferred term and owner. A text that shows the
+	// term depends on them.
+	Connections []int64 `json:"-"`
+}
+
+// ConnectionsOf returns the sorted union of the connections of the terms.
+func ConnectionsOf(ts []Term) []int64 {
+	var out []int64
+	for _, t := range ts {
+		out = append(out, t.Connections...)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // FormsOf are the forms that link to the term: its name, synonyms and
@@ -62,7 +76,7 @@ func (s *Service) Terms(ctx context.Context, vis visibility.Set) ([]Term, error)
 	byKey := map[string]int{}
 	for _, r := range rows {
 		t := Term{Key: r.Key, Name: r.Name, Status: r.Status, Definition: r.Definition, DomainID: r.DomainID, Domain: r.Domain,
-			Owner: r.Owner, Preferred: r.Preferred, Synonyms: []string{}, DeprecatedForms: []string{}}
+			Owner: r.Owner, Preferred: r.Preferred, Synonyms: []string{}, DeprecatedForms: []string{}, Connections: r.Connections}
 		for _, a := range r.Aliases {
 			if !strings.EqualFold(a, r.Name) {
 				t.Synonyms = append(t.Synonyms, a)
@@ -77,6 +91,7 @@ func (s *Service) Terms(ctx context.Context, vis visibility.Set) ([]Term, error)
 		}
 		if i, ok := byKey[t.Preferred]; ok {
 			out[i].DeprecatedForms = append(out[i].DeprecatedForms, append([]string{t.Name}, t.Synonyms...)...)
+			out[i].Connections = ConnectionsOf([]Term{out[i], t})
 		}
 	}
 	return out, nil

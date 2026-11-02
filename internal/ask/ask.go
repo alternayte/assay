@@ -41,8 +41,8 @@ type Service struct {
 	Log     *slog.Logger
 	Now     func() time.Time
 	// Orientation returns the fresh page summary of an entity for the
-	// reader, or "" when there is none.
-	Orientation func(ctx context.Context, vis visibility.Set, entityID int64) (name, summary string, err error)
+	// reader, or "" when there is none, and the connections of the page.
+	Orientation func(ctx context.Context, vis visibility.Set, entityID int64) (name, summary string, conns []int64, err error)
 }
 
 func (s *Service) now() time.Time {
@@ -81,7 +81,8 @@ type Context struct {
 	Results  []search.Result `json:"-"`
 	Entities []search.Entity `json:"-"`
 	Degraded bool            `json:"-"`
-	// Connections are the connections of all context rows.
+	// Connections are the connections of all context rows, of the prompt
+	// terms and of the orientation page.
 	Connections []int64 `json:"-"`
 	// Terms are the approved terms that the context uses, at most 20
 	// (REQ-VOC-006). All are the visible terms, for links and the lint.
@@ -146,14 +147,16 @@ func (s *Service) Retrieve(ctx context.Context, vis visibility.Set, question str
 			conns[e.ConnectionID] = true
 		}
 	}
-	for id := range conns {
-		c.Connections = append(c.Connections, id)
-	}
-	slices.Sort(c.Connections)
 	c.conflict = claims.Conflicts(cs)
 	for i := 0; s.Orientation != nil && i < len(ids) && i < 3 && c.Orientation == ""; i++ {
-		if c.OrientationName, c.Orientation, err = s.Orientation(ctx, vis, ids[i]); err != nil {
+		var page []int64
+		if c.OrientationName, c.Orientation, page, err = s.Orientation(ctx, vis, ids[i]); err != nil {
 			return nil, err
+		}
+		if c.Orientation != "" {
+			for _, id := range page {
+				conns[id] = true
+			}
 		}
 	}
 	c.Terms = []vocab.Term{}
@@ -171,7 +174,14 @@ func (s *Service) Retrieve(ctx context.Context, vis visibility.Set, question str
 			text.WriteString("\n\n" + cl.SubjectName + " " + cl.Object())
 		}
 		c.Terms = orEmpty(vocab.InText(approved, text.String(), vocab.MaxPromptTerms))
+		for _, id := range vocab.ConnectionsOf(c.Terms) {
+			conns[id] = true
+		}
 	}
+	for id := range conns {
+		c.Connections = append(c.Connections, id)
+	}
+	slices.Sort(c.Connections)
 	return c, nil
 }
 

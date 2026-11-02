@@ -13,28 +13,51 @@ DELETE FROM domains WHERE id = @id;
 -- name: VisibleTerms :many
 -- Active terms with a visible source. Status comes from visible registry
 -- or review evidence, the newest value first. Names and aliases come from
--- visible connections only (SI-16).
+-- visible connections only (SI-16). Connections are the visible connections
+-- that give the name, the aliases, the status, the definition, the
+-- preferred term and the owner: a text that shows the term depends on them.
 SELECT e.id, e.key, coalesce(e.domain_id, 0)::bigint AS domain_id, coalesce(d.name, '')::text AS domain,
        coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
        ARRAY(SELECT DISTINCT a.alias FROM entity_aliases a
              WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
                AND a.connection_id = ANY(@visible::bigint[]) ORDER BY a.alias)::text[] AS aliases,
-       coalesce((SELECT c.object_text FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'status' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY(@visible::bigint[]) AND ev.source_type IN ('registry', 'review')
-                 ORDER BY c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1), '')::text AS status,
-       coalesce((SELECT c.object_text FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'defined_as' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY(@visible::bigint[])
-                 ORDER BY (ev.source_type IN ('registry', 'review')) DESC, c.id LIMIT 1), '')::text AS definition,
-       coalesce((SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'preferred_term' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY(@visible::bigint[]) ORDER BY c.id LIMIT 1), '')::text AS preferred,
-       coalesce((SELECT entity_display_name(c.object_entity_id, @visible::bigint[]) FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY(@visible::bigint[]) ORDER BY c.id LIMIT 1), '')::text AS owner
+       coalesce(st.value, '')::text AS status,
+       coalesce(df.value, '')::text AS definition,
+       coalesce(pf.value, '')::text AS preferred,
+       coalesce(ow.value, '')::text AS owner,
+       ARRAY(SELECT DISTINCT x.connection_id FROM (
+               SELECT s.connection_id FROM entity_sources s
+               WHERE (s.entity_id = e.id OR s.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+                 AND s.connection_id = ANY(@visible::bigint[])
+               UNION
+               SELECT a.connection_id FROM entity_aliases a
+               WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+                 AND a.connection_id = ANY(@visible::bigint[])
+               UNION
+               SELECT u.conn FROM (VALUES (st.connection_id), (df.connection_id), (pf.connection_id), (ow.connection_id)) u (conn)
+               WHERE u.conn IS NOT NULL) x
+             ORDER BY x.connection_id)::bigint[] AS connections
 FROM entities e
 LEFT JOIN domains d ON d.id = e.domain_id
+LEFT JOIN LATERAL (
+    SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'status' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY(@visible::bigint[]) AND ev.source_type IN ('registry', 'review')
+    ORDER BY c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1) st ON true
+LEFT JOIN LATERAL (
+    SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'defined_as' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY(@visible::bigint[])
+    ORDER BY (ev.source_type IN ('registry', 'review')) DESC, c.id LIMIT 1) df ON true
+LEFT JOIN LATERAL (
+    SELECT o.key AS value, ev.connection_id FROM claims c JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'preferred_term' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY(@visible::bigint[]) ORDER BY c.id LIMIT 1) pf ON true
+LEFT JOIN LATERAL (
+    SELECT entity_display_name(c.object_entity_id, @visible::bigint[]) AS value, ev.connection_id
+    FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY(@visible::bigint[]) ORDER BY c.id LIMIT 1) ow ON true
 WHERE e.type = 'term' AND e.status = 'active'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY(@visible::bigint[]))
 ORDER BY lower(coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)), e.id;

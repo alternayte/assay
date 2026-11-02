@@ -118,6 +118,32 @@ signin() {
 		-d '{"email":"owner@acme.test","password":"owner-password-1"}' "$base/api/auth/sign-in/email"
 }
 
+# RVW-3-12: the rekey steps of docs/install.md work on a running install.
+# The steps run as written, with HOME such that ~/.assay is the install.
+start=$(now_ms)
+detail=""
+mkdir -p "$work/home"
+ln -s "$dir" "$work/home/.assay"
+awk '/^## Rotate the secret key/ { f = 1 } f && /^```sh$/ { c = 1; next } c && /^```$/ { exit } c' "$root/docs/install.md" >"$work/rekey.sh"
+old_key=$(sed -n 's/^ASSAY_SECRET_KEY=//p' "$dir/.env")
+out=$(HOME="$work/home" sh -eu "$work/rekey.sh" 2>&1) || detail="the rekey steps failed: $out"
+new_key=$(sed -n 's/^ASSAY_SECRET_KEY=//p' "$dir/.env")
+[ -n "$new_key" ] && [ "$new_key" != "$old_key" ] || detail="$detail ASSAY_SECRET_KEY did not change"
+! grep -q '^ASSAY_SECRET_KEY_NEW=' "$dir/.env" || detail="$detail ASSAY_SECRET_KEY_NEW stays in .env"
+printf '%s' "$out" | grep -q 'Encrypted' || detail="$detail the rekey did not run: $out"
+i=0
+until curl --noproxy '*' -fsS "$base/readyz" >/dev/null 2>&1; do
+	i=$((i + 1))
+	[ "$i" -lt 120 ] || { detail="$detail Assay is not ready after the rekey"; break; }
+	sleep 1
+done
+signin || detail="$detail the admin cannot sign in after the rekey"
+if [ -z "$detail" ]; then
+	result RVW-3-12 true $(($(now_ms) - start))
+else
+	result RVW-3-12 false $(($(now_ms) - start)) "$detail"
+fi
+
 # SCN-INS-002: a second run keeps .env and data and restarts the container.
 start=$(now_ms)
 sum1=$(cksum <"$dir/.env")

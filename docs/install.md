@@ -13,10 +13,10 @@ curl -fsSL https://github.com/alternayte/assay/releases/latest/download/install.
 The script does these steps:
 
 1. It checks Docker, Compose v2 and the Docker daemon. If one is missing, it stops and names Docker Desktop.
-2. It downloads `compose.yaml` and `env.example` from the release.
+2. It downloads `compose.yaml` and `env.example` from the release. It keeps a copy of itself as `install.sh` in the install directory.
 3. On the first run only, it creates `.env` with a new secret key, a database password and a setup token.
-4. It pulls the image and starts the services. Assay binds to `127.0.0.1` only.
-5. It waits until `/readyz` answers, then prints the URL and the setup token.
+4. It writes the release version to `.env`, pulls the image and starts the services. Assay binds to `127.0.0.1` only.
+5. It waits until `/readyz` answers, then prints the URL and the setup token. This check does not use the proxy.
 
 Open `/setup` and create the first admin with the setup token. Then add connections in Settings, Connections.
 
@@ -26,7 +26,7 @@ Open `/setup` and create the first admin with the setup token. Then add connecti
 |---|---|
 | `--dir DIR` | The install directory. Default: `~/.assay`. |
 | `--port PORT` | The port on `127.0.0.1`. Default: `8080`. |
-| `--version VER` | A release tag, such as `v1.0.0`. Default: the newest release. |
+| `--version VER` | A release tag, such as `v1.0.0`. Default: the newest release. Each run writes the version to `.env`. |
 | `--demo` | Also start the Acme fixture server. After setup, Assay creates the Acme connections. |
 | `--down` | Stop Assay. The data stays. |
 
@@ -48,7 +48,7 @@ The fixture server also has a fake model API. To try answers and page summaries 
 
 ## Update
 
-Run the install command again. The script keeps `.env` and the data, pulls the new image and restarts Assay. Assay applies the database migrations at start.
+Run the install command again, or `sh ~/.assay/install.sh`. The script keeps the data and `.env`, except the version. It pulls the image of the newest release, or of the release that `--version` names, and restarts Assay. Assay applies the database migrations at start.
 
 ## Stop
 
@@ -79,7 +79,7 @@ docker compose start assay
 
 ## Corporate proxy and certificates
 
-Set `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` in `.env`, or export them before the first run of the script. `db` and `fixtures` must stay in `NO_PROXY`. All outbound requests of Assay use these settings.
+Set `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` in `.env`, or export them before the first run of the script. The script also reads the lowercase names `http_proxy`, `https_proxy` and `no_proxy`. `db` and `fixtures` must stay in `NO_PROXY`. All outbound requests of Assay use these settings.
 
 For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (PEM text) or in a file that `ASSAY_EXTRA_CA_FILE` names.
 
@@ -96,6 +96,23 @@ For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (
 
 ## Rotate the secret key
 
-1. Set `ASSAY_SECRET_KEY_NEW` to a new key: 32 random bytes in base64.
-2. Run `docker compose exec assay assay secrets rekey`.
-3. Set `ASSAY_SECRET_KEY` to the new key, remove `ASSAY_SECRET_KEY_NEW` and restart.
+A running container keeps the environment that it started with. A change to `.env` takes effect only in a new container. These steps run the rekey in a new container and then start Assay again with the new key:
+
+```sh
+cd ~/.assay
+printf 'ASSAY_SECRET_KEY_NEW=%s\n' "$(openssl rand -base64 32)" >> .env
+docker compose stop assay
+docker compose run --rm assay secrets rekey
+new=$(sed -n 's/^ASSAY_SECRET_KEY_NEW=//p' .env)
+sed -i.bak -e "s|^ASSAY_SECRET_KEY=.*|ASSAY_SECRET_KEY=$new|" -e '/^ASSAY_SECRET_KEY_NEW=/d' .env
+rm .env.bak
+docker compose up -d --force-recreate assay
+```
+
+1. The first two lines add a new key to `.env` as `ASSAY_SECRET_KEY_NEW`: 32 random bytes in base64.
+2. `docker compose stop assay` stops Assay, so that no request uses the old key during the rekey.
+3. `docker compose run --rm assay secrets rekey` encrypts all secrets again with the new key. If it fails, no secret changes.
+4. The `sed` line sets `ASSAY_SECRET_KEY` to the new key and removes `ASSAY_SECRET_KEY_NEW`.
+5. `docker compose up -d --force-recreate assay` starts Assay in a new container with the new key.
+
+Keep a backup of the new `.env`.

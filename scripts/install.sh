@@ -6,7 +6,8 @@
 # Flags:
 #   --dir DIR        Install directory. Default: $HOME/.assay
 #   --port PORT      Port on 127.0.0.1. Default: 8080
-#   --version VER    Release tag, such as v0.1.0. Default: latest
+#   --version VER    Release tag, such as v0.1.0. Default: latest. Each run
+#                    sets the version again.
 #   --demo           Also start the Acme fixture server. After setup, Assay
 #                    creates the Acme demo connections.
 #   --down           Stop Assay. The data stays.
@@ -15,7 +16,18 @@
 #   ASSAY_IMAGE        Use this image. A local image is not pulled.
 #   ASSAY_INSTALL_SRC  Read compose.yaml and env.example from this directory
 #                      or URL instead of the release.
+#   HTTP_PROXY, HTTPS_PROXY, NO_PROXY, or the same names in lowercase: the
+#                      proxy of the first run.
 set -eu
+
+# The path of this script, when it runs from a file and not from a pipe.
+self=""
+if [ -f "$0" ] && grep -q '^# Install and start Assay with Docker Compose.' "$0" 2>/dev/null; then
+	case "$0" in
+	/*) self=$0 ;;
+	*) self="$(pwd)/$0" ;;
+	esac
+fi
 
 dir="${HOME}/.assay"
 port=8080
@@ -55,7 +67,7 @@ while [ $# -gt 0 ]; do
 		shift
 		;;
 	-h | --help)
-		sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+		sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
 		exit 0
 		;;
 	*) fail "unknown flag $1. Use --help." ;;
@@ -111,6 +123,18 @@ fetch() {
 fetch compose.yaml compose.yaml
 fetch env.example env.example
 
+# Keep a copy of this script in the install directory for --down and for
+# updates. From a pipe, the copy comes from the release.
+if [ -n "$self" ]; then
+	if [ "$self" != "$dir/install.sh" ]; then
+		cp "$self" install.sh.tmp
+		mv install.sh.tmp install.sh
+	fi
+else
+	curl -fsSL "$release/install.sh" -o install.sh.tmp || fail "cannot download $release/install.sh."
+	mv install.sh.tmp install.sh
+fi
+
 random_base64() {
 	if command -v openssl >/dev/null 2>&1; then
 		openssl rand -base64 "$1"
@@ -138,20 +162,29 @@ if [ ! -f .env ]; then
 	set_var POSTGRES_PASSWORD "$(random_token 32 32)"
 	set_var ASSAY_SETUP_TOKEN "$(random_token 32 24)"
 	set_var ASSAY_PORT "$port"
-	set_var ASSAY_VERSION "$version"
 	set_var ASSAY_BASE_URL "http://localhost:$port"
-	for v in HTTP_PROXY HTTPS_PROXY; do
-		eval "value=\${$v:-}"
-		[ -n "$value" ] && set_var "$v" "$value"
-	done
-	if [ -n "${NO_PROXY:-}" ]; then
-		set_var NO_PROXY "$NO_PROXY,db,fixtures,localhost,127.0.0.1"
+	# Most shells and tools also use the lowercase names.
+	http_proxy_value="${HTTP_PROXY:-${http_proxy:-}}"
+	https_proxy_value="${HTTPS_PROXY:-${https_proxy:-}}"
+	no_proxy_value="${NO_PROXY:-${no_proxy:-}}"
+	if [ -n "$http_proxy_value" ]; then
+		set_var HTTP_PROXY "$http_proxy_value"
+	fi
+	if [ -n "$https_proxy_value" ]; then
+		set_var HTTPS_PROXY "$https_proxy_value"
+	fi
+	if [ -n "$no_proxy_value" ]; then
+		set_var NO_PROXY "$no_proxy_value,db,fixtures,localhost,127.0.0.1"
 	fi
 	if [ -n "${ASSAY_IMAGE:-}" ]; then
 		printf 'ASSAY_IMAGE=%s\n' "$ASSAY_IMAGE" >>.env
 	fi
 	say "Created $dir/.env with a new secret key. Keep a backup of this file."
 fi
+
+# Each run sets the release, so that a run with another --version, or a run
+# for the latest release, updates the image.
+set_var ASSAY_VERSION "$version"
 
 # --demo turns the demo on in .env; a later run keeps it.
 if [ "$demo" -eq 1 ]; then
@@ -190,7 +223,8 @@ compose up -d --force-recreate assay
 url="http://localhost:$port"
 say "Waiting for Assay at $url ..."
 i=0
-until curl -fsS "$url/readyz" >/dev/null 2>&1; do
+# localhost never goes through the proxy.
+until curl --noproxy '*' -fsS "$url/readyz" >/dev/null 2>&1; do
 	i=$((i + 1))
 	if [ "$i" -ge 120 ]; then
 		compose logs --tail 50 assay >&2 || true
@@ -213,4 +247,4 @@ if [ -n "$profile" ]; then
 	say "The demo is on. After setup, Assay creates the Acme connections and syncs them."
 	say "Turn on the models in Settings, Models, with the endpoint http://fixtures:8090/v1 or your own."
 fi
-say "Stop Assay: sh install.sh --down --dir $dir"
+say "Stop Assay: sh $dir/install.sh --down --dir $dir"

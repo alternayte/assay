@@ -97,7 +97,7 @@ func (ConnectionArgs) Kind() string { return "extract_connection" }
 
 // InsertOpts allows one unfinished plan per connection.
 func (ConnectionArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{
+	return river.InsertOpts{Queue: Queue, MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{
 		rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateRunning,
 		rivertype.JobStateScheduled}}}
 }
@@ -149,7 +149,7 @@ func (s *Service) QueueConnection(ctx context.Context, connectionID int64, vis [
 				a.Hashes = append(a.Hashes, hex.EncodeToString(r.Hash))
 				after = r.ID
 			}
-			jobs = append(jobs, river.InsertManyParams{Args: a})
+			jobs = append(jobs, river.InsertManyParams{Args: a, InsertOpts: &river.InsertOpts{Priority: priorityAdmin}})
 			n += len(part)
 		}
 		if _, err := s.River.InsertMany(ctx, jobs); err != nil {

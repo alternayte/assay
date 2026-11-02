@@ -146,6 +146,10 @@ func TestSCN_EXT_001_AdminTriggerShowsEstimateFirst(t *testing.T) {
 	}
 	w.admin.Must(http.StatusAccepted, http.MethodPost, path, map[string]any{"passages": e.Passages})
 	w.env.RunExtractPlans()
+	// Admin jobs wait behind the extraction that a reader waits for.
+	if n := w.env.Count("SELECT count(*) FROM river_job WHERE kind = 'extract' AND (queue <> 'extract' OR priority <> 4)"); n != 0 {
+		t.Fatalf("%d admin jobs not on the extract queue with priority 4", n)
+	}
 	if w.admin.Must(http.StatusOK, http.MethodGet, path, nil).JSON(t, &p); !p.Running {
 		t.Fatal("the queued extraction is not running")
 	}

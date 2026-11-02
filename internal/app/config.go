@@ -37,27 +37,30 @@ type Config struct {
 	DemoURL  string
 	LogLevel slog.Level
 	Outbound outbound.Settings
-	// JobWorkers and SyncWorkers are the job workers of the default queue
-	// and of the sync queue.
-	JobWorkers  int
-	SyncWorkers int
+	// The job workers of the default, sync, extract and design queues.
+	JobWorkers     int
+	SyncWorkers    int
+	ExtractWorkers int
+	DesignWorkers  int
 }
 
 var knownVars = map[string]bool{
-	"ASSAY_DATABASE_URL":   true,
-	"ASSAY_SECRET_KEY":     true,
-	"ASSAY_SECRET_KEY_NEW": true,
-	"ASSAY_BASE_URL":       true,
-	"ASSAY_LISTEN":         true,
-	"ASSAY_ROLE":           true,
-	"ASSAY_SETUP_TOKEN":    true,
-	"ASSAY_EXTRA_CA_PEM":   true,
-	"ASSAY_EXTRA_CA_FILE":  true,
-	"ASSAY_DEMO":           true,
-	"ASSAY_DEMO_URL":       true,
-	"ASSAY_LOG_LEVEL":      true,
-	"ASSAY_JOB_WORKERS":    true,
-	"ASSAY_SYNC_WORKERS":   true,
+	"ASSAY_DATABASE_URL":    true,
+	"ASSAY_SECRET_KEY":      true,
+	"ASSAY_SECRET_KEY_NEW":  true,
+	"ASSAY_BASE_URL":        true,
+	"ASSAY_LISTEN":          true,
+	"ASSAY_ROLE":            true,
+	"ASSAY_SETUP_TOKEN":     true,
+	"ASSAY_EXTRA_CA_PEM":    true,
+	"ASSAY_EXTRA_CA_FILE":   true,
+	"ASSAY_DEMO":            true,
+	"ASSAY_DEMO_URL":        true,
+	"ASSAY_LOG_LEVEL":       true,
+	"ASSAY_JOB_WORKERS":     true,
+	"ASSAY_SYNC_WORKERS":    true,
+	"ASSAY_EXTRACT_WORKERS": true,
+	"ASSAY_DESIGN_WORKERS":  true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -125,7 +128,8 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		name string
 		def  int
 		out  *int
-	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers}} {
+	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers},
+		{"ASSAY_EXTRACT_WORKERS", 4, &cfg.ExtractWorkers}, {"ASSAY_DESIGN_WORKERS", 2, &cfg.DesignWorkers}} {
 		n, err := strconv.Atoi(valueOr(env[w.name], strconv.Itoa(w.def)))
 		if err != nil || n < 1 || n > 100 {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))

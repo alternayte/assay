@@ -14,6 +14,7 @@ import (
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/design"
 	"github.com/alternayte/assay/internal/extract"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/resolve"
@@ -110,11 +111,14 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		RescueStuckJobsAfter: 7 * time.Hour,
 	}
 	if s.cfg.Role != RoleWeb {
-		// Syncs have their own queue, so that model jobs never hold a sync
-		// back.
+		// Syncs, embedding, extraction and design have their own queues, so
+		// that the bulk of one never holds the others back.
 		cfg.Queues = map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: orDefault(s.cfg.JobWorkers, 10)},
 			syncer.Queue:       {MaxWorkers: orDefault(s.cfg.SyncWorkers, 4)},
+			content.EmbedQueue: {MaxWorkers: 1},
+			extract.Queue:      {MaxWorkers: orDefault(s.cfg.ExtractWorkers, 4)},
+			design.Queue:       {MaxWorkers: orDefault(s.cfg.DesignWorkers, 2)},
 		}
 		cfg.PeriodicJobs = []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {

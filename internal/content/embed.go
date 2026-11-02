@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/alternayte/assay/internal/models"
 )
@@ -185,6 +186,17 @@ type EmbedArgs struct{}
 // Kind is the River job kind.
 func (EmbedArgs) Kind() string { return "embed" }
 
+// EmbedQueue is the River queue of the embed job. It has one worker: two
+// runs would read the same pending chunks and embed them twice.
+const EmbedQueue = "embed"
+
+// InsertOpts keeps one unfinished embed job, so that jobs do not pile up
+// while a long run works.
+func (EmbedArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: EmbedQueue, UniqueOpts: river.UniqueOpts{ByState: []rivertype.JobState{rivertype.JobStateAvailable,
+		rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateRunning, rivertype.JobStateScheduled}}}
+}
+
 // EmbedWorker works the embed job.
 type EmbedWorker struct {
 	river.WorkerDefaults[EmbedArgs]
@@ -200,6 +212,6 @@ func (w *EmbedWorker) Work(ctx context.Context, _ *river.Job[EmbedArgs]) error {
 // PeriodicJobs returns the embed job, once a minute.
 func (e *Embedder) PeriodicJobs() []*river.PeriodicJob {
 	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
-		return EmbedArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
+		return EmbedArgs{}, nil
 	}, &river.PeriodicJobOpts{RunOnStart: true, ID: "embed"})}
 }

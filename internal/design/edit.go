@@ -355,6 +355,9 @@ type SectionArgs struct {
 // Kind is the River job kind.
 func (SectionArgs) Kind() string { return "design_section" }
 
+// InsertOpts puts a regeneration on the design queue.
+func (SectionArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{Queue: Queue} }
+
 // SectionWorker works section regenerations.
 type SectionWorker struct {
 	river.WorkerDefaults[SectionArgs]

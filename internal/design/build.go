@@ -34,9 +34,12 @@ type BuildArgs struct {
 // Kind is the River job kind.
 func (BuildArgs) Kind() string { return "design_build" }
 
+// Queue is the River queue of design jobs.
+const Queue = "design"
+
 // InsertOpts retries a failed build once. Builds are not unique: a build
 // whose inputs did not change calls no model.
-func (BuildArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 2} }
+func (BuildArgs) InsertOpts() river.InsertOpts { return river.InsertOpts{Queue: Queue, MaxAttempts: 2} }
 
 // BuildWorker works design builds.
 type BuildWorker struct {

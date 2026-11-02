@@ -43,8 +43,20 @@ type Args struct {
 // Kind is the River job kind.
 func (Args) Kind() string { return "extract" }
 
+// Queue is the River queue of extraction jobs.
+const Queue = "extract"
+
+// Job priorities: extraction that a reader waits for runs before the bulk
+// of an admin extraction.
+const (
+	priorityReader = 1
+	priorityAdmin  = 4
+)
+
 // InsertOpts retries a failed call a few times.
-func (Args) InsertOpts() river.InsertOpts { return river.InsertOpts{MaxAttempts: 5} }
+func (Args) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: Queue, MaxAttempts: 5, Priority: priorityReader}
+}
 
 // Service extracts claims.
 type Service struct {

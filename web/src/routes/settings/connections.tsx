@@ -394,6 +394,18 @@ function ScopePicker({
   const shown = (options.data ?? []).filter((o) =>
     `${o.id} ${o.name}`.toLowerCase().includes(filter.trim().toLowerCase()),
   );
+  const allShown = shown.length > 0 && shown.every((o) => selected.includes(o.id));
+  const someShown = shown.some((o) => selected.includes(o.id));
+  const toggleShown = () => {
+    const ids = new Set(shown.map((o) => o.id));
+    onChange(
+      withList(
+        source.kind,
+        scope,
+        allShown ? selected.filter((x) => !ids.has(x)) : [...new Set([...selected, ...ids])],
+      ),
+    );
+  };
   const label = isRepo(source.kind)
     ? t("connections.repositories")
     : source.kind === "jira"
@@ -411,20 +423,41 @@ function ScopePicker({
       ) : options.data.length === 0 ? (
         <Empty>{t("connections.scopeEmpty")}</Empty>
       ) : (
-        <fieldset className="flex flex-col gap-1">
+        <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className="label mb-1">{label}</legend>
-          <ul className="max-h-72 overflow-y-auto rounded-sm border border-rule">
+          <div className="flex items-center justify-between gap-3 rounded-t-sm border border-b-0 border-rule bg-paper-sunk px-3 py-2">
+            <label className="flex min-w-0 cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                checked={allShown}
+                ref={(el) => {
+                  if (el) el.indeterminate = someShown && !allShown;
+                }}
+                onChange={toggleShown}
+                disabled={shown.length === 0}
+                className="size-4 shrink-0 accent-accent"
+              />
+              <span className="truncate">{t("connections.scopeAll", { count: shown.length })}</span>
+            </label>
+            <span className="shrink-0 text-sm text-ink-muted">
+              {t("connections.scopeSelected", { count: selected.length })}
+            </span>
+          </div>
+          <ul className="max-h-72 overflow-y-auto rounded-b-sm border border-rule">
             {shown.map((o) => (
               <li key={o.id} className="border-b border-rule last:border-b-0">
-                <label className="flex cursor-pointer items-center gap-3 px-3 py-2 transition-ink hover:bg-paper-sunk">
+                <label
+                  title={o.name && o.name !== o.id ? `${o.id} ${o.name}` : o.id}
+                  className="flex min-w-0 cursor-pointer items-center gap-3 px-3 py-2 transition-ink hover:bg-paper-sunk"
+                >
                   <input
                     type="checkbox"
                     checked={selected.includes(o.id)}
                     onChange={() => toggle(o.id)}
-                    className="size-4 accent-accent"
+                    className="size-4 shrink-0 accent-accent"
                   />
-                  <span className="font-mono text-sm">{o.id}</span>
-                  <span>{o.name}</span>
+                  <span className="max-w-[60%] shrink-0 truncate font-mono text-sm">{o.id}</span>
+                  {o.name && o.name !== o.id && <span className="min-w-0 truncate">{o.name}</span>}
                 </label>
               </li>
             ))}

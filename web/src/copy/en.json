@@ -469,6 +469,8 @@
     "scopeEmpty": "The source shows no spaces, projects or repositories for this token.",
     "scopeRequired": "Select one or more.",
     "scopeFilter": "Filter the list",
+    "scopeAll": "Select all in the list ({count})",
+    "scopeSelected": "{count} selected",
     "jql": "Extra JQL",
     "jqlHint": "Optional. The JQL narrows the selected projects.",
     "syncMinutes": "Sync every (minutes)",

@@ -376,12 +376,6 @@ func (s *Service) RepoSystem(ctx context.Context, repoKey string) error {
 		conns = append(conns, p.Connections...)
 		refs = append(refs, p.Key)
 	}
-	edgeKeys := []string{}
-	for _, id := range sig.Edges {
-		if g, ok := keyOf[id]; ok {
-			edgeKeys = append(edgeKeys, g.Key)
-		}
-	}
 	signals := map[string]any{"repository": sig.Name, "readme": cut(sig.Readme, 250), "owners": orEmpty(sig.Owners), "prefix": prefix,
 		"edges": len(edges), "projects": orEmpty(projects)}
 	d, err := s.ask(ctx, Question{Kind: KindRepoSystem, Refs: refs, Connections: conns,

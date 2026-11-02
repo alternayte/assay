@@ -2,6 +2,8 @@
 
 Assay calls models through OpenAI-compatible HTTP endpoints. The default endpoint kind is OpenRouter. Admins add endpoints in Settings, Models, and give each model function its own endpoint, model, parameters, prices, monthly budget and an enabled flag. Every function is off until an admin turns it on.
 
+[model-setups.md](model-setups.md) has example setups: mixed providers, OpenAI only and Anthropic only.
+
 | Function | Use | Timeout |
 |---|---|---|
 | `answer` | Answers in Ask | 60 s |
@@ -10,6 +12,7 @@ Assay calls models through OpenAI-compatible HTTP endpoints. The default endpoin
 | `embed` | Vectors of chunks and entity profiles | 30 s |
 | `rerank` | Optional rerank of search results | 15 s |
 | `decide` | Typed decisions with probabilities | 15 s |
+| `design` | Design pages of repositories and systems | 120 s |
 
 Each call retries twice on 429 and 5xx.
 

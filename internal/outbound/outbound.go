@@ -1,7 +1,7 @@
 // Package outbound builds the HTTP clients for every outbound request: to
 // source systems and to model endpoints. A client uses the proxy and CA
-// settings, sends only to its own host and follows no redirect to another
-// host.
+// settings, sends only to its own scheme and host and follows no redirect
+// to another scheme or host.
 package outbound
 
 import (
@@ -132,11 +132,14 @@ func (g *guard) RoundTrip(r *http.Request) (*http.Response, error) {
 	return g.next.RoundTrip(r)
 }
 
-// hostKey is the lowercase host with its effective port.
+// hostKey is the scheme with the lowercase host and its effective port. The
+// scheme is part of it, so that a redirect from https to http on the same
+// host does not send the token without TLS.
 func hostKey(u *url.URL) string {
+	scheme := strings.ToLower(u.Scheme)
 	port := u.Port()
 	if port == "" {
-		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+		port = map[string]string{"http": "80", "https": "443"}[scheme]
 	}
-	return strings.ToLower(u.Hostname()) + ":" + port
+	return scheme + "://" + strings.ToLower(u.Hostname()) + ":" + port
 }

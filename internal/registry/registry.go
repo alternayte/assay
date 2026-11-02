@@ -482,27 +482,113 @@ func build(key string, rec RegistryRecord, refs map[string]ref) (*content.Item, 
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
-// ApplyTermEdit saves the record of an accepted term_edit proposal as a
-// new version by the proposer.
+// ApplyTermEdit applies an accepted term_edit proposal as a new version by
+// the proposer. It merges the fields that the proposal changed onto the
+// current record, so that a newer edit, such as a deprecation, stays. A field
+// that also changed to another value after the proposal is a conflict, and
+// the result wraps resolve.ErrStale.
 func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string, _ resolve.Edits) error {
 	var p struct {
 		Key    string          `json:"key"`
 		Record *RegistryRecord `json:"record"`
+		Old    *RegistryRecord `json:"old"`
 	}
-	if err := json.Unmarshal(payload, &p); err != nil || p.Record == nil {
+	if err := json.Unmarshal(payload, &p); err != nil || p.Record == nil || p.Old == nil {
 		return fmt.Errorf("registry: the term edit has no record")
+	}
+	q := New(tx)
+	reg, err := q.RegistryID(ctx)
+	if err != nil {
+		return err
+	}
+	item, err := q.RecordItem(ctx, RecordItemParams{Visible: []int64{reg}, Key: p.Key})
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && item.VersionID == nil) {
+		return fmt.Errorf("registry: the term %s does not exist: %w", p.Key, resolve.ErrStale)
+	}
+	if err != nil {
+		return err
+	}
+	v, err := q.RecordVersion(ctx, RecordVersionParams{ItemID: item.ID, ID: *item.VersionID})
+	if err != nil {
+		return err
+	}
+	cur, err := recordOf(v.Metadata)
+	if err != nil {
+		return err
+	}
+	rec, err := mergeTerm(*p.Old, *p.Record, *cur)
+	if err != nil {
+		return fmt.Errorf("registry: term %s: %w", p.Key, err)
 	}
 	userID := proposerID
 	if userID == "" {
 		userID = reviewerID
 	}
-	name, err := New(tx).UserName(ctx, userID)
+	name, err := q.UserName(ctx, userID)
 	if err != nil {
 		return err
 	}
 	// The reviewer accepted the edit, so the review rules apply.
-	_, err = s.SaveTx(ctx, tx, p.Key, *p.Record, Editor{UserID: userID, Name: name, Role: auth.RoleReviewer, Vis: vis})
+	_, err = s.SaveTx(ctx, tx, p.Key, rec, Editor{UserID: userID, Name: name, Role: auth.RoleReviewer, Vis: vis})
 	return err
+}
+
+// mergeTerm merges the change from old to proposed onto cur, field by field.
+// A field that the proposal did not change keeps the current value. A field
+// that changed in the proposal and, to another value, since the proposal is
+// a conflict that wraps resolve.ErrStale.
+func mergeTerm(old, proposed, cur RegistryRecord) (RegistryRecord, error) {
+	if old.Kind != KindTerm || proposed.Kind != KindTerm || cur.Kind != KindTerm {
+		return RegistryRecord{}, fmt.Errorf("the record is not a term: %w", resolve.ErrStale)
+	}
+	fields := func(t *TermRecord) (map[string]json.RawMessage, error) {
+		b, err := json.Marshal(t)
+		if err != nil {
+			return nil, err
+		}
+		m := map[string]json.RawMessage{}
+		return m, json.Unmarshal(b, &m)
+	}
+	o, err := fields(old.Term)
+	if err != nil {
+		return RegistryRecord{}, err
+	}
+	p, err := fields(proposed.Term)
+	if err != nil {
+		return RegistryRecord{}, err
+	}
+	c, err := fields(cur.Term)
+	if err != nil {
+		return RegistryRecord{}, err
+	}
+	keys := map[string]bool{}
+	for _, m := range []map[string]json.RawMessage{o, p, c} {
+		for k := range m {
+			keys[k] = true
+		}
+	}
+	for k := range keys {
+		switch {
+		case bytes.Equal(p[k], o[k]), bytes.Equal(p[k], c[k]):
+		case bytes.Equal(c[k], o[k]):
+			if p[k] == nil {
+				delete(c, k)
+			} else {
+				c[k] = p[k]
+			}
+		default:
+			return RegistryRecord{}, fmt.Errorf("the field %s changed after the edit: %w", k, resolve.ErrStale)
+		}
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		return RegistryRecord{}, err
+	}
+	var t TermRecord
+	if err := json.Unmarshal(b, &t); err != nil {
+		return RegistryRecord{}, err
+	}
+	return RegistryRecord{Kind: KindTerm, Term: &t}, nil
 }
 
 // Rename saves a new version of a record with another name, by the user.

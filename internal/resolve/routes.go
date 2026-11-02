@@ -350,6 +350,10 @@ func (s *Service) kindCalibration(ctx context.Context, kind string) (Calibration
 // ErrCardDone means that the card has a decision already.
 var ErrCardDone = errors.New("resolve: the card is decided")
 
+// ErrStale means that the target of a proposal changed after the proposal in
+// a way that conflicts with it.
+var ErrStale = errors.New("resolve: the target changed after the proposal")
+
 // ErrNotFound means that the card or decision does not exist or is not
 // visible.
 var ErrNotFound = errors.New("resolve: not found")
@@ -769,6 +773,8 @@ func (s *Service) Register(a huma.API) {
 			return api.ErrNotFound
 		case errors.Is(err, ErrCardDone):
 			return api.Problem(http.StatusConflict, "decided", "The card already has a decision.")
+		case errors.Is(err, ErrStale):
+			return api.Problem(http.StatusConflict, "stale", "The term changed after this edit. Reject the edit and ask for a new one.")
 		case errors.Is(err, errMembers):
 			return api.Problem(http.StatusUnprocessableEntity, "members", "Pick two or more members of the cluster.")
 		case errors.Is(err, errCardKind):

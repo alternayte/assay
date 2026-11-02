@@ -7,6 +7,8 @@ import (
 	"slices"
 
 	"github.com/alternayte/assay/internal/models"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 )
 
 // Queue queues one job for the passages that have no cached result. It
@@ -41,7 +43,8 @@ func (s *Service) Queue(ctx context.Context, vis []int64, trigger string, items 
 	if len(a.Items) == 0 {
 		return false, nil
 	}
-	_, err = s.River.Insert(ctx, a, nil)
+	// The same passages queued twice, such as by two opens of a page, run once.
+	_, err = s.River.Insert(ctx, a, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}})
 	return err == nil, err
 }
 
@@ -78,6 +81,45 @@ func (s *Service) EstimateConnection(ctx context.Context, connectionID int64) (E
 // batch is the number of passages of one admin job.
 const batch = 50
 
+// page is the number of passages that one planning step reads.
+const page = 5000
+
+// ConnectionArgs plans the admin extraction of a connection. The plan runs
+// as a job, so the request that starts it returns at once.
+type ConnectionArgs struct {
+	Connection int64   `json:"connection" river:"unique"`
+	Visible    []int64 `json:"visible"`
+}
+
+// Kind is the River job kind.
+func (ConnectionArgs) Kind() string { return "extract_connection" }
+
+// InsertOpts allows one unfinished plan per connection.
+func (ConnectionArgs) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{
+		rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateRunning,
+		rivertype.JobStateScheduled}}}
+}
+
+// ConnectionWorker works plan jobs.
+type ConnectionWorker struct {
+	river.WorkerDefaults[ConnectionArgs]
+	S *Service
+}
+
+// Work queues the extraction jobs of the connection.
+func (w *ConnectionWorker) Work(ctx context.Context, job *river.Job[ConnectionArgs]) error {
+	_, err := w.S.QueueConnection(ctx, job.Args.Connection, job.Args.Visible)
+	return err
+}
+
+// StartConnection queues the plan of an admin extraction of a connection.
+// vis is the visible set of the admin.
+func (s *Service) StartConnection(ctx context.Context, connectionID int64, vis []int64) error {
+	_, err := s.River.Insert(ctx, ConnectionArgs{Connection: connectionID, Visible: vis}, nil)
+	return err
+}
+
 // QueueConnection queues jobs for all passages of a connection with no
 // cached result, and returns the number of passages. vis is the visible set
 // of the admin; it and the connection resolve the mentions.
@@ -89,22 +131,83 @@ func (s *Service) QueueConnection(ctx context.Context, connectionID int64, vis [
 	n := 0
 	after := int64(0)
 	for {
-		rows, err := q.PendingBatch(ctx, PendingBatchParams{Visible: []int64{connectionID}, After: after, Version: Version(), Lim: batch})
+		rows, err := q.PendingBatch(ctx, PendingBatchParams{Visible: []int64{connectionID}, After: after, Version: Version(), Lim: page})
 		if err != nil {
 			return n, err
 		}
 		if len(rows) == 0 {
 			return n, nil
 		}
-		a := Args{Visible: vis, Trigger: TriggerAdmin}
-		for _, r := range rows {
-			a.Items = append(a.Items, r.ItemID)
-			a.Hashes = append(a.Hashes, hex.EncodeToString(r.Hash))
-			after = r.ID
+		var jobs []river.InsertManyParams
+		for len(rows) > 0 {
+			part := rows[:min(batch, len(rows))]
+			rows = rows[len(part):]
+			a := Args{Visible: vis, Trigger: TriggerAdmin, Connection: connectionID}
+			for _, r := range part {
+				a.Items = append(a.Items, r.ItemID)
+				a.Hashes = append(a.Hashes, hex.EncodeToString(r.Hash))
+				after = r.ID
+			}
+			jobs = append(jobs, river.InsertManyParams{Args: a})
+			n += len(part)
 		}
-		if _, err := s.River.Insert(ctx, a, nil); err != nil {
+		if _, err := s.River.InsertMany(ctx, jobs); err != nil {
 			return n, err
 		}
-		n += len(rows)
+	}
+}
+
+// adminJobs lists the unfinished admin extraction jobs of a connection.
+func adminJobs(connectionID int64, states ...rivertype.JobState) *river.JobListParams {
+	return river.NewJobListParams().Kinds(Args{}.Kind(), ConnectionArgs{}.Kind()).States(states...).
+		Where("(args->>'connection')::bigint = @connection", river.NamedArgs{"connection": connectionID})
+}
+
+var waiting = []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable,
+	rivertype.JobStateScheduled}
+
+// Running reports whether an admin extraction of the connection has
+// unfinished jobs.
+func (s *Service) Running(ctx context.Context, connectionID int64) (bool, error) {
+	res, err := s.River.JobList(ctx, adminJobs(connectionID, append(waiting, rivertype.JobStateRunning)...).First(1))
+	if err != nil {
+		return false, err
+	}
+	return len(res.Jobs) > 0, nil
+}
+
+// StopConnection stops the admin extraction of a connection: it cancels the
+// running jobs and deletes the waiting ones. The results so far stay in the
+// cache, so a new start continues with the rest. It returns the number of
+// jobs it stopped.
+func (s *Service) StopConnection(ctx context.Context, connectionID int64) (int, error) {
+	n := 0
+	running, err := s.River.JobList(ctx, adminJobs(connectionID, rivertype.JobStateRunning).First(10000))
+	if err != nil {
+		return n, err
+	}
+	for _, j := range running.Jobs {
+		if _, err := s.River.JobCancel(ctx, j.ID); err != nil {
+			return n, err
+		}
+		n++
+	}
+	for {
+		res, err := s.River.JobList(ctx, adminJobs(connectionID, waiting...).First(1000))
+		if err != nil {
+			return n, err
+		}
+		if len(res.Jobs) == 0 {
+			return n, nil
+		}
+		ids := make([]int64, len(res.Jobs))
+		for i, j := range res.Jobs {
+			ids[i] = j.ID
+		}
+		del, err := s.River.JobDeleteMany(ctx, river.NewJobDeleteManyParams().IDs(ids...).States(waiting...))
+		if err != nil {
+			return n, err
+		}
+		n += len(del.Jobs)
 	}
 }

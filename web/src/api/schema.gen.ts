@@ -458,16 +458,20 @@ export interface paths {
         };
         /**
          * Estimate the extraction of a connection
-         * @description Counts the passages with no cached result and estimates the cost. Sends no model request.
+         * @description Counts the passages with no cached result and estimates the cost. Sends no model request. running tells whether an extraction of the connection is still in the queue.
          */
         get: operations["estimateExtraction"];
         put?: never;
         /**
          * Extract the claims of a connection
-         * @description Confirm the passage count of the estimate. A different count returns 409 with the new estimate in the message.
+         * @description Confirm the passage count of the estimate. A different count returns 409 with the new estimate in the message. The jobs are queued in the background.
          */
         post: operations["startExtraction"];
-        delete?: never;
+        /**
+         * Stop the extraction of a connection
+         * @description Cancels the running jobs and removes the waiting jobs. The claims and the cached results so far stay.
+         */
+        delete: operations["stopExtraction"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2703,30 +2707,6 @@ export interface components {
                 message: string;
             };
         };
-        Estimate: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/v1/schemas/Estimate.json
-             */
-            readonly $schema?: string;
-            /**
-             * Format: double
-             * @description The estimate with the prices of the extract function.
-             */
-            costUsd: number;
-            /** @description The extract function is on. */
-            on: boolean;
-            /**
-             * Format: int64
-             * @description Passages with no cached result.
-             */
-            passages: number;
-            /** Format: int64 */
-            tokensIn: number;
-            /** Format: int64 */
-            tokensOut: number;
-        };
         EvalLabels: {
             /**
              * Format: uri
@@ -3484,6 +3464,32 @@ export interface components {
             /** @description The correct value. Required for wrong_value. */
             value?: components["schemas"]["ClaimValue"];
         };
+        Progress: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Progress.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: double
+             * @description The estimate with the prices of the extract function.
+             */
+            costUsd: number;
+            /** @description The extract function is on. */
+            on: boolean;
+            /**
+             * Format: int64
+             * @description Passages with no cached result.
+             */
+            passages: number;
+            /** @description An admin extraction of the connection has unfinished jobs. */
+            running: boolean;
+            /** Format: int64 */
+            tokensIn: number;
+            /** Format: int64 */
+            tokensOut: number;
+        };
         Proposal: {
             /** Format: date-time */
             createdAt: string;
@@ -3982,6 +3988,19 @@ export interface components {
              */
             readonly $schema?: string;
             required: boolean;
+        };
+        StopOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/StopOutBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The jobs that were cancelled or removed from the queue.
+             */
+            stopped: number;
         };
         Subject: {
             /** @description The visible aliases. */
@@ -5259,7 +5278,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Estimate"];
+                    "application/json": components["schemas"]["Progress"];
                 };
             };
             /** @description Error */
@@ -5295,6 +5314,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StartOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    stopExtraction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopOutBody"];
                 };
             };
             /** @description Error */

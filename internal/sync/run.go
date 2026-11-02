@@ -222,19 +222,17 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 	cursor := conn.Cursor
 	if conn.Status == "paused" {
 		st.fail(errPaused)
-	} else {
-		src, err := s.sourceOf(ctx, conn)
-		if err != nil {
+	} else if src, err := s.sourceOf(ctx, conn); err != nil {
+		// A shutdown here also requeues the run below.
+		if !stopped(ctx) {
 			return err
 		}
-		k, err := s.open(ctx, src)
-		if err != nil {
-			st.fail(err)
-		} else if run.Kind == "reconcile" {
-			s.reconcile(ctx, conn, k, st)
-		} else {
-			cursor = s.sync(ctx, conn, k, st)
-		}
+	} else if k, err := s.open(ctx, src); err != nil {
+		st.fail(err)
+	} else if run.Kind == "reconcile" {
+		s.reconcile(ctx, conn, k, st)
+	} else {
+		cursor = s.sync(ctx, conn, k, st)
 	}
 	if stopped(ctx) {
 		// The process stops. The run goes back to the queue and starts

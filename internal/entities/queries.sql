@@ -5,19 +5,19 @@ SELECT e.id, coalesce(entity_visible_key(e.id, @visible::bigint[]), e.key)::text
        coalesce(d.name, '')::text AS domain_name, coalesce(entity_display_name(e.id, @visible::bigint[]), e.key)::text AS name,
        greatest(e.updated_at,
                 (SELECT max(ev.updated_at) FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id
-                 WHERE (c.subject_id = e.id OR c.subject_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+                 WHERE c.subject_id = ANY(entity_members(e.id))
                    AND ev.connection_id = ANY(@visible::bigint[])))::timestamptz AS changed_at
 FROM entities e
 LEFT JOIN domains d ON d.id = e.domain_id
 WHERE e.status <> 'merged'
   AND EXISTS (SELECT 1 FROM entity_sources s
-              WHERE (s.entity_id = e.id OR s.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+              WHERE s.entity_id = ANY(entity_members(e.id))
                 AND s.connection_id = ANY(@visible::bigint[]))
   AND (@type::text = '' OR e.type = @type)
   AND (@domain::bigint = 0 OR e.domain_id = @domain)
   AND (@status::text = '' OR e.status = @status)
   AND (@query::text = '' OR EXISTS (SELECT 1 FROM entity_aliases a
-                                    WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+                                    WHERE a.entity_id = ANY(entity_members(e.id))
                                       AND a.connection_id = ANY(@visible::bigint[])
                                       AND (a.alias_norm LIKE '%' || @query || '%' OR a.alias_norm % @query)))
 ORDER BY changed_at DESC NULLS LAST, e.id DESC
@@ -35,7 +35,7 @@ LEFT JOIN domains d ON d.id = w.domain_id
 WHERE e.key = @key
   AND EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = e.id AND es.connection_id = ANY(@visible::bigint[]))
   AND EXISTS (SELECT 1 FROM entity_sources s
-              WHERE (s.entity_id = w.id OR s.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = w.id))
+              WHERE s.entity_id = ANY(entity_members(w.id))
                 AND s.connection_id = ANY(@visible::bigint[]));
 
 -- name: Members :many
@@ -165,7 +165,7 @@ SELECT m.id, m.canonical_name, m.auto, m.created_at,
 FROM merges m
 WHERE m.winner_id = @winner_id AND m.undone_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM entities x
-                  WHERE (x.id = m.winner_id OR x.merged_into = m.winner_id)
+                  WHERE x.id = ANY(entity_members(m.winner_id))
                     AND NOT EXISTS (SELECT 1 FROM entity_sources es WHERE es.entity_id = x.id AND es.connection_id = ANY(@visible::bigint[])))
   AND NOT EXISTS (SELECT 1 FROM entities x
                   WHERE x.id = ANY(m.loser_ids)

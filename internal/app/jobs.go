@@ -94,6 +94,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
 	river.AddWorker(workers, &extract.Worker{S: s.extract})
+	river.AddWorker(workers, &extract.ConnectionWorker{S: s.extract})
 	river.AddWorker(workers, &resolve.Worker{S: s.resolve})
 	river.AddWorker(workers, &resolve.TermWorker{S: s.resolve})
 	s.design.Workers(workers)

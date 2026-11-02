@@ -140,6 +140,13 @@ func (s *Service) Get(ctx context.Context, vis visibility.Set, key string) (*Pag
 	if err := s.cached(ctx, p); err != nil {
 		return nil, err
 	}
+	// A page with too few claims never compiles, so opening it is the
+	// trigger that finds claims for it.
+	if p.Summary.State == StateInsufficient {
+		if _, err := s.extractFor(ctx, vis, p); err != nil {
+			return nil, err
+		}
+	}
 	return p, nil
 }
 
@@ -371,7 +378,7 @@ type Events struct {
 }
 
 // Compile compiles the summary of a page for the reader and stores it. It
-// queues extraction of the newest passages that mention the entity. Fewer
+// first queues extraction of the newest passages that mention the entity. Fewer
 // than 3 input claims give the state insufficient with no model call. A
 // draft that fails the citation check or the lint gets one regeneration;
 // a second failure makes the page needs_edit with a review card.
@@ -381,6 +388,10 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 		return nil, err
 	}
 	p.Summary = PageSummary{State: StateInsufficient, Citations: []PageCitation{}, Links: vocab.LinkText(nil, "", 0), Lint: []Failure{}}
+	rules, err := s.extractFor(ctx, vis, p)
+	if err != nil {
+		return nil, err
+	}
 	if len(p.input) < MinClaims {
 		return p, nil
 	}
@@ -388,13 +399,6 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 		p.Summary.State = StateOff
 		p.Summary.Notice = "The compile model is off. The page shows the sections from the claims only."
 		return p, nil
-	}
-	rules, err := settings.Read[PageRules](ctx, s.Pool, Setting)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.queueExtraction(ctx, vis, p, rules.ExtractPassages); err != nil {
-		s.Log.Warn("page extraction not queued", "entity", p.Key, "error", err.Error())
 	}
 	msgs, ids := messages(p, p.terms, rules)
 	known := map[string]bool{}
@@ -504,6 +508,19 @@ func noticeOf(err error) (string, string) {
 		return StateOff, "The compile budget for this month is used up. The page shows the sections from the claims only."
 	}
 	return StateFailed, "The compile model did not answer. The page shows the sections from the claims only."
+}
+
+// extractFor queues extraction for the page and returns the page rules. A
+// failed queue only logs: the page still shows.
+func (s *Service) extractFor(ctx context.Context, vis visibility.Set, p *Page) (PageRules, error) {
+	rules, err := settings.Read[PageRules](ctx, s.Pool, Setting)
+	if err != nil {
+		return rules, err
+	}
+	if err := s.queueExtraction(ctx, vis, p, rules.ExtractPassages); err != nil {
+		s.Log.Warn("page extraction not queued", "entity", p.Key, "error", err.Error())
+	}
+	return rules, nil
 }
 
 // queueExtraction queues extraction of up to limit visible passages that

@@ -130,7 +130,7 @@ const visibleTerms = `-- name: VisibleTerms :many
 SELECT e.id, e.key, coalesce(e.domain_id, 0)::bigint AS domain_id, coalesce(d.name, '')::text AS domain,
        coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
        ARRAY(SELECT DISTINCT a.alias FROM entity_aliases a
-             WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
+             WHERE a.entity_id = ANY(entity_members(e.id))
                AND a.connection_id = ANY($1::bigint[]) ORDER BY a.alias)::text[] AS aliases,
        coalesce(st.value, '')::text AS status,
        coalesce(df.value, '')::text AS definition,
@@ -138,11 +138,11 @@ SELECT e.id, e.key, coalesce(e.domain_id, 0)::bigint AS domain_id, coalesce(d.na
        coalesce(ow.value, '')::text AS owner,
        ARRAY(SELECT DISTINCT x.connection_id FROM (
                SELECT s.connection_id FROM entity_sources s
-               WHERE (s.entity_id = e.id OR s.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+               WHERE s.entity_id = ANY(entity_members(e.id))
                  AND s.connection_id = ANY($1::bigint[])
                UNION
                SELECT a.connection_id FROM entity_aliases a
-               WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+               WHERE a.entity_id = ANY(entity_members(e.id))
                  AND a.connection_id = ANY($1::bigint[])
                UNION
                SELECT u.conn FROM (VALUES (st.connection_id), (df.connection_id), (pf.connection_id), (ow.connection_id)) u (conn)

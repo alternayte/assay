@@ -66,6 +66,7 @@ func SetFunction(t testing.TB, admin *Client, fn string, f Function) {
 func (e *Env) RunExtractJobs() int {
 	e.t.Helper()
 	ctx := context.Background()
+	e.RunExtractPlans()
 	rows, err := e.Server.Pool().Query(ctx, "SELECT id, args FROM river_job WHERE kind = 'extract' AND state IN ('available', 'scheduled') ORDER BY id")
 	if err != nil {
 		e.t.Fatal(err)
@@ -96,4 +97,40 @@ func (e *Env) RunExtractJobs() int {
 		}
 	}
 	return len(jobs)
+}
+
+// RunExtractPlans works the queued plans of admin extractions, which queue
+// the extraction jobs.
+func (e *Env) RunExtractPlans() {
+	e.t.Helper()
+	ctx := context.Background()
+	rows, err := e.Server.Pool().Query(ctx, "SELECT id, args FROM river_job WHERE kind = 'extract_connection' AND state = 'available' ORDER BY id")
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	type plan struct {
+		id   int64
+		args extract.ConnectionArgs
+	}
+	var plans []plan
+	for rows.Next() {
+		var p plan
+		var raw []byte
+		if err := rows.Scan(&p.id, &raw); err != nil {
+			e.t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &p.args); err != nil {
+			e.t.Fatal(err)
+		}
+		plans = append(plans, p)
+	}
+	rows.Close()
+	for _, p := range plans {
+		if _, err := e.Server.Extract().QueueConnection(ctx, p.args.Connection, p.args.Visible); err != nil {
+			e.t.Fatalf("extract plan %d: %v", p.id, err)
+		}
+		if _, err := e.Server.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", p.id); err != nil {
+			e.t.Fatal(err)
+		}
+	}
 }

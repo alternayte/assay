@@ -1133,7 +1133,16 @@ function ExtractionSheet({ c }: { c: Connection }) {
         }),
       ),
   });
+  const stop = useMutation({
+    mutationFn: async () =>
+      unwrap(await api.DELETE("/api/v1/connections/{id}/extraction", { params: { path: { id: c.id } } })),
+    onSuccess: () => {
+      start.reset();
+      estimate.reset();
+    },
+  });
   const e = estimate.data;
+  const running = start.isSuccess || (e?.running ?? false);
   return (
     <Sheet title={t("extraction.title")} description={t("extraction.body")}>
       <div className="flex flex-col gap-3">
@@ -1142,14 +1151,20 @@ function ExtractionSheet({ c }: { c: Connection }) {
             disabled={estimate.isPending}
             onClick={() => {
               start.reset();
+              stop.reset();
               estimate.mutate();
             }}
           >
             {estimate.isPending ? t("extraction.estimating") : t("extraction.estimate")}
           </Button>
-          {e?.on && e.passages > 0 && !start.isSuccess && (
+          {e?.on && e.passages > 0 && !running && (
             <Button variant="primary" disabled={start.isPending} onClick={() => start.mutate(e.passages)}>
               {t("extraction.start", { passages: e.passages })}
+            </Button>
+          )}
+          {running && (
+            <Button variant="danger" disabled={stop.isPending} onClick={() => stop.mutate()}>
+              {t("extraction.stop")}
             </Button>
           )}
         </div>
@@ -1168,6 +1183,9 @@ function ExtractionSheet({ c }: { c: Connection }) {
         {start.isSuccess && (
           <Notice tone="success">{t("extraction.queued", { count: start.data.queued })}</Notice>
         )}
+        {!start.isSuccess && e?.running && <Notice>{t("extraction.running")}</Notice>}
+        {stop.isSuccess && <Notice>{t("extraction.stopped")}</Notice>}
+        {stop.isError && <Notice tone="danger">{messageOf(stop.error)}</Notice>}
         {start.isError && (
           <Notice tone="danger">
             {start.error instanceof ApiError && start.error.code === "estimate_changed"

@@ -634,7 +634,10 @@
     "off": "The extract function is off. Turn it on in Models first.",
     "none": "All passages have an extraction.",
     "start": "Extract {passages} passages",
-    "queued": "{count} passages are in the queue.",
+    "queued": "{count} passages go to the queue. The extraction runs in the background. You can close this page.",
+    "running": "An extraction of this connection runs in the background.",
+    "stop": "Stop the extraction",
+    "stopped": "The extraction stopped. The claims so far stay. A new start extracts only the remaining passages.",
     "changed": "The estimate changed. Check the estimate again."
   },
   "glossary": {

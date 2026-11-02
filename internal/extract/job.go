@@ -35,6 +35,9 @@ type Args struct {
 	Items   []int64  `json:"items"`
 	Hashes  []string `json:"hashes" doc:"Passage hashes in hex, one per item."`
 	Trigger string   `json:"trigger"`
+	// Connection is the connection of an admin extraction, so that the
+	// admin can stop it.
+	Connection int64 `json:"connection,omitempty"`
 }
 
 // Kind is the River job kind.

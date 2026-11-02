@@ -140,6 +140,23 @@ func TestSCN_EXT_001_AdminTriggerShowsEstimateFirst(t *testing.T) {
 	if r.Status != http.StatusConflict || r.Code() != "estimate_changed" {
 		t.Fatalf("wrong count: %d %s", r.Status, r.Body)
 	}
+	// The start returns at once, and Stop removes the waiting jobs.
+	var p struct {
+		Running bool `json:"running"`
+	}
+	w.admin.Must(http.StatusAccepted, http.MethodPost, path, map[string]any{"passages": e.Passages})
+	w.env.RunExtractPlans()
+	if w.admin.Must(http.StatusOK, http.MethodGet, path, nil).JSON(t, &p); !p.Running {
+		t.Fatal("the queued extraction is not running")
+	}
+	w.admin.Must(http.StatusOK, http.MethodDelete, path, nil)
+	if w.admin.Must(http.StatusOK, http.MethodGet, path, nil).JSON(t, &p); p.Running {
+		t.Fatal("the stopped extraction is running")
+	}
+	if n := w.env.RunExtractJobs(); n != 0 {
+		t.Fatalf("%d jobs after the stop", n)
+	}
+
 	w.admin.Must(http.StatusAccepted, http.MethodPost, path, map[string]any{"passages": e.Passages})
 	if n := w.env.RunExtractJobs(); n == 0 {
 		t.Fatal("no job queued")

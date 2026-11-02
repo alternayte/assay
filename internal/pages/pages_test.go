@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
@@ -378,9 +379,12 @@ func extractCalls(fake *fixtures.Models) int {
 
 func TestSCN_EXT_001_PageCompileExtractsNewest40(t *testing.T) {
 	w := start(t)
+	// Each note has its own update second, so "newest" has one order.
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
 	for i := range 60 {
 		w.src.PutPage(fixtures.Page{ID: fmt.Sprintf("%d", 9000+i), Space: "ENG", Title: fmt.Sprintf("Release note %d", i),
-			Author: "sam.acme", Body: fmt.Sprintf("<p>Release %d of the Payments API sends receipts.</p>", i)})
+			Author: "sam.acme", Updated: base.Add(time.Duration(i) * time.Second),
+			Body: fmt.Sprintf("<p>Release %d of the Payments API sends receipts.</p>", i)})
 	}
 	if r := w.env.RunNow(w.owner, w.public, "sync"); r.Status != "succeeded" {
 		t.Fatalf("sync %+v", r)
@@ -399,5 +403,34 @@ func TestSCN_EXT_001_PageCompileExtractsNewest40(t *testing.T) {
 	if n := w.env.Count(`SELECT count(*) FROM passage_extractions x JOIN source_items i ON i.id = x.item_id
 		WHERE i.external_id ~ '^9[0-9]{3}$' AND i.external_id::int >= 9020`); n != 40 {
 		t.Fatalf("%d of the 40 newest passages are extracted", n)
+	}
+}
+
+func TestSCN_EXT_001_PageOpenWithFewClaimsExtracts(t *testing.T) {
+	w := start(t)
+	var rec struct {
+		Key string `json:"key"`
+	}
+	w.owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/registry/records", map[string]any{"kind": "thing", "thing": map[string]any{
+		"type": "service", "name": "Card Gateway", "description": "The gateway takes card payments."}}).JSON(t, &rec)
+	for i := range 5 {
+		w.src.PutPage(fixtures.Page{ID: fmt.Sprintf("%d", 9100+i), Space: "ENG", Title: fmt.Sprintf("Gateway note %d", i),
+			Author: "sam.acme", Body: fmt.Sprintf("<p>Change %d of the Card Gateway retries declined cards.</p>", i)})
+	}
+	if r := w.env.RunNow(w.owner, w.public, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync %+v", r)
+	}
+	testkit.SetFunction(t, w.owner, "extract", testkit.Function{Endpoint: w.endpoint, Model: "fake-chat"})
+
+	// Opening a page with too few claims queues its passages once.
+	for range 2 {
+		if p := get(t, w.member, rec.Key); p.Summary.State != "insufficient" {
+			t.Fatalf("state %s", p.Summary.State)
+		}
+	}
+	w.env.RunExtractJobs()
+	// The five notes and the passage of the record.
+	if n := extractCalls(w.fake); n != 6 {
+		t.Fatalf("%d extract calls, want 6", n)
 	}
 }

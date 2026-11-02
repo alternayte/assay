@@ -3,10 +3,7 @@ package round3
 
 import (
 	"context"
-	"net/http"
 	"testing"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
@@ -59,40 +56,6 @@ func (w *world) exec(t *testing.T, sql string, args ...any) {
 	if _, err := w.env.Server.Pool().Exec(context.Background(), sql, args...); err != nil {
 		t.Fatalf("%s: %v", sql, err)
 	}
-}
-
-// token creates an access token for the client with the scopes.
-func token(t *testing.T, cl *testkit.Client, scopes ...string) string {
-	t.Helper()
-	var out struct {
-		Value string `json:"value"`
-	}
-	body := map[string]any{"name": "agent"}
-	if len(scopes) > 0 {
-		body["scopes"] = scopes
-	}
-	cl.Must(http.StatusCreated, http.MethodPost, "/api/v1/tokens", body).JSON(t, &out)
-	return out.Value
-}
-
-type bearer string
-
-func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	r.Header.Set("Authorization", "Bearer "+string(b))
-	return http.DefaultTransport.RoundTrip(r)
-}
-
-func (w *world) mcp(t *testing.T, value string) *mcp.ClientSession {
-	t.Helper()
-	c := mcp.NewClient(&mcp.Implementation{Name: "review", Version: "1"}, nil)
-	s, err := c.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: w.env.HTTP.URL + "/mcp",
-		HTTPClient: &http.Client{Transport: bearer(value)}}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-	return s
 }
 
 // key returns the key of the entity of a connection whose key ends with

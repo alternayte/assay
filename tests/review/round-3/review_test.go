@@ -118,7 +118,9 @@ func TestRVW_3_03_ConflictAndNeedsEditCardsCannotBeAccepted(t *testing.T) {
 	fake, openai, _ := testkit.FakeModels(t)
 	endpoint := testkit.CreateEndpoint(t, w.owner, "fake", "openai", openai, fixtures.FakeKey, nil)
 	testkit.SetFunction(t, w.owner, "compile", testkit.Function{Endpoint: endpoint, Model: "fake-chat"})
-	fake.OnChat(func(map[string]any) string { return "The team will leverage the owner [C1]. The system is robust [C2]." })
+	fake.OnChat(func(map[string]any) string {
+		return "The team will leverage the owner [C1]. The system is robust [C2]."
+	})
 	pay := w.scalar(t, `SELECT e.key FROM entities e JOIN entity_sources s ON s.entity_id = e.id
 		WHERE s.connection_id = $1 AND e.type = 'service' AND e.key LIKE '%payments-api' LIMIT 1`, repos).(string)
 	w.reviewer.Must(http.StatusOK, http.MethodPost, "/api/v1/entities/"+url.PathEscape(pay)+"/page/compile", nil)

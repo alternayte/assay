@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -98,7 +99,8 @@ func (w *world) connect(t *testing.T, name, kind string, scope map[string]any, s
 	if kind == "azdo" {
 		path = "/azdo/" + fixtures.AzdoCollection
 	}
-	id := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: name, Kind: kind, BaseURL: w.base, Scope: scope, Path: path})
+	id := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: name, Kind: kind, BaseURL: w.base, Scope: scope, Path: path,
+		Code: tree.DefaultCodeGlobs})
 	if share {
 		testkit.ShareWithEveryone(t, w.env, w.owner, id)
 	}
@@ -180,6 +182,7 @@ func cited(t *testing.T, s section) {
 // sentence with a source, code cites with a line range, and the Markdown
 // form with footnotes.
 func TestSCN_DSG_003_BuildWritesCitedRepositoryPage(t *testing.T) {
+	t.Parallel()
 	w := start(t)
 	key := repoKey(w.host, "acme/payments-api")
 	p := get(t, w.member, key)
@@ -236,6 +239,7 @@ func TestSCN_DSG_003_BuildWritesCitedRepositoryPage(t *testing.T) {
 // declaration and then adds a package. Only the sections that cite the
 // changed passage regenerate, and the new package gets a section.
 func TestSCN_DSG_004_ChangesRegenerateOnlyTheirSections(t *testing.T) {
+	t.Parallel()
 	w := start(t)
 	key := repoKey(w.host, "acme/payments-api")
 	before := get(t, w.owner, key)
@@ -279,6 +283,7 @@ func TestSCN_DSG_004_ChangesRegenerateOnlyTheirSections(t *testing.T) {
 // reviewer edit is pinned and survives a code change, which opens a
 // design_update card; a member edit and a problem report become cards.
 func TestSCN_DSG_005_CorrectionsArePinned(t *testing.T) {
+	t.Parallel()
 	w := start(t)
 	key := repoKey(w.host, "acme/payments-api")
 	slug := "component:internal/store"
@@ -354,6 +359,7 @@ func TestSCN_DSG_005_CorrectionsArePinned(t *testing.T) {
 // TestSCN_DSG_006_BudgetStopsTheBuild sets a small token budget: the build
 // stops, keeps what it wrote, and the run shows the reason.
 func TestSCN_DSG_006_BudgetStopsTheBuild(t *testing.T) {
+	t.Parallel()
 	env := testkit.Start(t)
 	w := &world{env: env, owner: env.Setup("owner@acme.test")}
 	w.src, w.base = testkit.FakeSources(t)
@@ -388,6 +394,7 @@ func TestSCN_DSG_006_BudgetStopsTheBuild(t *testing.T) {
 // the shared repositories, and never the repository of the owner's
 // connection, in a section, a node or a cite.
 func TestSCN_DSG_007_SystemPagesFollowTheVisibleSet(t *testing.T) {
+	t.Parallel()
 	w := start(t)
 	var cards struct {
 		Cards []struct {
@@ -449,6 +456,7 @@ func TestSCN_DSG_007_SystemPagesFollowTheVisibleSet(t *testing.T) {
 // code only with the code filter, and that a question about how something
 // works cites code with its line range.
 func TestSCN_DSG_008_SearchAndAskReadCode(t *testing.T) {
+	t.Parallel()
 	w := start(t)
 	type results struct {
 		Results []struct {

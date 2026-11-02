@@ -46,6 +46,9 @@ type Connection struct {
 	Scope   map[string]any
 	Token   string // empty uses the fixture token
 	Rate    float64
+	// Code are the code globs. Nil indexes no source code: parsing code is
+	// slow under the race detector, and most tests do not read it.
+	Code []string
 }
 
 // CreateConnection creates a connection as admin and returns its ID.
@@ -65,7 +68,7 @@ func CreateConnection(t testing.TB, admin *Client, c Connection) int64 {
 	}
 	admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/connections", map[string]any{
 		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope,
-		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": c.Rate,
+		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": c.Rate, "codeGlobs": orEmpty(c.Code),
 	}).JSON(t, &out)
 	return out.ID
 }
@@ -130,4 +133,11 @@ func ShareWithEveryone(t testing.TB, env *Env, admin *Client, connectionID int64
 	}
 	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", connectionID),
 		map[string]any{"groupIds": []int64{everyone}, "confirm": true})
+}
+
+func orEmpty(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }

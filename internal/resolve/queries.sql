@@ -394,3 +394,133 @@ WHERE p.status = 'open' AND p.kind = 'merge'
 
 -- name: ConnectionNames :many
 SELECT id, name FROM connections WHERE id = ANY(@ids::bigint[]) AND id = ANY(@visible::bigint[]) ORDER BY name;
+
+-- name: CodeIdentities :many
+-- The files that name a repository to other code: go.mod, package.json and
+-- .proto files of the repositories of all connections, knowledge files or
+-- code, with the passage text of manifests.
+-- vis:system
+SELECT i.connection_id, split_part(i.external_id, ':', 1)::text AS repo,
+       substr(i.external_id, length(split_part(i.external_id, ':', 1)) + 2)::text AS path,
+       coalesce((SELECT string_agg(p.norm, ' ' ORDER BY p.ordinal) FROM passages p WHERE p.item_id = i.id
+                 AND (i.external_id LIKE '%go.mod' OR i.external_id LIKE '%package.json')), '')::text AS text
+FROM source_items i
+WHERE i.kind IN ('code', 'file') AND (i.external_id LIKE '%:go.mod' OR i.external_id LIKE '%/go.mod' OR i.external_id LIKE '%:package.json'
+      OR i.external_id LIKE '%/package.json' OR i.external_id LIKE '%.proto');
+
+-- name: RepoCodePassages :many
+-- The source code passages of one repository of a connection.
+-- vis:system
+SELECT p.item_id, p.hash, p.norm, substr(i.external_id, length(@repo::text) + 2)::text AS path
+FROM passages p
+JOIN source_items i ON i.id = p.item_id
+WHERE i.connection_id = @connection_id AND p.connection_id = @connection_id AND i.kind = 'code' AND i.external_id LIKE @repo::text || ':%'
+ORDER BY i.external_id, p.ordinal;
+
+-- name: RepositoryByAlias :one
+-- The repository entity of a repository ID in a connection.
+-- vis:system
+SELECT e.id, e.key FROM entities e JOIN entity_aliases a ON a.entity_id = e.id
+WHERE e.type = 'repository' AND e.status = 'active' AND a.connection_id = @connection_id AND a.alias_norm = @alias_norm
+ORDER BY e.id LIMIT 1;
+
+-- name: RepoGrouped :one
+-- Whether a repository has a current implements or part_of claim.
+SELECT EXISTS (SELECT 1 FROM claims c WHERE c.subject_id = @id AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL)::boolean;
+
+-- name: OpenRepoSystemCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = 'repo_system' AND target = @target AND status = 'open')::boolean;
+
+-- name: RepoSignals :one
+-- The signals of a repository for repo_system: its name, the first passage
+-- of its README, its owners and the objects of its code edges.
+-- vis:system
+SELECT e.key, coalesce(entity_display_name(e.id, array(SELECT id FROM connections)), e.key)::text AS name,
+       coalesce((SELECT p.norm FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), '')::text AS readme,
+       coalesce((SELECT p.item_id FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), 0)::bigint AS readme_item,
+       coalesce((SELECT p.hash FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), '\x'::bytea)::bytea AS readme_hash,
+       coalesce((SELECT p.connection_id FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), 0)::bigint AS readme_connection,
+       array(SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL ORDER BY o.key)::text[] AS owners,
+       array(SELECT o.id FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate IN ('depends_on', 'consumes_api') AND c.retracted_at IS NULL ORDER BY o.id)::bigint[] AS edges,
+       array(SELECT DISTINCT s.connection_id FROM entity_sources s WHERE s.entity_id = e.id ORDER BY s.connection_id)::bigint[] AS connections
+FROM entities e WHERE e.id = @id;
+
+-- name: FirstCodePassage :one
+-- The first source code passage of a repository, the evidence of a
+-- grouping when the repository has no README.
+-- vis:system
+SELECT p.item_id, p.hash, p.connection_id, p.norm FROM passages p JOIN source_items i ON i.id = p.item_id
+JOIN entity_aliases a ON a.connection_id = i.connection_id AND i.external_id LIKE a.alias || ':%'
+WHERE a.entity_id = @id AND i.kind = 'code'
+ORDER BY i.external_id, p.ordinal LIMIT 1;
+
+-- name: GroupsOf :many
+-- The systems and services that entities implement or are part of, with
+-- the path: the entity itself, or a service that it implements.
+SELECT DISTINCT o.id, o.key, o.type FROM claims c JOIN entities o ON o.id = c.object_entity_id
+WHERE c.subject_id = ANY(@ids::bigint[]) AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL
+  AND o.type IN ('system', 'service') AND o.status = 'active'
+UNION
+SELECT DISTINCT x.id, x.key, x.type FROM claims c
+JOIN claims c2 ON c2.subject_id = c.object_entity_id AND c2.predicate = 'part_of' AND c2.retracted_at IS NULL
+JOIN entities x ON x.id = c2.object_entity_id
+WHERE c.subject_id = ANY(@ids::bigint[]) AND c.predicate = 'implements' AND c.retracted_at IS NULL AND x.type = 'system' AND x.status = 'active';
+
+-- name: OwnedGroups :many
+-- The systems and services that the owners own.
+SELECT DISTINCT e.id, e.key, e.type FROM claims c JOIN entities e ON e.id = c.subject_id JOIN entities o ON o.id = c.object_entity_id
+WHERE c.predicate = 'owned_by' AND c.retracted_at IS NULL AND o.key = ANY(@owners::text[]) AND e.type IN ('system', 'service') AND e.status = 'active';
+
+-- name: UngroupedRepos :many
+-- Repositories without an implements or part_of claim, with their names
+-- and owners.
+SELECT e.id, e.key, coalesce(entity_display_name(e.id, array(SELECT id FROM connections)), e.key)::text AS name,
+       array(SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL ORDER BY o.key)::text[] AS owners
+FROM entities e
+WHERE e.type = 'repository' AND e.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM claims c WHERE c.subject_id = e.id AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL)
+ORDER BY e.key;
+
+-- name: LinkedProjects :many
+-- Jira projects whose issues name the repository.
+-- vis:system
+SELECT DISTINCT split_part(i.external_id, '-', 1)::text AS project FROM passages p
+JOIN source_items i ON i.id = p.item_id JOIN connections k ON k.id = i.connection_id
+WHERE k.kind = 'jira' AND p.norm ILIKE '%' || @name::text || '%'
+ORDER BY 1 LIMIT 3;
+
+-- name: UpsertDecisionClaim :one
+-- A claim that a repo_system decision proposes, made current again when
+-- it exists.
+INSERT INTO claims (subject_id, predicate, object_entity_id, object_norm, origin)
+VALUES (@subject_id, @predicate, @object_id, '', 'model')
+ON CONFLICT (subject_id, predicate, coalesce(object_entity_id, 0), object_norm, scope_env, coalesce(valid_from, '-infinity'::timestamptz))
+DO UPDATE SET retracted_at = NULL
+RETURNING id;
+
+-- name: AddDecisionEvidence :exec
+-- The evidence of a repo_system claim: a passage of the repository, with
+-- the source type decision.
+-- vis:system
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+VALUES (@claim_id, @connection_id, @item_id, @passage_hash, 'passage', 'supports', @quote, 'current', 'decision')
+ON CONFLICT (claim_id, item_id, passage_hash, stance) DO NOTHING;
+
+-- name: RepoAlias :one
+-- The repository ID of a repository entity in a connection.
+-- vis:system
+SELECT a.alias FROM entity_aliases a
+WHERE a.entity_id = @entity_id AND a.connection_id = @connection_id AND a.alias LIKE '%/%'
+ORDER BY a.id LIMIT 1;
+
+-- name: OpenEdgeTargets :many
+-- The candidates of the open and accepted edge cards of a repository.
+SELECT DISTINCT e.id FROM proposals p JOIN entities e ON e.key = p.payload->>'candidate'
+WHERE p.kind = 'mention_link' AND p.target = @target AND p.status IN ('open', 'accepted') AND e.status = 'active';

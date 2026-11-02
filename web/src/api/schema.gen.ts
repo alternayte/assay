@@ -578,6 +578,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/decisions/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Score the decisions against labels
+         * @description Gives the precision and recall of each band of same_entity, mention_link, describes and repo_system against the labels. assay eval --labels sends the labels of a corpus. Unlabelled decisions do not count.
+         */
+        post: operations["decisionReport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decisions/{id}/undo": {
         parameters: {
             query?: never;
@@ -688,6 +708,126 @@ export interface paths {
         get: operations["getEntity"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the design page of an entity
+         * @description A repository with indexed code, a system, or a service of two or more repositories has a design page. Each sentence, diagram node and diagram edge cites a source passage or a claim. Other entities, hidden entities and missing keys give 404.
+         */
+        get: operations["getDesignPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design.md": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the design page as Markdown
+         * @description Footnotes cite the file and line range of each source passage. Diagrams are Mermaid code blocks. /e/{key}/design.md gives the same document.
+         */
+        get: operations["getDesignMarkdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design/compile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write the overview of a system design page
+         * @description Writes the overview of a system or service page for your visibility key when it is missing or stale. Repository pages build after each sync.
+         */
+        post: operations["compileDesignPage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Regenerate a design page
+         * @description Queues a build of a repository page, or writes the overview of a system page again for your visibility key. Pinned sections stay.
+         */
+        post: operations["regenerateDesignPage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design/sections/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct a section of a design page
+         * @description A reviewer saves a new version at once. It is pinned: regeneration does not replace it. The edit of a member becomes a review card. Keep markers such as [S1] to keep their sources.
+         */
+        put: operations["editDesignSection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/design/sections/{slug}/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a problem with a section of a design page
+         * @description Creates a review card with the reason. A reviewer regenerates the section with the reason or saves corrected text.
+         */
+        post: operations["reportDesignProblem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1853,7 +1993,7 @@ export interface components {
             /** Format: int64 */
             domain?: number;
             /** @enum {string} */
-            kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+            kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "";
             q?: string;
             type?: string;
         };
@@ -1865,6 +2005,22 @@ export interface components {
              */
             readonly $schema?: string;
             accepted: number[];
+        };
+        BandResult: {
+            band: string;
+            /** Format: int64 */
+            correct: number;
+            /** Format: int64 */
+            decisions: number;
+            /** Format: int64 */
+            found: number;
+            kind: string;
+            /** Format: int64 */
+            positives: number;
+            /** Format: double */
+            precision: number;
+            /** Format: double */
+            recall: number;
         };
         Bin: {
             /** Format: int64 */
@@ -2018,6 +2174,8 @@ export interface components {
             readonly $schema?: string;
             /** Format: uri */
             baseUrl: string;
+            /** @description Source files to index. Leave it out to use the default code globs on create and to keep the globs on update. An empty list turns code indexing off. */
+            codeGlobs?: string[];
             /** Format: int64 */
             defaultDomainId?: number;
             excludeGlobs?: string[];
@@ -2062,6 +2220,8 @@ export interface components {
              */
             readonly $schema?: string;
             baseUrl: string;
+            /** @description Source files to index. Empty turns code indexing off. */
+            codeGlobs: string[];
             /** Format: date-time */
             createdAt: string;
             /** Format: int64 */
@@ -2219,6 +2379,102 @@ export interface components {
         DeltaEvent: {
             text: string;
         };
+        DesignCite: {
+            /** Format: int64 */
+            claimId?: number;
+            /** @description The passage is source code. A reason needs a cite that is not code. */
+            code?: boolean;
+            /** Format: int64 */
+            end?: number;
+            /** @description The hex hash of the passage. */
+            hash?: string;
+            /** @description The marker, such as S1 or C2. */
+            id: string;
+            /** Format: int64 */
+            itemId?: number;
+            /** @enum {string} */
+            kind: "passage" | "claim";
+            path?: string;
+            /** @description The kind of the source connection of a passage. */
+            sourceType?: string;
+            /** @description The passage is no longer in the source. */
+            stale: boolean;
+            /** Format: int64 */
+            start?: number;
+            /** @description The claim as a sentence, or the first words of the passage. */
+            text?: string;
+            title?: string;
+            /** @description The browse URL of the passage, with its line range for code. */
+            url?: string;
+        };
+        DesignPage: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DesignPage.json
+             */
+            readonly $schema?: string;
+            key: string;
+            /**
+             * @description repository: one repository. system: a system or a service of several repositories.
+             * @enum {string}
+             */
+            level: "repository" | "system";
+            name: string;
+            run?: components["schemas"]["DesignRunView"];
+            sections: components["schemas"]["DesignPageSection"][];
+            type: string;
+            /** @description A build runs. The page shows the last good version. */
+            updating: boolean;
+            visibilityKey: string;
+        };
+        DesignPageSection: {
+            /** @enum {string} */
+            author: "model" | "user" | "";
+            cites: components["schemas"]["DesignCite"][];
+            componentPath?: string;
+            /** @description A Mermaid flowchart, or empty. */
+            diagram: string;
+            /** @description The markers of the diagram nodes and edges. */
+            diagramCites: string[];
+            /** @description People can edit and report the section. */
+            editable: boolean;
+            /** Format: date-time */
+            editedAt?: string;
+            /** @enum {string} */
+            kind: "overview" | "architecture" | "component" | "data" | "repository";
+            lint: components["schemas"]["Failure"][];
+            /** @description Markers such as [S1] cite the sources. */
+            markdown: string;
+            model?: string;
+            /** @description A person corrected the section. Regeneration does not replace it. */
+            pinned: boolean;
+            /** @description The repository of a section of a system page. */
+            repositoryKey?: string;
+            slug: string;
+            /** @enum {string} */
+            state: "fresh" | "stale" | "missing";
+            title: string;
+            /** Format: int64 */
+            versionId?: number;
+        };
+        DesignRunView: {
+            /** Format: int32 */
+            digests: number;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** @description Why a build stopped or failed. */
+            reason: string;
+            /** Format: int32 */
+            sections: number;
+            /** Format: date-time */
+            startedAt: string;
+            /** @enum {string} */
+            status: "running" | "succeeded" | "stopped" | "failed";
+            /** Format: int32 */
+            tokens: number;
+            trigger: string;
+        };
         Detail: {
             /**
              * Format: uri
@@ -2290,8 +2546,12 @@ export interface components {
             canonicalName?: string;
             /** @description The definition of a new term. */
             definition?: string;
+            /** @description The corrected Mermaid diagram of a design section. */
+            diagram?: string;
             /** @description The entity keys of a merge cluster to merge. Empty merges all members. */
             members?: string[];
+            /** @description The corrected text of a design section. */
+            text?: string;
         };
         EndpointBody: {
             /**
@@ -2410,6 +2670,18 @@ export interface components {
             /** Format: int64 */
             tokensOut: number;
         };
+        EvalLabels: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EvalLabels.json
+             */
+            readonly $schema?: string;
+            different: components["schemas"]["LabelPair"][];
+            mentions: components["schemas"]["LabelMention"][];
+            repos: components["schemas"]["LabelRepo"][];
+            same: components["schemas"]["LabelPair"][];
+        };
         Evidence: {
             connectionName: string;
             /** Format: int64 */
@@ -2505,7 +2777,7 @@ export interface components {
             endpointId: number | null;
             endpointName: string;
             /** @enum {string} */
-            function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide";
+            function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide" | "design";
             model: string;
             /** Format: double */
             monthlyBudgetUsd: number;
@@ -2653,6 +2925,20 @@ export interface components {
             /** Format: int64 */
             reviewed: number;
         };
+        LabelMention: {
+            entity?: string;
+            /** @description The external ID of the item. */
+            item: string;
+            mention: string;
+        };
+        LabelPair: {
+            a: string;
+            b: string;
+        };
+        LabelRepo: {
+            group?: string;
+            repository: string;
+        };
         LinkInBody: {
             /**
              * Format: uri
@@ -2715,6 +3001,8 @@ export interface components {
              */
             readonly $schema?: string;
             connections: components["schemas"]["ConnectionRecord"][];
+            /** @description The code globs of a new repository connection. */
+            defaultCodeGlobs: string[];
             /** @description The include globs of a new repository connection. */
             defaultGlobs: string[];
             /** @description The kinds that an admin can create. */
@@ -3106,6 +3394,25 @@ export interface components {
             predicates: components["schemas"]["Predicate"][];
             sourceTypes: string[];
         };
+        ProblemInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ProblemInBody.json
+             */
+            readonly $schema?: string;
+            reason: string;
+        };
+        ProblemOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ProblemOutBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            proposal: number;
+        };
         ProblemReport: {
             /**
              * Format: uri
@@ -3251,6 +3558,15 @@ export interface components {
             readonly $schema?: string;
             reason: string;
         };
+        ReportOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ReportOutBody.json
+             */
+            readonly $schema?: string;
+            bands: components["schemas"]["BandResult"][];
+        };
         ReportSource: {
             /**
              * Format: int64
@@ -3375,6 +3691,18 @@ export interface components {
             readonly $schema?: string;
             runs: components["schemas"]["RunRecord"][];
         };
+        SavedEdit: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavedEdit.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            proposal?: number;
+            /** Format: int64 */
+            version?: number;
+        };
         SavedRecord: {
             /**
              * Format: uri
@@ -3400,6 +3728,20 @@ export interface components {
              */
             readonly $schema?: string;
             scopes: components["schemas"]["Scope"][];
+        };
+        SectionEdit: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SectionEdit.json
+             */
+            readonly $schema?: string;
+            /** @description A Mermaid diagram, or empty for none. */
+            diagram?: string;
+            /** @description The text. Keep markers such as [S1] to keep their sources. */
+            markdown: string;
+            /** @description Why you change the section. */
+            note?: string;
         };
         Segment: {
             hit?: boolean;
@@ -3466,6 +3808,8 @@ export interface components {
         };
         Source: {
             connectionName: string;
+            /** Format: int64 */
+            endLine?: number;
             headingPath: string[];
             /** @description The marker ID, such as S1. */
             id: string;
@@ -3474,6 +3818,8 @@ export interface components {
             kind: string;
             passageHashes: string[];
             sourceType: string;
+            /** Format: int64 */
+            startLine?: number;
             /** @description Source data, not instructions. */
             text: string;
             title: string;
@@ -3493,6 +3839,8 @@ export interface components {
              * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL.
              */
             baseUrl: string;
+            /** @description Source files to index. Empty turns code indexing off. */
+            codeGlobs?: string[];
             /**
              * Format: int64
              * @description Use the stored token of this connection when token is empty.
@@ -4349,7 +4697,7 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
-                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "";
+                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "";
                 band?: "high" | "medium" | "low" | "";
                 /** @description A connection of the card inputs. */
                 connection?: number;
@@ -5094,6 +5442,39 @@ export interface operations {
             };
         };
     };
+    decisionReport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvalLabels"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     undoDecision: {
         parameters: {
             query?: never;
@@ -5332,6 +5713,209 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Detail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDesignPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDesignMarkdown: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The design page as Markdown. */
+            200: {
+                headers: {
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/markdown": string;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    compileDesignPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DesignPage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    regenerateDesignPage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    editDesignSection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+                /** @description The section, such as overview or component:internal/sync, escaped as one path segment. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SectionEdit"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedEdit"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    reportDesignProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+                /** @description The section, such as overview or component:internal/sync, escaped as one path segment. */
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProblemInBody"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemOutBody"];
                 };
             };
             /** @description Error */
@@ -6337,7 +6921,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide";
+                function: "answer" | "extract" | "compile" | "embed" | "rerank" | "decide" | "design";
             };
             cookie?: never;
         };
@@ -6844,6 +7428,8 @@ export interface operations {
             query?: {
                 /** @description The query. Quotes match a phrase. */
                 q?: string;
+                /** @description Search source code only. Off by default: results hold no source code. */
+                code?: boolean;
                 /** @description The kind of the source connection. */
                 sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "";
                 connection?: number;

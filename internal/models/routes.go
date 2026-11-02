@@ -35,7 +35,7 @@ type EndpointRecord struct {
 
 // FunctionRecord is a function as the API shows it.
 type FunctionRecord struct {
-	Function     string         `json:"function" enum:"answer,extract,compile,embed,rerank,decide"`
+	Function     string         `json:"function" enum:"answer,extract,compile,embed,rerank,decide,design"`
 	EndpointID   *int64         `json:"endpointId"`
 	EndpointName string         `json:"endpointName"`
 	Model        string         `json:"model"`
@@ -236,7 +236,7 @@ func (g *Gateway) Register(a huma.API) {
 	})
 
 	type fnIn struct {
-		Function string `path:"function" enum:"answer,extract,compile,embed,rerank,decide"`
+		Function string `path:"function" enum:"answer,extract,compile,embed,rerank,decide,design"`
 		Body     struct {
 			EndpointID *int64         `json:"endpointId"`
 			Model      string         `json:"model" maxLength:"200"`

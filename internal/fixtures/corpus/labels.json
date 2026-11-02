@@ -19,5 +19,10 @@
   ],
   "unnamed": [
     {"item": "1007", "mention": "the job that exports overdue reviews"}
+  ],
+  "repoSystems": [
+    {"repository": "github:{host}:acme/payments-worker", "group": "backstage:system:default/payments"},
+    {"repository": "github:{host}:acme/checkout-web", "group": "backstage:system:default/payments"},
+    {"repository": "github:{host}:acme/fraud-scoring"}
   ]
 }

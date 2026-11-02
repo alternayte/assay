@@ -1,7 +1,8 @@
-// Package tree reads the knowledge files of repositories. GitHub and Azure
-// DevOps Server list the tree of a branch with a blob ID per file. Sync
-// fetches only the files whose blob ID changed. Catalog and CODEOWNERS
-// files become facts.
+// Package tree reads the knowledge files and the source code of
+// repositories. GitHub and Azure DevOps Server list the tree of a branch
+// with a blob ID per file. Sync fetches only the files whose blob ID
+// changed. Catalog and CODEOWNERS files become facts. Source files become
+// items of kind code with one passage per declaration.
 package tree
 
 import (
@@ -18,6 +19,7 @@ import (
 
 	"github.com/alternayte/assay/internal/connectors"
 	"github.com/alternayte/assay/internal/connectors/catalog"
+	"github.com/alternayte/assay/internal/connectors/code"
 	"github.com/alternayte/assay/internal/connectors/codeowners"
 	"github.com/alternayte/assay/internal/content"
 )
@@ -31,6 +33,8 @@ type Repo struct {
 	Branch string
 	// Key is the provider-qualified entity key of the repository.
 	Key string
+	// Commit is the head commit of the branch when the tree was listed.
+	Commit string
 }
 
 // Entry is one file of a tree.
@@ -55,6 +59,10 @@ type Host interface {
 	Blob(ctx context.Context, r Repo, e Entry) ([]byte, error)
 	// FileURL is the browse URL of a file.
 	FileURL(r Repo, file string) string
+	// Commit returns the head commit of the default branch.
+	Commit(ctx context.Context, r Repo) (string, error)
+	// CommitURL is the browse URL of a file at the commit of the listing.
+	CommitURL(r Repo, file string) string
 	// Provider and WebHost qualify entity keys, such as github and
 	// github.com.
 	Provider() string
@@ -67,31 +75,58 @@ var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/dec
 	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
 	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml"}
 
-// Globs select the files of a repository.
+// DefaultCodeGlobs are the default code globs of a new repository
+// connection: the source files of Go, TypeScript, JavaScript, C# and
+// Python, and the manifests that mark components.
+var DefaultCodeGlobs = []string{"**/*.go", "**/*.{ts,tsx,mts,cts}", "**/*.{js,jsx,mjs,cjs}", "**/*.cs", "**/*.py",
+	"**/go.mod", "**/package.json", "**/*.csproj", "**/pyproject.toml"}
+
+// DefaultSkipGlobs are the paths of generated and vendored code that sync
+// skips with the reason generated.
+var DefaultSkipGlobs = []string{"**/vendor/**", "**/node_modules/**", "**/dist/**", "**/bin/**", "**/obj/**", "**/*.min.js"}
+
+// Globs select the files of a repository. A file that matches Include is
+// a knowledge file. Otherwise a file that matches Code is a source file.
+// Exclude applies to both, and Skip removes generated code.
 type Globs struct {
 	Include []string
 	Exclude []string
+	Code    []string
+	Skip    []string
+}
+
+func matchAny(pats []string, p string) bool {
+	for _, pat := range pats {
+		if ok, _ := doublestar.Match(pat, p); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Match reports whether a path matches an include glob and no exclude
 // glob. Globs use ** for any number of directories and {a,b} for choices.
 func (g Globs) Match(p string) bool {
-	in := false
-	for _, pat := range g.Include {
+	return matchAny(g.Include, p) && !matchAny(g.Exclude, p)
+}
+
+// MatchCode reports whether a path is a source file: it matches a code
+// glob, no include glob, no exclude glob and no skip glob.
+func (g Globs) MatchCode(p string) bool {
+	return matchAny(g.Code, p) && !matchAny(g.Include, p) && !matchAny(g.Exclude, p) && !matchAny(g.Skip, p)
+}
+
+// skipped returns the skip glob that a code path matches, or "".
+func (g Globs) skipped(p string) string {
+	if !matchAny(g.Code, p) || matchAny(g.Include, p) || matchAny(g.Exclude, p) {
+		return ""
+	}
+	for _, pat := range g.Skip {
 		if ok, _ := doublestar.Match(pat, p); ok {
-			in = true
-			break
+			return pat
 		}
 	}
-	if !in {
-		return false
-	}
-	for _, pat := range g.Exclude {
-		if ok, _ := doublestar.Match(pat, p); ok {
-			return false
-		}
-	}
-	return true
+	return ""
 }
 
 // Connector reads the selected repositories of a host.
@@ -107,10 +142,15 @@ type Connector struct {
 
 // listing is the matched files of one repository, sorted by path.
 type listing struct {
-	repo   Repo
-	files  []Entry
-	index  map[string]int
-	owners string // the CODEOWNERS file that GitHub uses
+	repo  Repo
+	files []Entry
+	index map[string]int
+	// rank is the position of a file among the files of its kind:
+	// knowledge files and source files have their own limits.
+	rank    map[string]int
+	code    map[string]bool
+	owners  string         // the CODEOWNERS file that GitHub uses
+	skipped map[string]int // skip glob to the number of files
 }
 
 // New returns a connector for the repositories with the IDs in repos.
@@ -203,15 +243,36 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 	if err != nil {
 		return nil, err
 	}
-	l = &listing{repo: r, index: map[string]int{}}
+	if len(k.globs.Code) > 0 {
+		if r.Commit, err = k.host.Commit(ctx, r); err != nil {
+			return nil, err
+		}
+	}
+	l = &listing{repo: r, index: map[string]int{}, rank: map[string]int{}, code: map[string]bool{}, skipped: map[string]int{}}
 	for _, e := range entries {
-		if k.globs.Match(e.Path) {
+		switch {
+		case k.globs.Match(e.Path):
 			l.files = append(l.files, e)
+		case k.globs.MatchCode(e.Path):
+			l.files = append(l.files, e)
+			l.code[e.Path] = true
+		default:
+			if g := k.globs.skipped(e.Path); g != "" {
+				l.skipped[g]++
+			}
 		}
 	}
 	slices.SortFunc(l.files, func(a, b Entry) int { return strings.Compare(a.Path, b.Path) })
+	knowledge, code := 0, 0
 	for i, e := range l.files {
 		l.index[e.Path] = i
+		if l.code[e.Path] {
+			l.rank[e.Path] = code
+			code++
+		} else {
+			l.rank[e.Path] = knowledge
+			knowledge++
+		}
 	}
 	for _, p := range []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"} {
 		if _, ok := l.index[p]; ok {
@@ -240,18 +301,23 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 	if !ok {
 		return nil, connectors.ErrNotFound
 	}
-	if k.limits.MaxFilesPerRepo > 0 && i >= k.limits.MaxFilesPerRepo {
+	isCode := l.code[file]
+	maxFiles, maxBytes := k.limits.MaxFilesPerRepo, k.limits.MaxItemBytes
+	if isCode {
+		maxFiles, maxBytes = k.limits.MaxCodeFilesPerRepo, k.limits.MaxCodeItemBytes
+	}
+	if maxFiles > 0 && l.rank[file] >= maxFiles {
 		return nil, &connectors.SkipError{Reason: "file_limit"}
 	}
 	e := l.files[i]
-	if k.limits.MaxItemBytes > 0 && e.Size > int64(k.limits.MaxItemBytes) {
+	if maxBytes > 0 && e.Size > int64(maxBytes) {
 		return nil, &connectors.SkipError{Reason: "too_large"}
 	}
 	b, err := k.host.Blob(ctx, l.repo, e)
 	if err != nil {
 		return nil, err
 	}
-	if k.limits.MaxItemBytes > 0 && len(b) > k.limits.MaxItemBytes {
+	if maxBytes > 0 && len(b) > maxBytes {
 		return nil, &connectors.SkipError{Reason: "too_large"}
 	}
 	b = []byte(strings.ReplaceAll(strings.TrimPrefix(string(b), "\ufeff"), "\r\n", "\n"))
@@ -259,6 +325,17 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 		return nil, &connectors.SkipError{Reason: "binary"}
 	}
 	repo := content.EntityRef{Type: "repository", Key: l.repo.Key, Name: l.repo.Name, Aliases: []string{l.repo.ID}}
+	if isCode {
+		if Generated(b) {
+			return nil, &connectors.SkipError{Reason: "generated"}
+		}
+		return &content.Item{
+			ExternalID: id, Kind: "code", Title: l.repo.ID + "/" + file, URL: k.host.CommitURL(l.repo, file),
+			Body: code.Body(file, b), Passages: code.Split(file, b), Revision: e.Blob, Entities: []content.EntityRef{repo},
+			Metadata: map[string]any{"repository": l.repo.ID, "repositoryKey": l.repo.Key, "path": file, "branch": l.repo.Branch,
+				"commit": l.repo.Commit, "language": code.FenceLanguage(file)},
+		}, nil
+	}
 	it := &content.Item{
 		ExternalID: id, Kind: "file", Title: l.repo.ID + "/" + file, URL: k.host.FileURL(l.repo, file),
 		Body: Body(file, b), Revision: e.Blob,
@@ -278,6 +355,42 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 		it.Facts = codeowners.Facts(b, repo, k.host.Provider(), k.host.WebHost())
 	}
 	return it, nil
+}
+
+// Generated reports whether a source file says in its first lines that a
+// tool wrote it.
+func Generated(b []byte) bool {
+	head := string(b[:min(len(b), 2048)])
+	lines := strings.SplitN(head, "\n", 6)
+	for _, l := range lines[:min(len(lines), 5)] {
+		if strings.Contains(l, "Code generated") || strings.Contains(l, "<auto-generated") {
+			return true
+		}
+	}
+	return false
+}
+
+// Skipped lists the source files that the skip globs removed from the last
+// listings: one entry per repository and glob, with the number of files.
+func (k *Connector) Skipped() []connectors.Skipped {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	var out []connectors.Skipped
+	for _, id := range k.repos {
+		l, ok := k.listings[id]
+		if !ok {
+			continue
+		}
+		globs := make([]string, 0, len(l.skipped))
+		for g := range l.skipped {
+			globs = append(globs, g)
+		}
+		slices.Sort(globs)
+		for _, g := range globs {
+			out = append(out, connectors.Skipped{ID: fmt.Sprintf("%s:%s (%d files)", id, g, l.skipped[g]), Reason: "generated"})
+		}
+	}
+	return out
 }
 
 func (k *Connector) githubHost() string {

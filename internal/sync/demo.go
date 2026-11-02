@@ -28,7 +28,7 @@ func (s *Service) Demo(ctx context.Context, ownerID, base string) error {
 		{connectionBody{Kind: "jira", Name: "acme-jira", BaseURL: base + "/jira",
 			Scope: map[string]any{"projects": []string{"PAY", "REM"}}}, true},
 		{connectionBody{Kind: "github", Name: "acme-github", BaseURL: base + "/github",
-			Scope: map[string]any{"repositories": []string{"acme/payments-api", "acme/reminder-service"}}}, true},
+			Scope: map[string]any{"repositories": fixtures.GitHubRepos}}, true},
 		{connectionBody{Kind: "azdo", Name: "acme-azdo", BaseURL: base + "/azdo/" + fixtures.AzdoCollection,
 			Scope: map[string]any{"repositories": []string{"Platform/ledger-service"}}}, true},
 	}

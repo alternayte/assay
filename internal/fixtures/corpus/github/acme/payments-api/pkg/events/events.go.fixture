@@ -1,0 +1,9 @@
+// Package events holds the events that the Payments API publishes. The
+// payments worker reads them.
+package events
+
+// Settled is a payment that the ledger must record.
+type Settled struct {
+	PaymentID string `json:"paymentId"`
+	Cents     int64  `json:"cents"`
+}

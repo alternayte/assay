@@ -36,10 +36,11 @@ const (
 	Embed   Function = "embed"
 	Rerank  Function = "rerank"
 	Decide  Function = "decide"
+	Design  Function = "design"
 )
 
 // Functions lists the functions in display order.
-var Functions = []Function{Answer, Extract, Compile, Embed, Rerank, Decide}
+var Functions = []Function{Answer, Extract, Compile, Embed, Rerank, Decide, Design}
 
 // Errors of the gateway. Callers use them for the degraded modes.
 var (
@@ -61,7 +62,7 @@ func (e *CallError) Error() string {
 // defaultTimeouts are the per-function request timeouts (REQ-MOD-007).
 var defaultTimeouts = map[Function]time.Duration{
 	Answer: 60 * time.Second, Extract: 60 * time.Second, Compile: 60 * time.Second,
-	Embed: 30 * time.Second, Rerank: 15 * time.Second, Decide: 15 * time.Second,
+	Embed: 30 * time.Second, Rerank: 15 * time.Second, Decide: 15 * time.Second, Design: 120 * time.Second,
 }
 
 const retries = 2

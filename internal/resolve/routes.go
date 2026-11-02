@@ -351,6 +351,12 @@ var ErrCardDone = errors.New("resolve: the card is decided")
 // visible.
 var ErrNotFound = errors.New("resolve: not found")
 
+// CardError is an accept that the package of the card kind refuses. Its
+// message is for people.
+type CardError struct{ Code, Message string }
+
+func (e *CardError) Error() string { return e.Message }
+
 // errCardKind means that the card kind has no action here.
 var errCardKind = errors.New("resolve: this card kind is decided on its own page")
 
@@ -374,6 +380,10 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 			}
 		case "unnamed":
 			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical); err != nil {
+				return err
+			}
+		case KindRepoSystem:
+			if err := s.ApplyRepoSystem(ctx, tx, vis, c.Payload, by, edits); err != nil {
 				return err
 			}
 		case "finding":
@@ -667,7 +677,7 @@ func (s *Service) Register(a huma.API) {
 	tags := []string{"review"}
 
 	type cardsIn struct {
-		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
+		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,"`
 		Band       string `query:"band" enum:"high,medium,low,"`
 		Connection int64  `query:"connection" doc:"A connection of the card inputs."`
 		Type       string `query:"type" doc:"An entity type of a subject."`
@@ -702,7 +712,10 @@ func (s *Service) Register(a huma.API) {
 	})
 
 	cardErr := func(err error) error {
+		var ce *CardError
 		switch {
+		case errors.As(err, &ce):
+			return api.Problem(http.StatusUnprocessableEntity, ce.Code, ce.Message)
 		case err == nil:
 			return nil
 		case errors.Is(err, ErrNotFound), errors.Is(err, entities.ErrNotFound):
@@ -764,7 +777,7 @@ func (s *Service) Register(a huma.API) {
 	type bandIn struct {
 		Body struct {
 			Band       string `json:"band" enum:"high,medium,low"`
-			Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,"`
+			Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,"`
 			Connection int64  `json:"connection,omitempty"`
 			Type       string `json:"type,omitempty"`
 			Domain     int64  `json:"domain,omitempty"`
@@ -882,6 +895,28 @@ func (s *Service) Register(a huma.API) {
 			Kinds []KindCalibration `json:"kinds"`
 		}
 	}
+	type reportIn struct{ Body EvalLabels }
+	type reportOut struct {
+		Body struct {
+			Bands []BandResult `json:"bands"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "decisionReport", Method: http.MethodPost, Path: "/api/v1/decisions/report", Tags: tags,
+		Summary: "Score the decisions against labels",
+		Description: "Gives the precision and recall of each band of same_entity, mention_link, describes and repo_system against the labels. " +
+			"assay eval --labels sends the labels of a corpus. Unlabelled decisions do not count.",
+		Middlewares: huma.Middlewares{api.Require(auth.RoleAdmin)}, Metadata: api.TokenScope(auth.ScopeRead),
+	}, func(ctx context.Context, in *reportIn) (*reportOut, error) {
+		bs, err := s.Report(ctx, in.Body)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		out := &reportOut{}
+		out.Body.Bands = orEmpty(bs)
+		return out, nil
+	})
+
 	huma.Register(a, huma.Operation{
 		OperationID: "listCalibration", Method: http.MethodGet, Path: "/api/v1/calibration", Tags: tags,
 		Summary: "List the calibration of each decision kind", Description: "Before 50 reviewed outcomes the default thresholds apply and calibrated is false.",

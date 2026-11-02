@@ -1,0 +1,24 @@
+// Package ledger posts entries.
+package ledger
+
+import (
+	"context"
+	"errors"
+)
+
+// ErrClosed means that the period is closed.
+var ErrClosed = errors.New("ledger: the period is closed")
+
+// Entry is one posting.
+type Entry struct {
+	Account string
+	Cents   int64
+}
+
+// Post writes an entry.
+func Post(ctx context.Context, e Entry) error {
+	if e.Cents == 0 {
+		return nil
+	}
+	return nil
+}

@@ -16,6 +16,7 @@ import (
 func (s *Service) Register(a huma.API) {
 	type in struct {
 		Q            string    `query:"q" maxLength:"500" doc:"The query. Quotes match a phrase."`
+		Code         bool      `query:"code" doc:"Search source code only. Off by default: results hold no source code."`
 		SourceType   string    `query:"sourceType" enum:"registry,confluence,jira,github,azdo," doc:"The kind of the source connection."`
 		ConnectionID int64     `query:"connection"`
 		EntityType   string    `query:"entityType" doc:"Items about an entity of this type."`
@@ -34,7 +35,7 @@ func (s *Service) Register(a huma.API) {
 		if err != nil {
 			return nil, api.Internal(err)
 		}
-		f := Filters{SourceType: in.SourceType, ConnectionID: in.ConnectionID, EntityType: in.EntityType, DomainID: in.DomainID}
+		f := Filters{Code: in.Code, SourceType: in.SourceType, ConnectionID: in.ConnectionID, EntityType: in.EntityType, DomainID: in.DomainID}
 		if !in.Since.IsZero() {
 			f.Since = &in.Since
 		}

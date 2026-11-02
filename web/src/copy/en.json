@@ -38,7 +38,9 @@
     "groupEntities": "Things and terms",
     "groupItems": "Source items",
     "groupQuestions": "Your questions",
-    "searching": "Searching."
+    "searching": "Searching.",
+    "code": "Search source code",
+    "groupCode": "Source code"
   },
   "auth": {
     "signInTitle": "Sign in to Assay",
@@ -218,7 +220,21 @@
     "defaultGlobs": "Repository include globs",
     "defaultGlobsHint": "One glob on each line. New repository connections start with these.",
     "maxFileKb": "Largest item in KB",
-    "maxFilesPerRepo": "Most files per repository"
+    "maxFilesPerRepo": "Most files per repository",
+    "defaultCodeGlobs": "Default code globs",
+    "defaultCodeGlobsHint": "The code globs of a new repository connection, one per line.",
+    "skipGlobs": "Generated code",
+    "skipGlobsHint": "Paths that sync skips with the reason generated, one glob per line.",
+    "maxCodeFileKb": "Largest source file (KB)",
+    "maxCodeFilesPerRepo": "Source files per repository",
+    "designTitle": "Design pages",
+    "designBody": "Limits of the design pages that Assay writes from source code.",
+    "tokenBudget": "Token budget per build",
+    "tokenBudgetHint": "A build of one repository stops at this number of model tokens. It keeps what it wrote.",
+    "maxSections": "Component sections",
+    "maxSectionsHint": "Small components merge into their parent until this number remains.",
+    "sectionWords": "Words per section",
+    "sectionWordsHint": "The most words in one section."
   },
   "smtp": {
     "title": "Email",
@@ -337,7 +353,8 @@
     "dimensions": "{dim} dimensions",
     "spaceProgress": "{done} of {total} chunks",
     "spaceActive": "Active",
-    "spaceBuilding": "Building"
+    "spaceBuilding": "Building",
+    "fnDesign": "Design pages from source code."
   },
   "diagnostics": {
     "title": "Diagnostics",
@@ -478,6 +495,8 @@
     "includeGlobsHint": "Write one glob on each line. Assay reads only files that match a glob.",
     "excludeGlobs": "Files to skip",
     "excludeGlobsHint": "Optional. Write one glob on each line.",
+    "codeGlobs": "Code globs",
+    "codeGlobsHint": "Source files for the design pages, one glob per line. Leave it empty to index no code.",
     "testRepoOk": "Connected as {user}. The token reads {count} repositories."
   },
   "domains": {
@@ -541,7 +560,8 @@
       "catalog": "Catalog",
       "codeowners": "CODEOWNERS",
       "repository": "Repository",
-      "review": "Review"
+      "review": "Review",
+      "decision": "Decision"
     },
     "asked": "Asked {when}"
   },
@@ -770,7 +790,10 @@
       "stale": "Stale",
       "superseded": "Superseded",
       "proposed": "Proposed"
-    }
+    },
+    "tabs": "Page views",
+    "tabKnowledge": "Knowledge page",
+    "tabDesign": "Design"
   },
   "merge": {
     "open": "Merge with…",
@@ -848,7 +871,11 @@
       "new_term": "New term",
       "term_edit": "Term edit",
       "conflict": "Conflict",
-      "needs_edit": "Page needs edit"
+      "needs_edit": "Page needs edit",
+      "repo_system": "Repository system",
+      "design_problem": "Design problem",
+      "design_edit": "Design edit",
+      "design_update": "Design update"
     },
     "bands": {
       "high": "High",
@@ -976,5 +1003,82 @@
     "openapi": "OpenAPI document",
     "docs": "REST reference",
     "tokenText": "YOUR_TOKEN"
+  },
+  "design": {
+    "repositoryBody": "Assay writes this page from the code and the documents of the repository. Each sentence and each diagram line has a source.",
+    "systemBody": "Assay writes this page from the design pages of the repositories and the claims about them. You see only the repositories that you can read.",
+    "none": "This entity has no design page. Repositories with indexed code, systems and services with two or more repositories have one.",
+    "updating": "Updating",
+    "compiling": "Assay writes the overview for your sources.",
+    "markdown": "Markdown",
+    "regenerate": "Regenerate",
+    "queued": "Build queued",
+    "run": {
+      "running": "A build started {when}.",
+      "succeeded": "Built {when} with {tokens} tokens.",
+      "stopped": "The build stopped {when} after {tokens} tokens.",
+      "failed": "The build failed {when}."
+    },
+    "pinned": "Corrected",
+    "stale": "Stale",
+    "missing": "Not written",
+    "editedBy": "A person corrected this section {when}.",
+    "written": "Written {when} with {model}",
+    "edit": "Edit",
+    "report": "Report a problem",
+    "openRepository": "Open the design page of {name}",
+    "notWritten": "Assay has not written this section yet. It writes it in the next build.",
+    "empty": "This section has no text.",
+    "diagramLabel": "Diagram of {title}",
+    "diagramError": "The diagram has an error. Edit the section to correct it.",
+    "lint": "The text fails {count} writing checks.",
+    "sources": "Sources ({count})",
+    "lines": "{path}, lines {start} to {end}",
+    "cite": "Open source {id}: {source}",
+    "code": "Code",
+    "document": "Document",
+    "staleCite": "No longer in the source",
+    "reported": "A reviewer has a card for your report.",
+    "saved": "Saved. The section is now corrected. A build does not replace it.",
+    "proposed": "Sent. A reviewer has a card for your edit.",
+    "editTitle": "Edit {title}",
+    "editBody": "Keep markers such as [S1] to keep their sources. A reviewer edit saves at once. A member edit goes to review.",
+    "text": "Text",
+    "textHint": "Markdown. Write short sentences in active voice.",
+    "diagram": "Diagram",
+    "diagramHint": "Mermaid source, such as flowchart LR. Leave it empty for no diagram.",
+    "preview": "Preview of the diagram",
+    "note": "Note for the history",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "reportTitle": "Report a problem with {title}",
+    "reportBody": "Tell the reviewer what is wrong. The reviewer regenerates the section with your reason, or corrects the text.",
+    "reason": "Reason",
+    "send": "Send"
+  },
+  "designCard": {
+    "section": "Section",
+    "reason": "Reason",
+    "note": "Note",
+    "current": "Current text",
+    "proposed": "Proposed text",
+    "pinned": "Corrected text",
+    "draft": "Draft for the changed code",
+    "noText": "No text",
+    "problemHint": "Accept regenerates the section with the reason. Edit first to save corrected text.",
+    "editHint": "Accept saves this text as the corrected section.",
+    "text": "Text",
+    "diagram": "Diagram",
+    "repository": "Repository",
+    "implements": "Implements",
+    "partOf": "Part of",
+    "newSystem": "A new system {name} for this repository and {count} more",
+    "owners": "Owners",
+    "prefix": "Name prefix",
+    "edges": "Code edges",
+    "projects": "Jira projects",
+    "readme": "README",
+    "systemName": "Name of the new system"
   }
 }

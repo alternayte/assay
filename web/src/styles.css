@@ -155,6 +155,14 @@
     font-weight: 500;
     color: var(--ink-muted);
   }
+  /* Mermaid names its node and edge labels .label. They keep the text of the diagram. */
+  .design-diagram .label {
+    font-size: var(--text-sm);
+    letter-spacing: normal;
+    text-transform: none;
+    font-weight: 400;
+    color: var(--ink);
+  }
   /* The ruled ground of a sheet. */
   .ruled {
     background-image: linear-gradient(to bottom, transparent calc(1.5rem - 1px), var(--rule) 1.5rem);

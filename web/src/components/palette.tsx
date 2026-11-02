@@ -29,6 +29,7 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const me = useMe();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [code, setCode] = useState(false);
   const q = useSettled(query.trim());
 
   useEffect(() => {
@@ -42,13 +43,17 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
   useEffect(() => {
-    if (!open) setQuery("");
+    if (!open) {
+      setQuery("");
+      setCode(false);
+    }
   }, [open]);
 
   const search = useQuery({
-    queryKey: ["palette", q],
+    queryKey: ["palette", q, code],
     enabled: open && q.length >= 2,
-    queryFn: async () => unwrap(await api.GET("/api/v1/search", { params: { query: { q, limit: 8 } } })),
+    queryFn: async () =>
+      unwrap(await api.GET("/api/v1/search", { params: { query: { q, limit: 8, code } } })),
   });
   const questions = useQuery({
     queryKey: ["questions"],
@@ -85,6 +90,15 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
               placeholder={t("palette.placeholder")}
               className="h-12 border-b border-rule bg-transparent px-4 text-base text-ink outline-none placeholder:text-ink-faint"
             />
+            <label className="flex items-center gap-2 border-b border-rule px-4 py-1.5 text-sm text-ink-muted">
+              <input
+                type="checkbox"
+                checked={code}
+                onChange={(e) => setCode(e.target.checked)}
+                className="size-4 accent-accent"
+              />
+              {t("palette.code")}
+            </label>
             <Command.List className="max-h-96 overflow-y-auto p-2">
               {search.isFetching && (
                 <Command.Loading className="px-2 py-1 text-sm text-ink-muted">
@@ -112,7 +126,10 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
                 </Command.Group>
               )}
               {found && found.results.length > 0 && (
-                <Command.Group heading={t("palette.groupItems")} className={groupClass}>
+                <Command.Group
+                  heading={code ? t("palette.groupCode") : t("palette.groupItems")}
+                  className={groupClass}
+                >
                   {found.results.map((r) => (
                     <Command.Item
                       key={r.itemId}

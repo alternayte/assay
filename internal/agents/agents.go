@@ -22,6 +22,7 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/claims"
+	"github.com/alternayte/assay/internal/design"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/pages"
@@ -42,6 +43,7 @@ type Service struct {
 	Ask      *ask.Service
 	Entities *entities.Service
 	Pages    *pages.Service
+	Design   *design.Service
 	Vocab    *vocab.Service
 	Review   *review.Service
 	BaseURL  string
@@ -74,6 +76,7 @@ func (s *Service) server() *mcp.Server {
 	add(s, srv, auth.ScopeRead, "search_context", "Search the visible sources. Returns results with excerpts, the claims of the entities that the query names, and the approved terms that it uses.", s.searchContext)
 	add(s, srv, auth.ScopeRead, "get_entity", "Get an entity with its aliases, claims, relations and freshness.", s.getEntity)
 	add(s, srv, auth.ScopeRead, "get_knowledge_page", "Get the knowledge page of an entity as Markdown with footnotes.", s.getPage)
+	add(s, srv, auth.ScopeRead, "get_design_page", "Get the design page of a repository, system or service as Markdown: what the code does, how and why, with Mermaid diagrams. Footnotes cite files and line ranges.", s.getDesign)
 	add(s, srv, auth.ScopeRead, "trace_relationships", "Follow entity-valued claims from an entity. Each step carries its claim ID.", s.trace)
 	add(s, srv, auth.ScopeRead, "get_decisions", "Get the decisions of an entity, or the decisions that match a query, with status, rationale, supersedes and citations.", s.decisions)
 	add(s, srv, auth.ScopeRead, "get_terms", "Get the approved terms in a text, or terms by key, with definitions.", s.terms)
@@ -425,6 +428,21 @@ func (s *Service) getPage(ctx context.Context, vis visibility.Set, in KeyInput) 
 		return PageOutput{Notice: Notice}, err
 	}
 	out := PageOutput{Notice: Notice, Key: p.Key, Name: p.Name, Excerpt: p.Markdown(strings.TrimRight(s.BaseURL, "/"), approved)}
+	out.Truncated = fit(&out, 0, func() bool { return shorten(&out.Excerpt) })
+	return out, nil
+}
+
+// ---- get_design_page
+
+func (s *Service) getDesign(ctx context.Context, vis visibility.Set, in KeyInput) (PageOutput, error) {
+	p, err := s.Design.Get(ctx, vis, strings.TrimSpace(in.Key))
+	if errors.Is(err, design.ErrNotFound) {
+		return PageOutput{Notice: Notice}, &userError{"The entity has no design page that you can read. Repositories with indexed code, systems and services of several repositories have one."}
+	}
+	if err != nil {
+		return PageOutput{Notice: Notice}, err
+	}
+	out := PageOutput{Notice: Notice, Key: p.Key, Name: p.Name, Excerpt: p.Markdown(strings.TrimRight(s.BaseURL, "/"))}
 	out.Truncated = fit(&out, 0, func() bool { return shorten(&out.Excerpt) })
 	return out, nil
 }

@@ -62,7 +62,9 @@ func Read[T any](ctx context.Context, db DBTX, def Def) (T, error) {
 		var zero T
 		return zero, err
 	}
-	var v T
+	// Fields that the stored value lacks, such as fields of a newer
+	// release, keep their defaults.
+	v, _ := def.Default.(T)
 	if err := json.Unmarshal(r.Value, &v); err != nil {
 		v, _ = def.Default.(T)
 	}

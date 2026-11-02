@@ -1,0 +1,5 @@
+module github.com/acme/payments-worker
+
+go 1.26
+
+require github.com/acme/payments-api v1.4.0

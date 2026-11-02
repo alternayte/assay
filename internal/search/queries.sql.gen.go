@@ -18,23 +18,25 @@ JOIN connections k ON k.id = i.connection_id,
      websearch_to_tsquery('simple', unaccent($1::text)) q
 WHERE c.connection_id = ANY($2::bigint[]) AND i.connection_id = ANY($2::bigint[])
   AND c.tsv @@ q
-  AND ($3::text = '' OR k.kind = $3)
-  AND ($4::bigint = 0 OR i.connection_id = $4)
-  AND ($5::timestamptz IS NULL OR i.source_updated_at >= $5)
-  AND ($6::bigint = 0 OR k.default_domain_id = $6
-       OR EXISTS (SELECT 1 FROM entities d WHERE d.id = i.entity_id AND d.domain_id = $6))
-  AND ($7::text = '' OR EXISTS (SELECT 1 FROM entities t WHERE t.id = i.entity_id AND t.type = $7)
+  AND (i.kind = 'code') = $3::boolean
+  AND ($4::text = '' OR k.kind = $4)
+  AND ($5::bigint = 0 OR i.connection_id = $5)
+  AND ($6::timestamptz IS NULL OR i.source_updated_at >= $6)
+  AND ($7::bigint = 0 OR k.default_domain_id = $7
+       OR EXISTS (SELECT 1 FROM entities d WHERE d.id = i.entity_id AND d.domain_id = $7))
+  AND ($8::text = '' OR EXISTS (SELECT 1 FROM entities t WHERE t.id = i.entity_id AND t.type = $8)
        OR EXISTS (SELECT 1 FROM claim_evidence ev
                   JOIN claims cl ON cl.id = ev.claim_id
                   JOIN entities t ON t.id = cl.subject_id
-                  WHERE ev.item_id = i.id AND ev.connection_id = ANY($2::bigint[]) AND t.type = $7))
+                  WHERE ev.item_id = i.id AND ev.connection_id = ANY($2::bigint[]) AND t.type = $8))
 ORDER BY ts_rank_cd(c.tsv, q) DESC, c.id
-LIMIT $8
+LIMIT $9
 `
 
 type FullTextParams struct {
 	Query      string
 	Visible    []int64
+	Code       bool
 	SourceType string
 	Connection int64
 	Since      *time.Time
@@ -54,6 +56,7 @@ func (q *Queries) FullText(ctx context.Context, arg FullTextParams) ([]FullTextR
 	rows, err := q.db.Query(ctx, fullText,
 		arg.Query,
 		arg.Visible,
+		arg.Code,
 		arg.SourceType,
 		arg.Connection,
 		arg.Since,
@@ -86,13 +89,15 @@ JOIN source_items i ON i.id = c.item_id,
      to_tsquery('simple', unaccent($1::text)) q
 WHERE c.connection_id = ANY($2::bigint[]) AND i.connection_id = ANY($2::bigint[])
   AND c.tsv @@ q
+  AND (i.kind = 'code') = $3::boolean
 ORDER BY ts_rank_cd(c.tsv, q, 32) DESC, c.id
-LIMIT $3
+LIMIT $4
 `
 
 type FullTextAnyParams struct {
 	Words   string
 	Visible []int64
+	Code    bool
 	Lim     int32
 }
 
@@ -104,7 +109,12 @@ type FullTextAnyRow struct {
 // Chunks that match any of the words, ranked by cover density, for the
 // questions of Ask.
 func (q *Queries) FullTextAny(ctx context.Context, arg FullTextAnyParams) ([]FullTextAnyRow, error) {
-	rows, err := q.db.Query(ctx, fullTextAny, arg.Words, arg.Visible, arg.Lim)
+	rows, err := q.db.Query(ctx, fullTextAny,
+		arg.Words,
+		arg.Visible,
+		arg.Code,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -255,24 +265,26 @@ FROM source_items i
 JOIN connections k ON k.id = i.connection_id
 WHERE i.connection_id = ANY($1::bigint[])
   AND word_similarity(lower(unaccent($2::text)), lower(unaccent(i.title))) >= 0.4
-  AND ($3::text = '' OR k.kind = $3)
-  AND ($4::bigint = 0 OR i.connection_id = $4)
-  AND ($5::timestamptz IS NULL OR i.source_updated_at >= $5)
-  AND ($6::bigint = 0 OR k.default_domain_id = $6
-       OR EXISTS (SELECT 1 FROM entities d WHERE d.id = i.entity_id AND d.domain_id = $6))
-  AND ($7::text = '' OR EXISTS (SELECT 1 FROM entities t WHERE t.id = i.entity_id AND t.type = $7)
+  AND (i.kind = 'code') = $3::boolean
+  AND ($4::text = '' OR k.kind = $4)
+  AND ($5::bigint = 0 OR i.connection_id = $5)
+  AND ($6::timestamptz IS NULL OR i.source_updated_at >= $6)
+  AND ($7::bigint = 0 OR k.default_domain_id = $7
+       OR EXISTS (SELECT 1 FROM entities d WHERE d.id = i.entity_id AND d.domain_id = $7))
+  AND ($8::text = '' OR EXISTS (SELECT 1 FROM entities t WHERE t.id = i.entity_id AND t.type = $8)
        OR EXISTS (SELECT 1 FROM claim_evidence ev
                   JOIN claims cl ON cl.id = ev.claim_id
                   JOIN entities t ON t.id = cl.subject_id
-                  WHERE ev.item_id = i.id AND ev.connection_id = ANY($1::bigint[]) AND t.type = $7))
+                  WHERE ev.item_id = i.id AND ev.connection_id = ANY($1::bigint[]) AND t.type = $8))
   AND EXISTS (SELECT 1 FROM chunks c WHERE c.item_id = i.id AND c.connection_id = ANY($1::bigint[]))
 ORDER BY word_similarity(lower(unaccent($2::text)), lower(unaccent(i.title))) DESC, i.id
-LIMIT $8
+LIMIT $9
 `
 
 type TitleTrigramParams struct {
 	Visible    []int64
 	Query      string
+	Code       bool
 	SourceType string
 	Connection int64
 	Since      *time.Time
@@ -291,6 +303,7 @@ func (q *Queries) TitleTrigram(ctx context.Context, arg TitleTrigramParams) ([]T
 	rows, err := q.db.Query(ctx, titleTrigram,
 		arg.Visible,
 		arg.Query,
+		arg.Code,
 		arg.SourceType,
 		arg.Connection,
 		arg.Since,

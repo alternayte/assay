@@ -82,10 +82,26 @@ type Connector interface {
 	Fetch(ctx context.Context, id string) (*content.Item, error)
 }
 
-// Limits bound what a connector reads.
+// Limits bound what a connector reads. Source files of a repository have
+// their own limits, so that code does not push out knowledge files.
 type Limits struct {
-	MaxItemBytes    int
-	MaxFilesPerRepo int
+	MaxItemBytes        int
+	MaxFilesPerRepo     int
+	MaxCodeItemBytes    int
+	MaxCodeFilesPerRepo int
+}
+
+// Skipped is an item or a group of items that a connector did not read,
+// with the reason.
+type Skipped struct {
+	ID     string
+	Reason string
+}
+
+// SkipLister is a connector that also skips items without fetching them,
+// such as generated code. Sync records them in the run.
+type SkipLister interface {
+	Skipped() []Skipped
 }
 
 // Client is the HTTP client of one connection. It sends only GET and HEAD,

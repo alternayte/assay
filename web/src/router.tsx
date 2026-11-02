@@ -13,7 +13,7 @@ import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { ConnectPage, TokensPage } from "@/routes/agents";
 import { AskPage } from "@/routes/ask";
-import { EntityPage } from "@/routes/entity";
+import { EntityDesignPage, EntityPage } from "@/routes/entity";
 import { ExplorePage } from "@/routes/explore";
 import { GlossaryPage, TermPage } from "@/routes/glossary";
 import { ProfilePage } from "@/routes/profile";
@@ -79,6 +79,11 @@ const question = createRoute({ getParentRoute: () => authed, path: "/questions/$
 
 const explore = createRoute({ getParentRoute: () => authed, path: "/explore", component: ExplorePage });
 const entity = createRoute({ getParentRoute: () => authed, path: "/e/$key", component: EntityPage });
+const entityDesign = createRoute({
+  getParentRoute: () => authed,
+  path: "/e/$key/design",
+  component: EntityDesignPage,
+});
 const glossary = createRoute({ getParentRoute: () => authed, path: "/glossary", component: GlossaryPage });
 const term = createRoute({ getParentRoute: () => authed, path: "/glossary/$key", component: TermPage });
 const record = createRoute({ getParentRoute: () => authed, path: "/registry/$key", component: RecordPage });
@@ -153,6 +158,7 @@ const routeTree = root.addChildren([
     question,
     explore,
     entity,
+    entityDesign,
     glossary,
     term,
     record,

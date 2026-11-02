@@ -40,7 +40,8 @@ Commands:
                          tests and the demo: --addr, default :8090.
   eval                   Ask a question set and write a Markdown report:
                          --url, --token, --file, optional --out (default
-                         stdout) and --title.
+                         stdout), --title and --labels (a labels file or the
+                         fixture manifest URL, for the decision bands).
   version                Print the version.
 
 Without --password, the command prints a generated password once.
@@ -243,6 +244,7 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	file := fs.String("file", "", "the question set, such as evals/questions.yaml")
 	out := fs.String("out", "", "the report file; empty writes to stdout")
 	title := fs.String("title", "Assay evaluation", "the report title")
+	labels := fs.String("labels", "", "a labels file or the manifest URL of the fixture server; adds the precision and recall per decision band")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -260,7 +262,21 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	report := eval.Score(eval.Run(ctx, &http.Client{Timeout: 2 * time.Minute}, *base, *token, qs)).Markdown(*title)
+	client := &http.Client{Timeout: 2 * time.Minute}
+	report := eval.Score(eval.Run(ctx, client, *base, *token, qs)).Markdown(*title)
+	if *labels != "" {
+		l, err := eval.LoadLabels(ctx, client, *labels)
+		if err != nil {
+			fmt.Fprintf(stderr, "assay eval: %v\n", err)
+			return 1
+		}
+		bs, err := eval.Bands(ctx, client, *base, *token, l)
+		if err != nil {
+			fmt.Fprintf(stderr, "assay eval: %v\n", err)
+			return 1
+		}
+		report += eval.BandsMarkdown(bs)
+	}
 	if *out == "" {
 		fmt.Fprint(stdout, report)
 		return 0

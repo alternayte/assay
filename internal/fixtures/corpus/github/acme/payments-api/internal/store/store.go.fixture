@@ -1,0 +1,36 @@
+// Package store keeps payments in PostgreSQL.
+package store
+
+import (
+	"context"
+	"database/sql"
+)
+
+// Payment is one card payment.
+type Payment struct {
+	ID     string
+	Cents  int64
+	Status string
+}
+
+// Store reads and writes the payments table.
+type Store struct{ db *sql.DB }
+
+// Open connects to PostgreSQL.
+func Open(url string) (*Store, error) {
+	db, err := sql.Open("pgx", url)
+	return &Store{db: db}, err
+}
+
+// Get reads one payment.
+func (s *Store) Get(ctx context.Context, id string) (*Payment, error) {
+	p := &Payment{ID: id}
+	err := s.db.QueryRowContext(ctx, "SELECT cents, status FROM payments WHERE id = $1", id).Scan(&p.Cents, &p.Status)
+	return p, err
+}
+
+// Save writes the status of a payment.
+func (s *Store) Save(ctx context.Context, p *Payment) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE payments SET status = $2 WHERE id = $1", p.ID, p.Status)
+	return err
+}

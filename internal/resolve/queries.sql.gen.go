@@ -67,6 +67,34 @@ func (q *Queries) ActivateEntity(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const addDecisionEvidence = `-- name: AddDecisionEvidence :exec
+INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
+VALUES ($1, $2, $3, $4, 'passage', 'supports', $5, 'current', 'decision')
+ON CONFLICT (claim_id, item_id, passage_hash, stance) DO NOTHING
+`
+
+type AddDecisionEvidenceParams struct {
+	ClaimID      int64
+	ConnectionID int64
+	ItemID       int64
+	PassageHash  []byte
+	Quote        string
+}
+
+// The evidence of a repo_system claim: a passage of the repository, with
+// the source type decision.
+// vis:system
+func (q *Queries) AddDecisionEvidence(ctx context.Context, arg AddDecisionEvidenceParams) error {
+	_, err := q.db.Exec(ctx, addDecisionEvidence,
+		arg.ClaimID,
+		arg.ConnectionID,
+		arg.ItemID,
+		arg.PassageHash,
+		arg.Quote,
+	)
+	return err
+}
+
 const addMentionAlias = `-- name: AddMentionAlias :exec
 INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
 VALUES ($1, $2, $3, $4, $5)
@@ -195,6 +223,52 @@ func (q *Queries) ClaimsInUse(ctx context.Context, since time.Time) ([]int64, er
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const codeIdentities = `-- name: CodeIdentities :many
+SELECT i.connection_id, split_part(i.external_id, ':', 1)::text AS repo,
+       substr(i.external_id, length(split_part(i.external_id, ':', 1)) + 2)::text AS path,
+       coalesce((SELECT string_agg(p.norm, ' ' ORDER BY p.ordinal) FROM passages p WHERE p.item_id = i.id
+                 AND (i.external_id LIKE '%go.mod' OR i.external_id LIKE '%package.json')), '')::text AS text
+FROM source_items i
+WHERE i.kind IN ('code', 'file') AND (i.external_id LIKE '%:go.mod' OR i.external_id LIKE '%/go.mod' OR i.external_id LIKE '%:package.json'
+      OR i.external_id LIKE '%/package.json' OR i.external_id LIKE '%.proto')
+`
+
+type CodeIdentitiesRow struct {
+	ConnectionID int64
+	Repo         string
+	Path         string
+	Text         string
+}
+
+// The files that name a repository to other code: go.mod, package.json and
+// .proto files of the repositories of all connections, knowledge files or
+// code, with the passage text of manifests.
+// vis:system
+func (q *Queries) CodeIdentities(ctx context.Context) ([]CodeIdentitiesRow, error) {
+	rows, err := q.db.Query(ctx, codeIdentities)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CodeIdentitiesRow
+	for rows.Next() {
+		var i CodeIdentitiesRow
+		if err := rows.Scan(
+			&i.ConnectionID,
+			&i.Repo,
+			&i.Path,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -639,6 +713,35 @@ func (q *Queries) EveryoneConnections(ctx context.Context) ([]int64, error) {
 	return items, nil
 }
 
+const firstCodePassage = `-- name: FirstCodePassage :one
+SELECT p.item_id, p.hash, p.connection_id, p.norm FROM passages p JOIN source_items i ON i.id = p.item_id
+JOIN entity_aliases a ON a.connection_id = i.connection_id AND i.external_id LIKE a.alias || ':%'
+WHERE a.entity_id = $1 AND i.kind = 'code'
+ORDER BY i.external_id, p.ordinal LIMIT 1
+`
+
+type FirstCodePassageRow struct {
+	ItemID       int64
+	Hash         []byte
+	ConnectionID int64
+	Norm         string
+}
+
+// The first source code passage of a repository, the evidence of a
+// grouping when the repository has no README.
+// vis:system
+func (q *Queries) FirstCodePassage(ctx context.Context, id int64) (FirstCodePassageRow, error) {
+	row := q.db.QueryRow(ctx, firstCodePassage, id)
+	var i FirstCodePassageRow
+	err := row.Scan(
+		&i.ItemID,
+		&i.Hash,
+		&i.ConnectionID,
+		&i.Norm,
+	)
+	return i, err
+}
+
 const getCalibration = `-- name: GetCalibration :one
 SELECT kind, bins, reviewed, auto_apply FROM calibration WHERE kind = $1
 `
@@ -660,6 +763,45 @@ func (q *Queries) GetCalibration(ctx context.Context, kind string) (GetCalibrati
 		&i.AutoApply,
 	)
 	return i, err
+}
+
+const groupsOf = `-- name: GroupsOf :many
+SELECT DISTINCT o.id, o.key, o.type FROM claims c JOIN entities o ON o.id = c.object_entity_id
+WHERE c.subject_id = ANY($1::bigint[]) AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL
+  AND o.type IN ('system', 'service') AND o.status = 'active'
+UNION
+SELECT DISTINCT x.id, x.key, x.type FROM claims c
+JOIN claims c2 ON c2.subject_id = c.object_entity_id AND c2.predicate = 'part_of' AND c2.retracted_at IS NULL
+JOIN entities x ON x.id = c2.object_entity_id
+WHERE c.subject_id = ANY($1::bigint[]) AND c.predicate = 'implements' AND c.retracted_at IS NULL AND x.type = 'system' AND x.status = 'active'
+`
+
+type GroupsOfRow struct {
+	ID   int64
+	Key  string
+	Type string
+}
+
+// The systems and services that entities implement or are part of, with
+// the path: the entity itself, or a service that it implements.
+func (q *Queries) GroupsOf(ctx context.Context, ids []int64) ([]GroupsOfRow, error) {
+	rows, err := q.db.Query(ctx, groupsOf, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GroupsOfRow
+	for rows.Next() {
+		var i GroupsOfRow
+		if err := rows.Scan(&i.ID, &i.Key, &i.Type); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const impact = `-- name: Impact :many
@@ -873,6 +1015,35 @@ func (q *Queries) KnownAliases(ctx context.Context, forms []string) ([]string, e
 	return items, nil
 }
 
+const linkedProjects = `-- name: LinkedProjects :many
+SELECT DISTINCT split_part(i.external_id, '-', 1)::text AS project FROM passages p
+JOIN source_items i ON i.id = p.item_id JOIN connections k ON k.id = i.connection_id
+WHERE k.kind = 'jira' AND p.norm ILIKE '%' || $1::text || '%'
+ORDER BY 1 LIMIT 3
+`
+
+// Jira projects whose issues name the repository.
+// vis:system
+func (q *Queries) LinkedProjects(ctx context.Context, name string) ([]string, error) {
+	rows, err := q.db.Query(ctx, linkedProjects, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var project string
+		if err := rows.Scan(&project); err != nil {
+			return nil, err
+		}
+		items = append(items, project)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCalibration = `-- name: ListCalibration :many
 SELECT kind, bins, reviewed, auto_apply, updated_at FROM calibration ORDER BY kind
 `
@@ -1032,6 +1203,32 @@ func (q *Queries) NeighbourPairs(ctx context.Context) ([]NeighbourPairsRow, erro
 	return items, nil
 }
 
+const openEdgeTargets = `-- name: OpenEdgeTargets :many
+SELECT DISTINCT e.id FROM proposals p JOIN entities e ON e.key = p.payload->>'candidate'
+WHERE p.kind = 'mention_link' AND p.target = $1 AND p.status IN ('open', 'accepted') AND e.status = 'active'
+`
+
+// The candidates of the open and accepted edge cards of a repository.
+func (q *Queries) OpenEdgeTargets(ctx context.Context, target string) ([]int64, error) {
+	rows, err := q.db.Query(ctx, openEdgeTargets, target)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const openMergeCards = `-- name: OpenMergeCards :many
 SELECT p.id FROM proposals p LEFT JOIN decisions d ON d.id = p.decision_id
 WHERE p.status = 'open' AND p.kind = 'merge'
@@ -1071,6 +1268,17 @@ func (q *Queries) OpenPairCard(ctx context.Context, refs []string) (bool, error)
 	return column_1, err
 }
 
+const openRepoSystemCard = `-- name: OpenRepoSystemCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = 'repo_system' AND target = $1 AND status = 'open')::boolean
+`
+
+func (q *Queries) OpenRepoSystemCard(ctx context.Context, target string) (bool, error) {
+	row := q.db.QueryRow(ctx, openRepoSystemCard, target)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const openTargetCard = `-- name: OpenTargetCard :one
 SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = $1 AND target = $2 AND status IN ('open', 'accepted'))::boolean
 `
@@ -1085,6 +1293,38 @@ func (q *Queries) OpenTargetCard(ctx context.Context, arg OpenTargetCardParams) 
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const ownedGroups = `-- name: OwnedGroups :many
+SELECT DISTINCT e.id, e.key, e.type FROM claims c JOIN entities e ON e.id = c.subject_id JOIN entities o ON o.id = c.object_entity_id
+WHERE c.predicate = 'owned_by' AND c.retracted_at IS NULL AND o.key = ANY($1::text[]) AND e.type IN ('system', 'service') AND e.status = 'active'
+`
+
+type OwnedGroupsRow struct {
+	ID   int64
+	Key  string
+	Type string
+}
+
+// The systems and services that the owners own.
+func (q *Queries) OwnedGroups(ctx context.Context, owners []string) ([]OwnedGroupsRow, error) {
+	rows, err := q.db.Query(ctx, ownedGroups, owners)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OwnedGroupsRow
+	for rows.Next() {
+		var i OwnedGroupsRow
+		if err := rows.Scan(&i.ID, &i.Key, &i.Type); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pendingMentions = `-- name: PendingMentions :many
@@ -1346,6 +1586,160 @@ func (q *Queries) RenameEntity(ctx context.Context, arg RenameEntityParams) erro
 	return err
 }
 
+const repoAlias = `-- name: RepoAlias :one
+SELECT a.alias FROM entity_aliases a
+WHERE a.entity_id = $1 AND a.connection_id = $2 AND a.alias LIKE '%/%'
+ORDER BY a.id LIMIT 1
+`
+
+type RepoAliasParams struct {
+	EntityID     int64
+	ConnectionID int64
+}
+
+// The repository ID of a repository entity in a connection.
+// vis:system
+func (q *Queries) RepoAlias(ctx context.Context, arg RepoAliasParams) (string, error) {
+	row := q.db.QueryRow(ctx, repoAlias, arg.EntityID, arg.ConnectionID)
+	var alias string
+	err := row.Scan(&alias)
+	return alias, err
+}
+
+const repoCodePassages = `-- name: RepoCodePassages :many
+SELECT p.item_id, p.hash, p.norm, substr(i.external_id, length($1::text) + 2)::text AS path
+FROM passages p
+JOIN source_items i ON i.id = p.item_id
+WHERE i.connection_id = $2 AND p.connection_id = $2 AND i.kind = 'code' AND i.external_id LIKE $1::text || ':%'
+ORDER BY i.external_id, p.ordinal
+`
+
+type RepoCodePassagesParams struct {
+	Repo         string
+	ConnectionID int64
+}
+
+type RepoCodePassagesRow struct {
+	ItemID int64
+	Hash   []byte
+	Norm   string
+	Path   string
+}
+
+// The source code passages of one repository of a connection.
+// vis:system
+func (q *Queries) RepoCodePassages(ctx context.Context, arg RepoCodePassagesParams) ([]RepoCodePassagesRow, error) {
+	rows, err := q.db.Query(ctx, repoCodePassages, arg.Repo, arg.ConnectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RepoCodePassagesRow
+	for rows.Next() {
+		var i RepoCodePassagesRow
+		if err := rows.Scan(
+			&i.ItemID,
+			&i.Hash,
+			&i.Norm,
+			&i.Path,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const repoGrouped = `-- name: RepoGrouped :one
+SELECT EXISTS (SELECT 1 FROM claims c WHERE c.subject_id = $1 AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL)::boolean
+`
+
+// Whether a repository has a current implements or part_of claim.
+func (q *Queries) RepoGrouped(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, repoGrouped, id)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const repoSignals = `-- name: RepoSignals :one
+SELECT e.key, coalesce(entity_display_name(e.id, array(SELECT id FROM connections)), e.key)::text AS name,
+       coalesce((SELECT p.norm FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), '')::text AS readme,
+       coalesce((SELECT p.item_id FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), 0)::bigint AS readme_item,
+       coalesce((SELECT p.hash FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), '\x'::bytea)::bytea AS readme_hash,
+       coalesce((SELECT p.connection_id FROM source_items i JOIN passages p ON p.item_id = i.id
+                 WHERE i.entity_id = e.id ORDER BY i.id, p.ordinal LIMIT 1), 0)::bigint AS readme_connection,
+       array(SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL ORDER BY o.key)::text[] AS owners,
+       array(SELECT o.id FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate IN ('depends_on', 'consumes_api') AND c.retracted_at IS NULL ORDER BY o.id)::bigint[] AS edges,
+       array(SELECT DISTINCT s.connection_id FROM entity_sources s WHERE s.entity_id = e.id ORDER BY s.connection_id)::bigint[] AS connections
+FROM entities e WHERE e.id = $1
+`
+
+type RepoSignalsRow struct {
+	Key              string
+	Name             string
+	Readme           string
+	ReadmeItem       int64
+	ReadmeHash       []byte
+	ReadmeConnection int64
+	Owners           []string
+	Edges            []int64
+	Connections      []int64
+}
+
+// The signals of a repository for repo_system: its name, the first passage
+// of its README, its owners and the objects of its code edges.
+// vis:system
+func (q *Queries) RepoSignals(ctx context.Context, id int64) (RepoSignalsRow, error) {
+	row := q.db.QueryRow(ctx, repoSignals, id)
+	var i RepoSignalsRow
+	err := row.Scan(
+		&i.Key,
+		&i.Name,
+		&i.Readme,
+		&i.ReadmeItem,
+		&i.ReadmeHash,
+		&i.ReadmeConnection,
+		&i.Owners,
+		&i.Edges,
+		&i.Connections,
+	)
+	return i, err
+}
+
+const repositoryByAlias = `-- name: RepositoryByAlias :one
+SELECT e.id, e.key FROM entities e JOIN entity_aliases a ON a.entity_id = e.id
+WHERE e.type = 'repository' AND e.status = 'active' AND a.connection_id = $1 AND a.alias_norm = $2
+ORDER BY e.id LIMIT 1
+`
+
+type RepositoryByAliasParams struct {
+	ConnectionID int64
+	AliasNorm    string
+}
+
+type RepositoryByAliasRow struct {
+	ID  int64
+	Key string
+}
+
+// The repository entity of a repository ID in a connection.
+// vis:system
+func (q *Queries) RepositoryByAlias(ctx context.Context, arg RepositoryByAliasParams) (RepositoryByAliasRow, error) {
+	row := q.db.QueryRow(ctx, repositoryByAlias, arg.ConnectionID, arg.AliasNorm)
+	var i RepositoryByAliasRow
+	err := row.Scan(&i.ID, &i.Key)
+	return i, err
+}
+
 const reviewedOutcomes = `-- name: ReviewedOutcomes :many
 SELECT raw_p::float8 AS raw_p, band::text AS band, outcome = 'accepted' AS accepted
 FROM decisions
@@ -1599,6 +1993,50 @@ func (q *Queries) TrigramPairs(ctx context.Context, minScore float64) ([]Trigram
 	return items, nil
 }
 
+const ungroupedRepos = `-- name: UngroupedRepos :many
+SELECT e.id, e.key, coalesce(entity_display_name(e.id, array(SELECT id FROM connections)), e.key)::text AS name,
+       array(SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id
+             WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL ORDER BY o.key)::text[] AS owners
+FROM entities e
+WHERE e.type = 'repository' AND e.status = 'active'
+  AND NOT EXISTS (SELECT 1 FROM claims c WHERE c.subject_id = e.id AND c.predicate IN ('implements', 'part_of') AND c.retracted_at IS NULL)
+ORDER BY e.key
+`
+
+type UngroupedReposRow struct {
+	ID     int64
+	Key    string
+	Name   string
+	Owners []string
+}
+
+// Repositories without an implements or part_of claim, with their names
+// and owners.
+func (q *Queries) UngroupedRepos(ctx context.Context) ([]UngroupedReposRow, error) {
+	rows, err := q.db.Query(ctx, ungroupedRepos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UngroupedReposRow
+	for rows.Next() {
+		var i UngroupedReposRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Key,
+			&i.Name,
+			&i.Owners,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const upsertCalibration = `-- name: UpsertCalibration :one
 INSERT INTO calibration (kind, bins, reviewed, high_precision, updated_at)
 VALUES ($1, $2, $3, $4, now())
@@ -1624,6 +2062,29 @@ func (q *Queries) UpsertCalibration(ctx context.Context, arg UpsertCalibrationPa
 	var auto_apply bool
 	err := row.Scan(&auto_apply)
 	return auto_apply, err
+}
+
+const upsertDecisionClaim = `-- name: UpsertDecisionClaim :one
+INSERT INTO claims (subject_id, predicate, object_entity_id, object_norm, origin)
+VALUES ($1, $2, $3, '', 'model')
+ON CONFLICT (subject_id, predicate, coalesce(object_entity_id, 0), object_norm, scope_env, coalesce(valid_from, '-infinity'::timestamptz))
+DO UPDATE SET retracted_at = NULL
+RETURNING id
+`
+
+type UpsertDecisionClaimParams struct {
+	SubjectID int64
+	Predicate string
+	ObjectID  *int64
+}
+
+// A claim that a repo_system decision proposes, made current again when
+// it exists.
+func (q *Queries) UpsertDecisionClaim(ctx context.Context, arg UpsertDecisionClaimParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertDecisionClaim, arg.SubjectID, arg.Predicate, arg.ObjectID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertProfile = `-- name: UpsertProfile :exec

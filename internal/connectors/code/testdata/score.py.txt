@@ -1,0 +1,14 @@
+import os
+from acme import rules
+
+
+class Scorer:
+    """Scores a payment."""
+
+    def score(self, payment):
+        return rules.apply(payment)
+
+
+@cached
+def threshold():
+    return float(os.environ.get("THRESHOLD", "0.8"))

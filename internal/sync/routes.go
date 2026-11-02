@@ -43,6 +43,7 @@ type ConnectionRecord struct {
 	Options              map[string]any `json:"options"`
 	IncludeGlobs         []string       `json:"includeGlobs"`
 	ExcludeGlobs         []string       `json:"excludeGlobs"`
+	CodeGlobs            []string       `json:"codeGlobs" doc:"Source files to index. Empty turns code indexing off."`
 	SyncMinutes          int32          `json:"syncMinutes"`
 	ReconcileHours       int32          `json:"reconcileHours"`
 	RateConcurrency      int32          `json:"rateConcurrency"`
@@ -91,6 +92,7 @@ type sourceBody struct {
 	Options      map[string]any `json:"options,omitempty"`
 	IncludeGlobs []string       `json:"includeGlobs,omitempty" doc:"Repository files to read. Empty uses the default globs."`
 	ExcludeGlobs []string       `json:"excludeGlobs,omitempty"`
+	CodeGlobs    []string       `json:"codeGlobs,omitempty" doc:"Source files to index. Empty turns code indexing off."`
 }
 
 type connectionBody struct {
@@ -102,6 +104,7 @@ type connectionBody struct {
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
 	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
 	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
+	CodeGlobs       *[]string      `json:"codeGlobs,omitempty" doc:"Source files to index. Leave it out to use the default code globs on create and to keep the globs on update. An empty list turns code indexing off."`
 	SyncMinutes     int32          `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
 	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
 	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
@@ -131,6 +134,15 @@ func object(b []byte) map[string]any {
 	return m
 }
 
+// codeGlobs is the stored value of the code globs of an update: nil keeps
+// the stored globs.
+func codeGlobs(p *[]string) []string {
+	if p == nil {
+		return nil
+	}
+	return orStrings(*p)
+}
+
 func orStrings(s []string) []string {
 	if s == nil {
 		return []string{}
@@ -145,7 +157,7 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 		return source{}, err
 	}
 	src := source{Kind: b.Kind, BaseURL: strings.TrimRight(b.BaseURL, "/"), Token: b.Token, Scope: rawJSON(b.Scope),
-		Options: rawJSON(b.Options), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Concurrency: 4, PerSecond: 5}
+		Options: rawJSON(b.Options), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: 4, PerSecond: 5}
 	if src.Token == "" && b.ConnectionID != nil {
 		c, err := New(s.Pool).GetConnection(ctx, *b.ConnectionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -187,6 +199,7 @@ func (s *Service) Register(a huma.API) {
 			Connections  []ConnectionRecord `json:"connections"`
 			Kinds        []string           `json:"kinds" doc:"The kinds that an admin can create."`
 			DefaultGlobs []string           `json:"defaultGlobs" doc:"The include globs of a new repository connection."`
+			DefaultCode  []string           `json:"defaultCodeGlobs" doc:"The code globs of a new repository connection."`
 		}
 	}
 	huma.Register(a, huma.Operation{
@@ -205,6 +218,7 @@ func (s *Service) Register(a huma.API) {
 		out.Body.Connections = recs
 		out.Body.Kinds = Kinds
 		out.Body.DefaultGlobs = rules.DefaultGlobs
+		out.Body.DefaultCode = orStrings(rules.DefaultCodeGlobs)
 		return out, nil
 	})
 
@@ -326,8 +340,8 @@ func (s *Service) Register(a huma.API) {
 			}
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
-				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), SyncMinutes: b.SyncMinutes,
-				ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
+				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: codeGlobs(b.CodeGlobs),
+				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
 				DefaultDomainID: b.DefaultDomainID}); err != nil {
 				return dbError(err)
 			}
@@ -481,12 +495,22 @@ func registryProblem() error {
 
 // create inserts a connection owned by owner, visible only to the owner.
 func (s *Service) create(ctx context.Context, owner string, b connectionBody) (int64, error) {
+	code := []string{}
+	if b.CodeGlobs != nil {
+		code = orStrings(*b.CodeGlobs)
+	} else if b.Kind == "github" || b.Kind == "azdo" {
+		rules, err := settings.Read[RulesConfig](ctx, s.Pool, Rules)
+		if err != nil {
+			return 0, err
+		}
+		code = orStrings(rules.DefaultCodeGlobs)
+	}
 	var id int64
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		var err error
 		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
 			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
-			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), SyncMinutes: b.SyncMinutes,
+			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: code, SyncMinutes: b.SyncMinutes,
 			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
 			OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
 		if err != nil {
@@ -620,7 +644,7 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 	for _, r := range rows {
 		rec := ConnectionRecord{ID: r.ID, Kind: r.Kind, Name: r.Name, BaseURL: r.BaseUrl, HasToken: r.SecretID != nil,
 			Scope: object(r.Scope), Options: object(r.Options), IncludeGlobs: orStrings(r.IncludeGlobs), ExcludeGlobs: orStrings(r.ExcludeGlobs),
-			SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond,
+			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond,
 			OwnerID: r.OwnerID, OwnerEmail: r.OwnerEmail, Status: r.Status, StatusReason: r.StatusReason, DefaultDomainID: r.DefaultDomainID,
 			Items: r.Items, LastSyncAt: r.LastSyncAt, LastReconcileAt: r.LastReconcileAt, PermissionsCheckedAt: r.PermissionsCheckedAt,
 			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}}

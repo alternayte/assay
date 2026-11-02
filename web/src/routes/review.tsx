@@ -3,6 +3,7 @@ import { Check, CheckCheck, Pencil, SkipForward, Undo2, X } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import type { paths } from "@/api/schema.gen";
+import { DesignCardBody, designKinds, RepoSystemBody } from "@/components/design-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -21,7 +22,13 @@ type Kind = NonNullable<NonNullable<paths["/api/v1/cards"]["get"]["parameters"][
 type Band = "high" | "medium" | "low";
 type Tab = "needs" | "auto" | "decided";
 type Filter = { kind: string; band: string; connection: string; type: string; domain: string; q: string };
-type Edits = { canonicalName?: string; definition?: string; members?: string[] };
+type Edits = {
+  canonicalName?: string;
+  definition?: string;
+  members?: string[];
+  text?: string;
+  diagram?: string;
+};
 
 /** A decision that waits for the undo period before it goes to the server. */
 type Pending = { card: Card; action: "accept" | "reject"; reason?: string; edits?: Edits; timer: number };
@@ -37,9 +44,13 @@ const kinds: Kind[] = [
   "term_edit",
   "conflict",
   "needs_edit",
+  "repo_system",
+  "design_problem",
+  "design_edit",
+  "design_update",
 ];
 const bandTone = { high: "supported", medium: "stale", low: "conflict" } as const;
-const editable: string[] = ["merge", "unnamed", "new_term", "term_edit"];
+const editable: string[] = ["merge", "unnamed", "new_term", "term_edit", "repo_system", ...designKinds];
 
 const kindLabel = (k: string) => t(`review.kinds.${k}` as CopyKey);
 const bandLabel = (b?: string) => t(`review.bands.${b || "none"}` as CopyKey);
@@ -197,6 +208,20 @@ function Evidence({
 }) {
   const subjects = card.kind === "merge" ? (card.members ?? card.subjects) : card.subjects;
   const members = edits.members ?? subjects.map((s) => s.key);
+  if (designKinds.includes(card.kind)) {
+    return (
+      <DesignCardBody
+        kind={card.kind}
+        payload={card.payload}
+        editing={editing}
+        edits={edits}
+        setEdits={setEdits}
+      />
+    );
+  }
+  if (card.kind === "repo_system") {
+    return <RepoSystemBody payload={card.payload} editing={editing} edits={edits} setEdits={setEdits} />;
+  }
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {subjects.length > 0 && (

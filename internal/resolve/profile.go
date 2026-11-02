@@ -33,6 +33,9 @@ type Service struct {
 	// Apply accepts the cards of kinds that other packages own, such as
 	// term_edit. It gets the payload, the proposer and the reviewer.
 	Apply map[string]ApplyFunc
+	// CreateSystem creates the registry record of a new system for an
+	// accepted repo_system card and returns its entity ID.
+	CreateSystem func(ctx context.Context, tx pgx.Tx, vis visibility.Set, name, userID string) (int64, error)
 }
 
 // ApplyFunc accepts one card in tx for a reviewer with the visible set vis
@@ -45,6 +48,8 @@ type Edits struct {
 	Name       string   `json:"canonicalName,omitempty" maxLength:"200" doc:"The canonical name of a merge, or the name of a new entity or term."`
 	Definition string   `json:"definition,omitempty" maxLength:"4000" doc:"The definition of a new term."`
 	Members    []string `json:"members,omitempty" maxItems:"50" doc:"The entity keys of a merge cluster to merge. Empty merges all members."`
+	Text       string   `json:"text,omitempty" maxLength:"8000" doc:"The corrected text of a design section."`
+	Diagram    string   `json:"diagram,omitempty" maxLength:"8000" doc:"The corrected Mermaid diagram of a design section."`
 }
 
 // ProfileText is the deterministic profile of an entity: display name,

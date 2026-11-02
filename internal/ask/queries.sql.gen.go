@@ -11,6 +11,31 @@ import (
 	"time"
 )
 
+const codeLines = `-- name: CodeLines :one
+SELECT coalesce(min(p.start_line), 0)::integer AS start_line, coalesce(max(p.end_line), 0)::integer AS end_line
+FROM passages p
+WHERE p.item_id = $1 AND p.connection_id = ANY($2::bigint[]) AND encode(p.hash, 'hex') = ANY($3::text[])
+`
+
+type CodeLinesParams struct {
+	ItemID  int64
+	Visible []int64
+	Hashes  []string
+}
+
+type CodeLinesRow struct {
+	StartLine int32
+	EndLine   int32
+}
+
+// The line range of the passages of a source code chunk.
+func (q *Queries) CodeLines(ctx context.Context, arg CodeLinesParams) (CodeLinesRow, error) {
+	row := q.db.QueryRow(ctx, codeLines, arg.ItemID, arg.Visible, arg.Hashes)
+	var i CodeLinesRow
+	err := row.Scan(&i.StartLine, &i.EndLine)
+	return i, err
+}
+
 const deleteQuestionsBefore = `-- name: DeleteQuestionsBefore :execrows
 DELETE FROM questions WHERE created_at < $1
 `

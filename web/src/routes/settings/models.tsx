@@ -22,6 +22,7 @@ const fnHelp: Record<Fn["function"], CopyKey> = {
   embed: "models.fnEmbed",
   rerank: "models.fnRerank",
   decide: "models.fnDecide",
+  design: "models.fnDesign",
 };
 
 function messageOf(e: unknown): string {

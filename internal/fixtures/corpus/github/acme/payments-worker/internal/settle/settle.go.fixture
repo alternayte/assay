@@ -1,0 +1,19 @@
+// Package settle settles the captured payments of one day.
+package settle
+
+import (
+	"github.com/acme/payments-api/pkg/events"
+)
+
+// Run reads the settled events of the day and sends a total to finance.
+func Run() error {
+	var total int64
+	for _, e := range pending() {
+		total += e.Cents
+	}
+	return report(total)
+}
+
+func pending() []events.Settled { return nil }
+
+func report(int64) error { return nil }

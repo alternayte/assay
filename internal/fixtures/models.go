@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -199,17 +200,29 @@ var (
 // claims. For an Ask context it cites the first sentence of the first two
 // sources and the first claim. Otherwise it is a fixed text.
 func fakeContent(body map[string]any) string {
+	msgs, _ := body["messages"].([]any)
+	var user, system, first string
+	for _, m := range msgs {
+		if mm, ok := m.(map[string]any); ok && mm["role"] == "user" {
+			user, _ = mm["content"].(string)
+			if first == "" {
+				first = user
+			}
+		}
+		if mm, ok := m.(map[string]any); ok && mm["role"] == "system" && system == "" {
+			system, _ = mm["content"].(string)
+		}
+	}
 	if rf, ok := body["response_format"].(map[string]any); ok {
 		if js, ok := rf["json_schema"].(map[string]any); ok && js["name"] == "extraction" {
 			return `{"claims":[]}`
 		}
-	}
-	msgs, _ := body["messages"].([]any)
-	var user string
-	for _, m := range msgs {
-		if mm, ok := m.(map[string]any); ok && mm["role"] == "user" {
-			user, _ = mm["content"].(string)
+		if js, ok := rf["json_schema"].(map[string]any); ok && js["name"] == "design_section" {
+			return fakeSection(system, first)
 		}
+	}
+	if strings.Contains(system, "You write notes about one component") {
+		return fakeDigest(user)
 	}
 	var parts []string
 	if strings.HasPrefix(user, "<entity ") {
@@ -241,6 +254,94 @@ func fakeContent(body map[string]any) string {
 		return "This is a fake answer."
 	}
 	return strings.Join(parts, " ")
+}
+
+var (
+	digestPassage = regexp.MustCompile(`(?s)<passage id="(S\d+)" file="([^"]+)" lines="(\d+)-(\d+)">\n(.*?)\n</passage>`)
+	sectionComp   = regexp.MustCompile(`(?s)<component name="([^"]+)"[^>]*>\n(.*?)\n</component>`)
+	sectionDoc    = regexp.MustCompile(`<passage id="(S\d+)" kind="doc" file="([^"]+)">([^<]*)</passage>`)
+	noteLine      = regexp.MustCompile(`(?m)^- (.*?)((?:\[S\d+\])+)\.?\s*$`)
+	firstMarker   = regexp.MustCompile(`\[(S\d+)\]`)
+	codeName      = regexp.MustCompile(`(?m)^\s*(?:export\s+)?(?:public\s+|internal\s+)?(?:func|type|class|def|interface|record|struct|const|function)\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)`)
+)
+
+// fakeDigest writes one note for each of the first 8 passages: the file and
+// the first declared name, with the marker of the passage.
+func fakeDigest(user string) string {
+	var notes []string
+	for _, m := range digestPassage.FindAllStringSubmatch(user, 8) {
+		name := "code"
+		if n := codeName.FindStringSubmatch(m[5]); n != nil {
+			name = n[1]
+		}
+		notes = append(notes, fmt.Sprintf("- The file %s declares %s in lines %s to %s [%s].", m[2], name, m[3], m[4], m[1]))
+	}
+	if len(notes) == 0 {
+		return "- The component has no code."
+	}
+	return strings.Join(notes, "\n")
+}
+
+// fakeSection writes a design section from the notes and documents of the
+// context. Each sentence cites the first marker of its note. An
+// architecture task gets one node per component and an edge between
+// neighbours.
+func fakeSection(system, user string) string {
+	type node struct {
+		ID    string   `json:"id"`
+		Label string   `json:"label"`
+		Cites []string `json:"cites"`
+	}
+	type edge struct {
+		From  string   `json:"from"`
+		To    string   `json:"to"`
+		Label string   `json:"label"`
+		Cites []string `json:"cites"`
+	}
+	var sents []string
+	nodes := []node{}
+	edges := []edge{}
+	for i, c := range sectionComp.FindAllStringSubmatch(user, 12) {
+		notes := noteLine.FindAllStringSubmatch(c[2], 2)
+		if len(notes) == 0 {
+			if m := firstMarker.FindStringSubmatch(c[2]); m != nil {
+				sents = append(sents, fmt.Sprintf("The part %s is in the code [%s].", c[1], m[1]))
+			}
+			continue
+		}
+		mk := firstMarker.FindStringSubmatch(notes[0][2])[1]
+		text := strings.TrimRight(strings.TrimSpace(notes[0][1]), ".")
+		sents = append(sents, fmt.Sprintf("In %s, %s [%s].", c[1], lowerFirst(text), mk))
+		nodes = append(nodes, node{ID: fmt.Sprintf("c%d", i), Label: c[1], Cites: []string{mk}})
+		if i > 0 && len(nodes) > 1 {
+			edges = append(edges, edge{From: nodes[len(nodes)-2].ID, To: nodes[len(nodes)-1].ID, Label: "calls", Cites: []string{mk}})
+		}
+	}
+	if d := sectionDoc.FindStringSubmatch(user); d != nil {
+		words := strings.Fields(d[3])
+		if len(words) > 14 {
+			words = words[:14]
+		}
+		sents = append(sents, fmt.Sprintf("The document %s says: %s [%s].", d[2], strings.TrimRight(strings.Join(words, " "), ".:,;"), d[1]))
+	}
+	for _, m := range pageClaim.FindAllStringSubmatch(user, 2) {
+		sents = append(sents, fmt.Sprintf("The record states that %s [%s].", strings.TrimSpace(m[2]), m[1]))
+	}
+	if !strings.Contains(system, "Draw the architecture") && !strings.Contains(system, "Add a diagram") {
+		nodes, edges = []node{}, []edge{}
+	}
+	if len(sents) == 0 {
+		sents = append(sents, "The context has no sources.")
+	}
+	b, _ := json.Marshal(map[string]any{"markdown": strings.Join(sents, " "), "nodes": nodes, "edges": edges})
+	return string(b)
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

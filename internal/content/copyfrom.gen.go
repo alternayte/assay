@@ -38,6 +38,8 @@ func (r iteratorForInsertPassages) Values() ([]interface{}, error) {
 		r.rows[0].HeadingPath,
 		r.rows[0].Text,
 		r.rows[0].Norm,
+		r.rows[0].StartLine,
+		r.rows[0].EndLine,
 	}, nil
 }
 
@@ -47,5 +49,5 @@ func (r iteratorForInsertPassages) Err() error {
 
 // vis:system
 func (q *Queries) InsertPassages(ctx context.Context, arg []InsertPassagesParams) (int64, error) {
-	return q.db.CopyFrom(ctx, []string{"passages"}, []string{"item_id", "version_id", "connection_id", "hash", "ordinal", "kind", "heading_path", "text", "norm"}, &iteratorForInsertPassages{rows: arg})
+	return q.db.CopyFrom(ctx, []string{"passages"}, []string{"item_id", "version_id", "connection_id", "hash", "ordinal", "kind", "heading_path", "text", "norm", "start_line", "end_line"}, &iteratorForInsertPassages{rows: arg})
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/alternayte/assay/internal/models"
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
 
@@ -139,11 +140,12 @@ func (w *world) scalar(t *testing.T, sql string, args ...any) any {
 	return v
 }
 
-func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
+func TestSCN_AGT_001_EightToolsWithAuditRows(t *testing.T) {
 	w := start(t)
 	s := connect(t, w, token(t, w.member, "read", "propose"))
 	tools := toolsOf(t, s)
-	want := []string{"search_context", "get_entity", "get_knowledge_page", "trace_relationships", "get_decisions", "get_terms", "propose_finding"}
+	want := []string{"search_context", "get_entity", "get_knowledge_page", "get_design_page", "trace_relationships", "get_decisions", "get_terms",
+		"propose_finding"}
 	names := make([]string, 0, len(tools))
 	for n := range tools {
 		names = append(names, n)
@@ -168,6 +170,17 @@ func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
 	if !strings.Contains(p["excerpt"].(string), "# Payments API") {
 		t.Fatalf("get_knowledge_page: %v", p["excerpt"])
 	}
+	_, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, w.owner, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, w.owner, "design", testkit.Function{Endpoint: ep, Model: "fake-chat"})
+	github := w.scalar(t, "SELECT id FROM connections WHERE name = 'acme-github'").(int64)
+	if err := w.env.Server.Design().Build(context.Background(), github, "", "sync"); err != nil {
+		t.Fatal(err)
+	}
+	repo := w.scalar(t, "SELECT key FROM entities WHERE type = 'repository' AND key LIKE '%acme/payments-api'").(string)
+	if d := call(t, s, tools, "get_design_page", map[string]any{"key": repo}); !strings.Contains(d["excerpt"].(string), "## Architecture") {
+		t.Fatalf("get_design_page: %v", d["excerpt"])
+	}
 	tr := call(t, s, tools, "trace_relationships", map[string]any{"key": paymentsAPI, "depth": 2})
 	if len(tr["paths"].([]any)) == 0 {
 		t.Fatalf("trace_relationships: %v", tr)
@@ -185,8 +198,8 @@ func TestSCN_AGT_001_SevenToolsWithAuditRows(t *testing.T) {
 	}
 
 	// Each call writes an audit row with the token.
-	if n := w.env.Count("SELECT count(*) FROM audit_log WHERE action LIKE 'mcp.%' AND actor_token_id IS NOT NULL"); n != 7 {
-		t.Fatalf("%d audit rows for 7 calls", n)
+	if n := w.env.Count("SELECT count(*) FROM audit_log WHERE action LIKE 'mcp.%' AND actor_token_id IS NOT NULL"); n != 8 {
+		t.Fatalf("%d audit rows for 8 calls", n)
 	}
 }
 

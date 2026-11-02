@@ -33,6 +33,7 @@ type Connection struct {
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	CodeGlobs            []string
 }
 
 type SyncRun struct {

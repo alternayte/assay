@@ -54,3 +54,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - auto-apply: acting on High decisions without review, enabled per decision kind once precision is earned.
 - card: one item in the review queue.
 - page: a knowledge page for one entity, cached per visibility key.
+- design page: the generated page of a repository, system or multi-repository service that says what the code does, how and why, with diagrams. Avoid: design doc.
+- component: one section unit of a design page, found from the code structure. It is not an entity. Avoid: module, subsystem.
+- digest: the internal summary of a component that later generation steps read in place of the code. Avoid: component summary.
+- pinned section: a design page section with a human version, which regeneration never overwrites. Avoid: locked section, manual section.

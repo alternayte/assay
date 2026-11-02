@@ -34,8 +34,9 @@ type Predicate struct {
 	NeverConflicts bool
 }
 
-// Source types of evidence.
-var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review"}
+// Source types of evidence. decision is the source of repo_system claims
+// and of the edges that code proposes.
+var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision"}
 
 var owners = []string{"service", "api", "system", "resource", "repository", "project", "initiative", "term"}
 
@@ -45,13 +46,16 @@ var Registry = map[string]Predicate{}
 func init() {
 	for _, p := range []Predicate{
 		{Name: "owned_by", Subjects: owners, Objects: []string{"team", "person"}, Priority: []string{"registry", "catalog", "codeowners", "jira", "others"}},
-		{Name: "part_of", Subjects: []string{"service", "api", "resource", "issue", "initiative"}, Objects: []string{"system", "initiative", "project"},
-			Priority: []string{"registry", "catalog", "jira", "others"}},
-		{Name: "depends_on", Subjects: []string{"service", "api", "resource"}, Objects: []string{"service", "api", "resource"}, Multi: true,
-			Priority: []string{"registry", "catalog", "others"}},
-		{Name: "provides_api", Subjects: []string{"service"}, Objects: []string{"api"}, Multi: true, Priority: []string{"registry", "catalog", "others"}},
-		{Name: "consumes_api", Subjects: []string{"service"}, Objects: []string{"api"}, Multi: true, Priority: []string{"registry", "catalog", "others"}},
-		{Name: "implements", Subjects: []string{"repository"}, Objects: []string{"service", "api"}, Multi: true, Priority: []string{"catalog", "others"}},
+		{Name: "part_of", Subjects: []string{"service", "api", "resource", "issue", "initiative", "repository"},
+			Objects: []string{"system", "initiative", "project"}, Priority: []string{"registry", "catalog", "jira", "others", "decision"}},
+		{Name: "depends_on", Subjects: []string{"service", "api", "resource", "repository"}, Objects: []string{"service", "api", "resource", "repository"},
+			Multi: true, Priority: []string{"registry", "catalog", "others", "decision"}},
+		{Name: "provides_api", Subjects: []string{"service", "repository"}, Objects: []string{"api"}, Multi: true,
+			Priority: []string{"registry", "catalog", "others", "decision"}},
+		{Name: "consumes_api", Subjects: []string{"service", "repository"}, Objects: []string{"api"}, Multi: true,
+			Priority: []string{"registry", "catalog", "others", "decision"}},
+		{Name: "implements", Subjects: []string{"repository"}, Objects: []string{"service", "api"}, Multi: true,
+			Priority: []string{"catalog", "registry", "others", "decision"}},
 		{Name: "deployed_to", Subjects: []string{"service"}, Objects: []string{"environment"}, Multi: true, Priority: []string{"repository", "others"}},
 		{Name: "blocks", Subjects: []string{"issue", "initiative"}, Objects: []string{"issue", "initiative"}, Multi: true, Priority: []string{"jira", "others"}},
 		{Name: "assigned_to", Subjects: []string{"issue", "initiative"}, Objects: []string{"person"}, Priority: []string{"jira"}},

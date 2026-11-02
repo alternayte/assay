@@ -1,0 +1,12 @@
+import { request } from "./http";
+
+/** The base path of the payments API. */
+export const BASE = "/v1/payments";
+
+export async function capture(id: string): Promise<void> {
+  await request("POST", `${BASE}/${id}/capture`);
+}
+
+export class Checkout {
+  total = 0;
+}

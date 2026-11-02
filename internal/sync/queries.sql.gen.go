@@ -247,7 +247,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, cursor, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at FROM connections WHERE id = $1
+SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, cursor, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, error) {
@@ -277,6 +277,7 @@ func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, erro
 		&i.PermissionsCheckedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CodeGlobs,
 	)
 	return i, err
 }
@@ -322,10 +323,10 @@ func (q *Queries) GroupsExist(ctx context.Context, ids []int64) (int64, error) {
 }
 
 const insertConnection = `-- name: InsertConnection :one
-INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours,
+INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, code_globs, sync_minutes, reconcile_hours,
                          rate_concurrency, rate_per_second, owner_id, default_domain_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10, $11, $12, $13)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14)
 RETURNING id
 `
 
@@ -337,6 +338,7 @@ type InsertConnectionParams struct {
 	Options         json.RawMessage
 	IncludeGlobs    []string
 	ExcludeGlobs    []string
+	CodeGlobs       []string
 	SyncMinutes     int32
 	ReconcileHours  int32
 	RateConcurrency int32
@@ -354,6 +356,7 @@ func (q *Queries) InsertConnection(ctx context.Context, arg InsertConnectionPara
 		arg.Options,
 		arg.IncludeGlobs,
 		arg.ExcludeGlobs,
+		arg.CodeGlobs,
 		arg.SyncMinutes,
 		arg.ReconcileHours,
 		arg.RateConcurrency,
@@ -468,7 +471,7 @@ func (q *Queries) ItemRevisions(ctx context.Context, connectionID int64) ([]Item
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, coalesce(u.email, '')::text AS owner_email,
+SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
        coalesce((SELECT r.error FROM sync_runs r WHERE r.connection_id = c.id ORDER BY r.id DESC LIMIT 1), '')::text AS last_error
 FROM connections c
@@ -500,6 +503,7 @@ type ListConnectionsRow struct {
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	CodeGlobs            []string
 	OwnerEmail           string
 	Items                int64
 	LastError            string
@@ -541,6 +545,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 			&i.PermissionsCheckedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CodeGlobs,
 			&i.OwnerEmail,
 			&i.Items,
 			&i.LastError,
@@ -744,10 +749,10 @@ func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (int64, erro
 const updateConnection = `-- name: UpdateConnection :execrows
 UPDATE connections
 SET name = $1, base_url = $2, scope = $3, options = $4, include_globs = $5,
-    exclude_globs = $6, sync_minutes = $7, reconcile_hours = $8,
-    rate_concurrency = $9, rate_per_second = $10, default_domain_id = $11,
+    exclude_globs = $6, code_globs = coalesce($7::text[], code_globs), sync_minutes = $8, reconcile_hours = $9,
+    rate_concurrency = $10, rate_per_second = $11, default_domain_id = $12,
     updated_at = now()
-WHERE id = $12 AND kind <> 'registry'
+WHERE id = $13 AND kind <> 'registry'
 `
 
 type UpdateConnectionParams struct {
@@ -757,6 +762,7 @@ type UpdateConnectionParams struct {
 	Options         json.RawMessage
 	IncludeGlobs    []string
 	ExcludeGlobs    []string
+	CodeGlobs       []string
 	SyncMinutes     int32
 	ReconcileHours  int32
 	RateConcurrency int32
@@ -773,6 +779,7 @@ func (q *Queries) UpdateConnection(ctx context.Context, arg UpdateConnectionPara
 		arg.Options,
 		arg.IncludeGlobs,
 		arg.ExcludeGlobs,
+		arg.CodeGlobs,
 		arg.SyncMinutes,
 		arg.ReconcileHours,
 		arg.RateConcurrency,

@@ -1,0 +1,47 @@
+// Package payments captures and refunds card payments.
+package payments
+
+import (
+	"context"
+	"errors"
+
+	"github.com/acme/payments-api/internal/ledgerclient"
+	"github.com/acme/payments-api/internal/store"
+	"github.com/acme/payments-api/pkg/events"
+)
+
+// ErrSettled means that the payment is settled and cannot change.
+var ErrSettled = errors.New("payments: the payment is settled")
+
+// Service captures payments and sends settled payments to the ledger.
+type Service struct {
+	Store  *store.Store
+	Ledger *ledgerclient.Client
+}
+
+// Capture takes the money of an authorized payment. A captured payment is
+// settled, and the ledger records it.
+func (s *Service) Capture(ctx context.Context, id string) error {
+	p, err := s.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if p.Status == "settled" {
+		return ErrSettled
+	}
+	p.Status = "settled"
+	if err := s.Store.Save(ctx, p); err != nil {
+		return err
+	}
+	return s.Ledger.Post(ctx, events.Settled{PaymentID: p.ID, Cents: p.Cents})
+}
+
+// Refund returns the money of a settled payment.
+func (s *Service) Refund(ctx context.Context, id string) error {
+	p, err := s.Store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	p.Status = "refunded"
+	return s.Store.Save(ctx, p)
+}

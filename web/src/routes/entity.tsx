@@ -18,6 +18,7 @@ import { formatAgo, formatTime } from "@/lib/format";
 import { atLeast, useMe } from "@/lib/session";
 import { readEvents } from "@/lib/sse";
 import { claimText, Drawer, External, type Opened, sourceType } from "@/routes/ask";
+import { DesignView, useDesign } from "@/routes/design";
 import { TermFields } from "@/routes/glossary";
 
 type Page = Schemas["Page"];
@@ -308,9 +309,40 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
+/** The tabs of an entity page. The design tab shows only when the entity has a design page. */
+function Tabs({
+  entityKey,
+  tab,
+  design,
+}: {
+  entityKey: string;
+  tab: "knowledge" | "design";
+  design: boolean;
+}) {
+  if (!design && tab === "knowledge") return null;
+  const cls =
+    "border-b-2 px-1 pb-2 text-base font-medium transition-ink data-[active=true]:border-accent data-[active=true]:text-ink border-transparent text-ink-muted hover:text-ink";
+  return (
+    <nav aria-label={t("page.tabs")} className="-mb-4 flex gap-6">
+      <Link to="/e/$key" params={{ key: entityKey }} className={cls} data-active={tab === "knowledge"}>
+        {t("page.tabKnowledge")}
+      </Link>
+      <Link to="/e/$key/design" params={{ key: entityKey }} className={cls} data-active={tab === "design"}>
+        {t("page.tabDesign")}
+      </Link>
+    </nav>
+  );
+}
+
+/** The design tab of an entity page. */
+export function EntityDesignPage() {
+  return <EntityPage tab="design" />;
+}
+
 /** The knowledge page of an entity: sections from claims first, then the summary. */
-export function EntityPage() {
-  const { key } = useParams({ from: "/authed/e/$key" });
+export function EntityPage({ tab = "knowledge" }: { tab?: "knowledge" | "design" }) {
+  const { key } = useParams({ strict: false }) as { key: string };
+  const design = useDesign(key);
   const me = useMe();
   const qc = useQueryClient();
   const queryKey = ["page", key];
@@ -335,7 +367,7 @@ export function EntityPage() {
 
   const state = page.data?.summary.state;
   useEffect(() => {
-    if ((state !== "missing" && state !== "stale") || started.current === key) return;
+    if ((state !== "missing" && state !== "stale") || started.current === key || tab === "design") return;
     started.current = key;
     const ctl = new AbortController();
     let draft = "";
@@ -374,7 +406,7 @@ export function EntityPage() {
       ctl.abort();
       started.current = undefined;
     };
-  }, [key, state, qc]);
+  }, [key, state, qc, tab]);
 
   const regenerate = async () => {
     setRegenerating(true);
@@ -452,43 +484,49 @@ export function EntityPage() {
             {t("page.openTerm")}
           </Link>
         )}
+        <Tabs entityKey={p.key} tab={tab} design={design.isSuccess} />
       </header>
-
-      <SummarySheet
-        page={p}
-        live={live}
-        onOpen={setOpened}
-        actions={
-          reviewer && (
-            <Button onClick={regenerate} disabled={regenerating || live?.running}>
-              <RefreshCw className="size-4" aria-hidden />
-              {regenerating ? t("page.regenerating") : t("page.regenerate")}
-            </Button>
-          )
-        }
-      />
-      {p.type === "term" && <TermFields termKey={p.key} />}
-      <Sheet title={t("page.facts")} description={t("page.factsBody")}>
-        <Facts claims={p.facts} onOpen={setOpened} />
-      </Sheet>
-      <Sheet title={t("page.conflicts")} description={t("page.conflictsBody")}>
-        <Conflicts page={p} onOpen={setOpened} />
-      </Sheet>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Sheet title={t("page.decisions")}>
-          <Links links={p.decisions} empty={t("page.noDecisions")} />
-        </Sheet>
-        <Sheet title={t("page.timeline")} description={t("page.timelineBody")}>
-          <Timeline claims={p.timeline} onOpen={setOpened} />
-        </Sheet>
-      </div>
-      <Sheet title={t("page.related")}>
-        <Links links={p.related} empty={t("page.noRelated")} />
-      </Sheet>
-      <Sheet title={t("page.sourcesTitle")}>
-        <Sources page={p} />
-      </Sheet>
-      <Drawer opened={opened} onClose={() => setOpened(undefined)} />
+      {tab === "design" ? (
+        <DesignView entityKey={p.key} />
+      ) : (
+        <>
+          <SummarySheet
+            page={p}
+            live={live}
+            onOpen={setOpened}
+            actions={
+              reviewer && (
+                <Button onClick={regenerate} disabled={regenerating || live?.running}>
+                  <RefreshCw className="size-4" aria-hidden />
+                  {regenerating ? t("page.regenerating") : t("page.regenerate")}
+                </Button>
+              )
+            }
+          />
+          {p.type === "term" && <TermFields termKey={p.key} />}
+          <Sheet title={t("page.facts")} description={t("page.factsBody")}>
+            <Facts claims={p.facts} onOpen={setOpened} />
+          </Sheet>
+          <Sheet title={t("page.conflicts")} description={t("page.conflictsBody")}>
+            <Conflicts page={p} onOpen={setOpened} />
+          </Sheet>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Sheet title={t("page.decisions")}>
+              <Links links={p.decisions} empty={t("page.noDecisions")} />
+            </Sheet>
+            <Sheet title={t("page.timeline")} description={t("page.timelineBody")}>
+              <Timeline claims={p.timeline} onOpen={setOpened} />
+            </Sheet>
+          </div>
+          <Sheet title={t("page.related")}>
+            <Links links={p.related} empty={t("page.noRelated")} />
+          </Sheet>
+          <Sheet title={t("page.sourcesTitle")}>
+            <Sources page={p} />
+          </Sheet>
+          <Drawer opened={opened} onClose={() => setOpened(undefined)} />
+        </>
+      )}
     </div>
   );
 }

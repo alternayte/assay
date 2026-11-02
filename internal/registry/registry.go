@@ -591,3 +591,17 @@ func (s *Service) ApplyNewTerm(ctx context.Context, tx pgx.Tx, vis visibility.Se
 	return content.AddExtracted(ctx, tx, p.ConnectionID, p.ItemID, hash, p.At,
 		[]content.Extracted{{Subject: id, Predicate: "defined_as", Text: def, Stance: "supports", Quote: p.Quote}}, s.Log)
 }
+
+// CreateSystem creates the registry record of a system for an accepted
+// repo_system card, or finds the record with the same name, and returns
+// its entity ID.
+func (s *Service) CreateSystem(ctx context.Context, tx pgx.Tx, vis visibility.Set, name, userID string) (int64, error) {
+	rec := RegistryRecord{Kind: KindThing, Thing: &ThingRecord{Type: "system", Name: name}}
+	key := RecordKey(rec)
+	if _, err := s.SaveTx(ctx, tx, "", rec, Editor{UserID: userID, Role: auth.RoleReviewer, Vis: vis}); err != nil && !errors.Is(err, ErrExists) {
+		return 0, err
+	}
+	var id int64
+	err := tx.QueryRow(ctx, "SELECT id FROM entities WHERE key = $1", key).Scan(&id)
+	return id, err
+}

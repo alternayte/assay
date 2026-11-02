@@ -125,6 +125,16 @@ func (r *Repo) dirs() []string {
 	return out
 }
 
+// commit is the commit ID of the branch head: it changes when a file
+// changes.
+func (r *Repo) commit() string {
+	h := sha1.New() //nolint:gosec // Git commit IDs are SHA-1.
+	for _, p := range r.paths() {
+		_, _ = fmt.Fprintf(h, "%s %s\n", p, BlobID(r.Files[p]))
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func (r *Repo) paths() []string {
 	out := make([]string, 0, len(r.Files))
 	for p := range r.Files {
@@ -189,6 +199,12 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 	switch {
 	case len(parts) == 2:
 		writeJSON(w, http.StatusOK, repoJSON(rp))
+	case len(parts) == 4 && parts[2] == "branches":
+		if parts[3] != rp.Branch {
+			writeJSON(w, http.StatusNotFound, map[string]any{"message": "Branch not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"name": rp.Branch, "commit": map[string]any{"sha": rp.commit()}})
 	case len(parts) == 5 && parts[2] == "git" && parts[3] == "trees":
 		if parts[4] != rp.Branch {
 			writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
@@ -276,6 +292,12 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 			out = append(out, map[string]any{"objectId": BlobID(rp.Files[f]), "gitObjectType": "blob", "path": "/" + f})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"count": len(out), "value": out})
+	case parts[1] == "commits":
+		if q.Get("searchCriteria.itemVersion.version") != rp.Branch {
+			writeJSON(w, http.StatusNotFound, map[string]any{"message": "The branch does not exist."})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": 1, "value": []map[string]any{{"commitId": rp.commit()}}})
 	case parts[1] == "blobs" && len(parts) == 3:
 		b, ok := rp.blob(parts[2])
 		if !ok {
@@ -287,4 +309,11 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// RepoFile returns the content of a file of a repository.
+func (s *Sources) RepoFile(host, repo, file string) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.repos[host+":"+repo].Files[file]
 }

@@ -1,0 +1,38 @@
+// Package ledgerclient sends settled payments to the ledger service.
+package ledgerclient
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/acme/payments-api/pkg/events"
+)
+
+// BaseURL is the ledger REST API.
+const BaseURL = "https://ledger.acme.test/v1/entries"
+
+// Client posts ledger entries with a bearer token.
+type Client struct {
+	token string
+	http  *http.Client
+}
+
+// New returns a client.
+func New(token string) *Client { return &Client{token: token, http: http.DefaultClient} }
+
+// Post records one settled payment as a ledger entry.
+func (c *Client) Post(ctx context.Context, e events.Settled) error {
+	b, _ := json.Marshal(e)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, BaseURL, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	res, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	return res.Body.Close()
+}

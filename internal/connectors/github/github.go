@@ -148,9 +148,33 @@ func (h *Host) Blob(ctx context.Context, r tree.Repo, e tree.Entry) ([]byte, err
 	return out, nil
 }
 
+// Commit returns the commit ID of the head of the default branch.
+func (h *Host) Commit(ctx context.Context, r tree.Repo) (string, error) {
+	var b struct {
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+	if err := h.c.GetJSON(ctx, "/repos/"+r.ID+"/branches/"+url.PathEscape(r.Branch), nil, &b); err != nil {
+		return "", err
+	}
+	return b.Commit.SHA, nil
+}
+
 // FileURL is the browse URL of a file on the default branch.
-func (h *Host) FileURL(r tree.Repo, file string) string {
-	u := url.URL{Scheme: "https", Host: h.web, Path: "/" + r.ID + "/blob/" + r.Branch + "/" + file}
+func (h *Host) FileURL(r tree.Repo, file string) string { return h.fileURL(r, r.Branch, file) }
+
+// CommitURL is the browse URL of a file at the listed commit, or on the
+// default branch when the commit is not known.
+func (h *Host) CommitURL(r tree.Repo, file string) string {
+	if r.Commit == "" {
+		return h.FileURL(r, file)
+	}
+	return h.fileURL(r, r.Commit, file)
+}
+
+func (h *Host) fileURL(r tree.Repo, ref, file string) string {
+	u := url.URL{Scheme: "https", Host: h.web, Path: "/" + r.ID + "/blob/" + ref + "/" + file}
 	if h.web != "github.com" {
 		// Enterprise Server and the fixture serve the pages next to the API.
 		base, _ := url.Parse(h.c.URL("", nil))

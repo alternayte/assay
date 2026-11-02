@@ -117,7 +117,7 @@ export function ConnectionsPage() {
 type Source = { kind: Kind; name: string; baseUrl: string; token: string; apiVersion?: string };
 type Scope = { spaces?: string[]; projects?: string[]; repositories?: string[]; jql?: string };
 /** Repository globs, one per line. */
-type Globs = { include: string; exclude: string };
+type Globs = { include: string; exclude: string; code: string };
 type Schedule = {
   syncMinutes: number;
   reconcileHours: number;
@@ -259,6 +259,21 @@ function GlobFields({ value, onChange }: { value: Globs; onChange: (g: Globs) =>
           />
         )}
       </Field>
+      <Field
+        label={t("connections.codeGlobs")}
+        hint={t("connections.codeGlobsHint")}
+        className="sm:col-span-2"
+      >
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={5}
+            className="font-mono text-sm"
+            value={value.code}
+            onChange={(e) => onChange({ ...value, code: e.target.value })}
+          />
+        )}
+      </Field>
     </div>
   );
 }
@@ -273,6 +288,7 @@ function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number, 
     options: s.kind === "azdo" ? { apiVersion: s.apiVersion?.trim() || undefined } : undefined,
     includeGlobs: globs && isRepo(s.kind) ? lines(globs.include) : undefined,
     excludeGlobs: globs && isRepo(s.kind) ? lines(globs.exclude) : undefined,
+    codeGlobs: globs && isRepo(s.kind) ? lines(globs.code) : undefined,
   };
 }
 
@@ -441,9 +457,11 @@ export function NewConnectionPage() {
   const list = useConnections();
   const [globs, setGlobs] = useState<Globs>();
   const defaultGlobs = list.data?.defaultGlobs;
+  const defaultCode = list.data?.defaultCodeGlobs;
   useEffect(() => {
-    if (defaultGlobs && !globs) setGlobs({ include: defaultGlobs.join("\n"), exclude: "" });
-  }, [defaultGlobs, globs]);
+    if (defaultGlobs && defaultCode && !globs)
+      setGlobs({ include: defaultGlobs.join("\n"), exclude: "", code: defaultCode.join("\n") });
+  }, [defaultGlobs, defaultCode, globs]);
   const [schedule, setSchedule] = useState<Schedule>(defaultSchedule);
   const [error, setError] = useState<string>();
   const test = useTest();
@@ -851,6 +869,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
   const [globs, setGlobs] = useState<Globs>({
     include: (c.includeGlobs ?? []).join("\n"),
     exclude: (c.excludeGlobs ?? []).join("\n"),
+    code: (c.codeGlobs ?? []).join("\n"),
   });
   const [schedule, setSchedule] = useState<Schedule>({
     syncMinutes: c.syncMinutes,

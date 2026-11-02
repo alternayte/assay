@@ -21,6 +21,15 @@ type Labels struct {
 	Links []Mention `json:"links"`
 	// Unnamed are description mentions of things that no entity is.
 	Unnamed []Mention `json:"unnamed"`
+	// RepoSystems are the systems of repositories without catalog data. An
+	// empty group means no known system.
+	RepoSystems []RepoSystem `json:"repoSystems"`
+}
+
+// RepoSystem is the labelled system of a repository.
+type RepoSystem struct {
+	Repository string `json:"repository"`
+	Group      string `json:"group,omitempty"`
 }
 
 // Mention is a labelled mention in an item of the corpus.

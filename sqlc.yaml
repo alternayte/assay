@@ -149,3 +149,10 @@ sql:
         <<: *go
         package: review
         out: internal/review
+  - <<: *pkg
+    queries: internal/design/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: design
+        out: internal/design

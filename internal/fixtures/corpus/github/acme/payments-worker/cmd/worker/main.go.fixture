@@ -1,0 +1,17 @@
+// Command worker runs the daily settlement.
+package main
+
+import (
+	"log"
+	"time"
+
+	"github.com/acme/payments-worker/internal/settle"
+)
+
+func main() {
+	for range time.Tick(24 * time.Hour) {
+		if err := settle.Run(); err != nil {
+			log.Print(err)
+		}
+	}
+}

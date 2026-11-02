@@ -267,8 +267,14 @@ func (s *Service) finish(ctx context.Context, conn Connection, run SyncRun, curs
 				}
 			}
 		}
-		return q.FinishRun(ctx, FinishRunParams{ID: run.ID, Status: status, Now: &now, CursorTo: cursor, Seen: st.seen,
-			Created: st.created, Updated: st.updated, Unchanged: st.unchanged, Deleted: st.delete, Skipped: skipped, Error: msg})
+		if err := q.FinishRun(ctx, FinishRunParams{ID: run.ID, Status: status, Now: &now, CursorTo: cursor, Seen: st.seen,
+			Created: st.created, Updated: st.updated, Unchanged: st.unchanged, Deleted: st.delete, Skipped: skipped, Error: msg}); err != nil {
+			return err
+		}
+		if failed == nil && s.AfterRun != nil && len(conn.CodeGlobs) > 0 {
+			return s.AfterRun(ctx, tx, conn.ID)
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -321,6 +327,11 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		ids = append(ids, r.ID)
 	}
 	s.fetchAll(ctx, conn, k, ids, st)
+	if sl, ok := k.(connectors.SkipLister); ok {
+		for _, sk := range sl.Skipped() {
+			st.skip(sk.ID, sk.Reason)
+		}
+	}
 	if newest.IsZero() {
 		return conn.Cursor
 	}

@@ -38,14 +38,21 @@ type RulesConfig struct {
 	DefaultGlobs    []string `json:"defaultGlobs" doc:"Include globs of a new repository connection."`
 	MaxFileKB       int      `json:"maxFileKb" minimum:"1" doc:"Items larger than this are skipped."`
 	MaxFilesPerRepo int      `json:"maxFilesPerRepo" minimum:"1"`
+	// The source code rules. Knowledge files count first, against their own
+	// limits.
+	DefaultCodeGlobs    []string `json:"defaultCodeGlobs" doc:"Code globs of a new repository connection."`
+	SkipGlobs           []string `json:"skipGlobs" doc:"Paths of generated and vendored code. Sync skips them with the reason generated."`
+	MaxCodeFileKB       int      `json:"maxCodeFileKb" minimum:"1" doc:"Source files larger than this are skipped."`
+	MaxCodeFilesPerRepo int      `json:"maxCodeFilesPerRepo" minimum:"1" doc:"The most source files that sync reads in one repository."`
 }
 
 // Rules is the definition of the connector rules setting.
 var Rules = settings.Define("connectors", "Rules that connectors use to read sources.",
 	RulesConfig{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks", DecisionLabels: []string{"decision", "adr"},
-		GlossaryLabels: []string{"glossary"}, DefaultGlobs: tree.DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000},
+		GlossaryLabels: []string{"glossary"}, DefaultGlobs: tree.DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000,
+		DefaultCodeGlobs: tree.DefaultCodeGlobs, SkipGlobs: tree.DefaultSkipGlobs, MaxCodeFileKB: 256, MaxCodeFilesPerRepo: 10000},
 	func(c RulesConfig) error {
-		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 {
+		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 || c.MaxCodeFileKB < 1 || c.MaxCodeFilesPerRepo < 1 {
 			return errors.New("the limits must be 1 or more")
 		}
 		if c.BlockLinkType == "" {
@@ -86,6 +93,9 @@ type Service struct {
 	// Backoff is the first retry delay of the connector clients. Zero
 	// means 1 second. Tests set it.
 	Backoff time.Duration
+	// AfterRun runs in the transaction that finishes a successful run of a
+	// connection with code globs. The design pages queue their build.
+	AfterRun func(ctx context.Context, tx pgx.Tx, connectionID int64) error
 }
 
 func (s *Service) now() time.Time {
@@ -107,6 +117,7 @@ type source struct {
 	Options     json.RawMessage
 	Include     []string
 	Exclude     []string
+	Code        []string
 	Concurrency int
 	PerSecond   float64
 }
@@ -133,14 +144,15 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	}
 	r := connectors.Rules{InitiativeTypes: rules.InitiativeTypes, BlockLinkType: rules.BlockLinkType,
 		DecisionLabels: rules.DecisionLabels, GlossaryLabels: rules.GlossaryLabels}
-	limits := connectors.Limits{MaxItemBytes: rules.MaxFileKB << 10, MaxFilesPerRepo: rules.MaxFilesPerRepo}
+	limits := connectors.Limits{MaxItemBytes: rules.MaxFileKB << 10, MaxFilesPerRepo: rules.MaxFilesPerRepo,
+		MaxCodeItemBytes: rules.MaxCodeFileKB << 10, MaxCodeFilesPerRepo: rules.MaxCodeFilesPerRepo}
 	switch src.Kind {
 	case "confluence":
 		return confluence.New(c, src.Scope, r, limits)
 	case "jira":
 		return jira.New(c, src.Scope, r, limits)
 	}
-	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude}
+	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude, Code: src.Code, Skip: rules.SkipGlobs}
 	if len(globs.Include) == 0 {
 		globs.Include = rules.DefaultGlobs
 	}
@@ -157,7 +169,7 @@ func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id)
 
 // sourceOf returns the source of a stored connection with its token.
 func (s *Service) sourceOf(ctx context.Context, c Connection) (source, error) {
-	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options, Include: c.IncludeGlobs, Exclude: c.ExcludeGlobs,
+	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options, Include: c.IncludeGlobs, Exclude: c.ExcludeGlobs, Code: c.CodeGlobs,
 		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond}
 	if c.SecretID != nil {
 		tok, err := s.Secrets.GetByID(ctx, s.Pool, *c.SecretID)
@@ -212,7 +224,7 @@ func (s *Service) ReachAll(ctx context.Context) ([]Reach, error) {
 			continue
 		}
 		c := Connection{ID: r.ID, Kind: r.Kind, BaseUrl: r.BaseUrl, SecretID: r.SecretID, Scope: r.Scope, Options: r.Options,
-			IncludeGlobs: r.IncludeGlobs, ExcludeGlobs: r.ExcludeGlobs,
+			IncludeGlobs: r.IncludeGlobs, ExcludeGlobs: r.ExcludeGlobs, CodeGlobs: r.CodeGlobs,
 			RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond}
 		res := Reach{Name: r.Name, BaseURL: r.BaseUrl}
 		src, err := s.sourceOf(ctx, c)

@@ -1,0 +1,5 @@
+{
+  "name": "@acme/checkout-web",
+  "private": true,
+  "scripts": { "build": "vite build" }
+}

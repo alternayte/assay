@@ -26,7 +26,7 @@ const (
 )
 
 // Kinds are the decision kinds in display order.
-var Kinds = []string{KindSameEntity, KindMentionLink, KindDescribes, KindEquivalent, KindStillSupports, KindTermWorthy}
+var Kinds = []string{KindSameEntity, KindMentionLink, KindDescribes, KindEquivalent, KindStillSupports, KindTermWorthy, KindRepoSystem}
 
 // Question is one typed decision to make and store.
 type Question struct {

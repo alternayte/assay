@@ -8,6 +8,7 @@ JOIN connections k ON k.id = i.connection_id,
      websearch_to_tsquery('simple', unaccent(@query::text)) q
 WHERE c.connection_id = ANY(@visible::bigint[]) AND i.connection_id = ANY(@visible::bigint[])
   AND c.tsv @@ q
+  AND (i.kind = 'code') = @code::boolean
   AND (@source_type::text = '' OR k.kind = @source_type)
   AND (@connection::bigint = 0 OR i.connection_id = @connection)
   AND (sqlc.narg(since)::timestamptz IS NULL OR i.source_updated_at >= sqlc.narg(since))
@@ -30,6 +31,7 @@ FROM source_items i
 JOIN connections k ON k.id = i.connection_id
 WHERE i.connection_id = ANY(@visible::bigint[])
   AND word_similarity(lower(unaccent(@query::text)), lower(unaccent(i.title))) >= 0.4
+  AND (i.kind = 'code') = @code::boolean
   AND (@source_type::text = '' OR k.kind = @source_type)
   AND (@connection::bigint = 0 OR i.connection_id = @connection)
   AND (sqlc.narg(since)::timestamptz IS NULL OR i.source_updated_at >= sqlc.narg(since))
@@ -80,5 +82,6 @@ JOIN source_items i ON i.id = c.item_id,
      to_tsquery('simple', unaccent(@words::text)) q
 WHERE c.connection_id = ANY(@visible::bigint[]) AND i.connection_id = ANY(@visible::bigint[])
   AND c.tsv @@ q
+  AND (i.kind = 'code') = @code::boolean
 ORDER BY ts_rank_cd(c.tsv, q, 32) DESC, c.id
 LIMIT @lim;

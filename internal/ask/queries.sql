@@ -25,3 +25,9 @@ SELECT * FROM questions WHERE id = @id AND user_id = @user_id;
 
 -- name: DeleteQuestionsBefore :execrows
 DELETE FROM questions WHERE created_at < @before;
+
+-- name: CodeLines :one
+-- The line range of the passages of a source code chunk.
+SELECT coalesce(min(p.start_line), 0)::integer AS start_line, coalesce(max(p.end_line), 0)::integer AS end_line
+FROM passages p
+WHERE p.item_id = @item_id AND p.connection_id = ANY(@visible::bigint[]) AND encode(p.hash, 'hex') = ANY(@hashes::text[]);

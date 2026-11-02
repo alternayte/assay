@@ -1,14 +1,14 @@
 -- name: InsertConnection :one
-INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours,
+INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, code_globs, sync_minutes, reconcile_hours,
                          rate_concurrency, rate_per_second, owner_id, default_domain_id)
-VALUES (@kind, @name, @base_url, @scope, @options, @include_globs, @exclude_globs, @sync_minutes, @reconcile_hours,
+VALUES (@kind, @name, @base_url, @scope, @options, @include_globs, @exclude_globs, @code_globs, @sync_minutes, @reconcile_hours,
         @rate_concurrency, @rate_per_second, @owner_id, @default_domain_id)
 RETURNING id;
 
 -- name: UpdateConnection :execrows
 UPDATE connections
 SET name = @name, base_url = @base_url, scope = @scope, options = @options, include_globs = @include_globs,
-    exclude_globs = @exclude_globs, sync_minutes = @sync_minutes, reconcile_hours = @reconcile_hours,
+    exclude_globs = @exclude_globs, code_globs = coalesce(sqlc.narg(code_globs)::text[], code_globs), sync_minutes = @sync_minutes, reconcile_hours = @reconcile_hours,
     rate_concurrency = @rate_concurrency, rate_per_second = @rate_per_second, default_domain_id = @default_domain_id,
     updated_at = now()
 WHERE id = @id AND kind <> 'registry';

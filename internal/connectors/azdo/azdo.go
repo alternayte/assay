@@ -169,8 +169,40 @@ func (h *Host) Blob(ctx context.Context, r tree.Repo, e tree.Entry) ([]byte, err
 	return h.c.Get(ctx, p+"/blobs/"+url.PathEscape(e.Blob), h.query(url.Values{"$format": {"octetstream"}}), "application/octet-stream")
 }
 
+// Commit returns the commit ID of the head of the default branch.
+func (h *Host) Commit(ctx context.Context, r tree.Repo) (string, error) {
+	p, err := repoPath(r.ID)
+	if err != nil {
+		return "", err
+	}
+	var cs struct {
+		Value []struct {
+			CommitID string `json:"commitId"`
+		} `json:"value"`
+	}
+	q := h.query(url.Values{"searchCriteria.itemVersion.version": {r.Branch}, "searchCriteria.itemVersion.versionType": {"branch"},
+		"$top": {"1"}})
+	if err := h.c.GetJSON(ctx, p+"/commits", q, &cs); err != nil {
+		return "", err
+	}
+	if len(cs.Value) == 0 {
+		return "", nil
+	}
+	return cs.Value[0].CommitID, nil
+}
+
 // FileURL is the browse URL of a file on the default branch.
 func (h *Host) FileURL(r tree.Repo, file string) string {
 	project, name, _ := strings.Cut(r.ID, "/")
 	return h.c.URL("/"+project+"/_git/"+name, url.Values{"path": {"/" + file}, "version": {"GB" + r.Branch}})
+}
+
+// CommitURL is the browse URL of a file at the listed commit, or on the
+// default branch when the commit is not known.
+func (h *Host) CommitURL(r tree.Repo, file string) string {
+	if r.Commit == "" {
+		return h.FileURL(r, file)
+	}
+	project, name, _ := strings.Cut(r.ID, "/")
+	return h.c.URL("/"+project+"/_git/"+name, url.Values{"path": {"/" + file}, "version": {"GC" + r.Commit}})
 }

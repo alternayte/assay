@@ -35,6 +35,9 @@ type Passage struct {
 	// whitespace. Hash is its SHA-256. Quotes match against Norm.
 	Norm string
 	Hash []byte
+	// StartLine and EndLine are the 1-based line range of a source code
+	// passage. Zero for other passages.
+	StartLine, EndLine int
 }
 
 var markdown = goldmark.New(goldmark.WithExtensions(extension.Table, extension.Strikethrough, extension.TaskList))

@@ -1,3 +1,22 @@
+// Command server runs the Payments API.
 package main
 
-func main() {}
+import (
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/acme/payments-api/internal/ledgerclient"
+	"github.com/acme/payments-api/internal/payments"
+	"github.com/acme/payments-api/internal/store"
+)
+
+func main() {
+	db, err := store.Open(os.Getenv("PAYMENTS_DATABASE_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	svc := &payments.Service{Store: db, Ledger: ledgerclient.New(os.Getenv("LEDGER_TOKEN"))}
+	http.Handle("/v1/payments/", payments.Handler(svc))
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}

@@ -13,6 +13,9 @@ type Item struct {
 	Created    time.Time
 	Updated    time.Time
 	Body       string
+	// Passages are the passages of a source code file. Nil means that
+	// Store splits the Markdown body.
+	Passages []Passage
 	// Revision is the version of the item in its source, such as the blob
 	// ID of a repository file. Sync skips a file whose revision is stored.
 	Revision string

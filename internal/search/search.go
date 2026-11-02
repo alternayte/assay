@@ -36,6 +36,9 @@ const (
 
 // Filters narrow a search. Zero values do not filter.
 type Filters struct {
+	// Code selects source code only. Without it, results hold no source
+	// code.
+	Code         bool
 	SourceType   string
 	ConnectionID int64
 	EntityType   string
@@ -185,26 +188,35 @@ func (s *Service) Entities(ctx context.Context, vis visibility.Set, text string)
 }
 
 // Chunks returns the best chunks for a question, fused at chunk level, for
-// Ask.
-func (s *Service) Chunks(ctx context.Context, vis visibility.Set, text string, n int) ([]Result, bool, error) {
+// Ask. With code, the lists of source code join the lists of prose.
+func (s *Service) Chunks(ctx context.Context, vis visibility.Set, text string, n int, code bool) ([]Result, bool, error) {
 	if len(vis) == 0 || strings.TrimSpace(text) == "" {
 		return []Result{}, false, nil
 	}
-	lists, degraded, err := s.lists(ctx, vis, text, Filters{})
-	if err != nil {
-		return nil, false, err
+	var lists [][]hit
+	degraded := false
+	kinds := []bool{false}
+	if code {
+		kinds = append(kinds, true)
 	}
-	// A question rarely matches all its words. Match any content word.
-	if ws := contentWords(text); ws != "" {
-		matches, err := New(s.Pool).FullTextAny(ctx, FullTextAnyParams{Words: ws, Visible: vis, Lim: ListSize})
+	for _, k := range kinds {
+		ls, deg, err := s.lists(ctx, vis, text, Filters{Code: k})
 		if err != nil {
 			return nil, false, err
 		}
-		l := make([]hit, len(matches))
-		for i, r := range matches {
-			l[i] = hit{r.ChunkID, r.ItemID}
+		lists, degraded = append(lists, ls...), degraded || deg
+		// A question rarely matches all its words. Match any content word.
+		if ws := contentWords(text); ws != "" {
+			matches, err := New(s.Pool).FullTextAny(ctx, FullTextAnyParams{Words: ws, Visible: vis, Code: k, Lim: ListSize})
+			if err != nil {
+				return nil, false, err
+			}
+			l := make([]hit, len(matches))
+			for i, r := range matches {
+				l[i] = hit{r.ChunkID, r.ItemID}
+			}
+			lists = append(lists, l)
 		}
-		lists = append(lists, l)
 	}
 	ids := make([][]int64, len(lists))
 	for i, l := range lists {
@@ -229,12 +241,12 @@ type hit struct{ chunk, item int64 }
 // lists returns the full-text, trigram and vector lists.
 func (s *Service) lists(ctx context.Context, vis visibility.Set, text string, f Filters) ([][]hit, bool, error) {
 	q := New(s.Pool)
-	ft, err := q.FullText(ctx, FullTextParams{Query: text, Visible: vis, SourceType: f.SourceType, Connection: f.ConnectionID,
+	ft, err := q.FullText(ctx, FullTextParams{Query: text, Visible: vis, Code: f.Code, SourceType: f.SourceType, Connection: f.ConnectionID,
 		Since: f.Since, Domain: f.DomainID, EntityType: f.EntityType, Lim: ListSize})
 	if err != nil {
 		return nil, false, err
 	}
-	tg, err := q.TitleTrigram(ctx, TitleTrigramParams{Query: text, Visible: vis, SourceType: f.SourceType, Connection: f.ConnectionID,
+	tg, err := q.TitleTrigram(ctx, TitleTrigramParams{Query: text, Visible: vis, Code: f.Code, SourceType: f.SourceType, Connection: f.ConnectionID,
 		Since: f.Since, Domain: f.DomainID, EntityType: f.EntityType, Lim: ListSize})
 	if err != nil {
 		return nil, false, err
@@ -248,7 +260,7 @@ func (s *Service) lists(ctx context.Context, vis visibility.Set, text string, f 
 		return nil, false, err
 	}
 	for _, alt := range alts {
-		rows, err := q.FullText(ctx, FullTextParams{Query: alt, Visible: vis, SourceType: f.SourceType, Connection: f.ConnectionID,
+		rows, err := q.FullText(ctx, FullTextParams{Query: alt, Visible: vis, Code: f.Code, SourceType: f.SourceType, Connection: f.ConnectionID,
 			Since: f.Since, Domain: f.DomainID, EntityType: f.EntityType, Lim: ListSize})
 		if err != nil {
 			return nil, false, err
@@ -286,7 +298,7 @@ func (s *Service) vector(ctx context.Context, vis visibility.Set, text string, f
 	if err != nil {
 		return nil, err
 	}
-	args := pgx.NamedArgs{"visible": []int64(vis), "vec": models.Vector(v), "lim": ListSize, "source_type": f.SourceType,
+	args := pgx.NamedArgs{"visible": []int64(vis), "vec": models.Vector(v), "lim": ListSize, "code": f.Code, "source_type": f.SourceType,
 		"connection": f.ConnectionID, "since": f.Since, "domain": f.DomainID, "entity_type": f.EntityType}
 	sql := fmt.Sprintf(`SELECT v.chunk_id, c.item_id
 FROM %s v
@@ -295,6 +307,7 @@ JOIN source_items i ON i.id = c.item_id
 JOIN connections k ON k.id = i.connection_id
 WHERE v.ref_kind = 'chunk' AND v.connection_id = ANY(@visible) AND c.connection_id = ANY(@visible)
   AND i.connection_id = ANY(@visible)
+  AND (i.kind = 'code') = @code::boolean
   AND (@source_type::text = '' OR k.kind = @source_type)
   AND (@connection::bigint = 0 OR i.connection_id = @connection)
   AND (@since::timestamptz IS NULL OR i.source_updated_at >= @since)

@@ -42,8 +42,8 @@ DELETE FROM chunks WHERE item_id = @item_id;
 
 -- name: InsertPassages :copyfrom
 -- vis:system
-INSERT INTO passages (item_id, version_id, connection_id, hash, ordinal, kind, heading_path, text, norm)
-VALUES (@item_id, @version_id, @connection_id, @hash, @ordinal, @kind, @heading_path, @text, @norm);
+INSERT INTO passages (item_id, version_id, connection_id, hash, ordinal, kind, heading_path, text, norm, start_line, end_line)
+VALUES (@item_id, @version_id, @connection_id, @hash, @ordinal, @kind, @heading_path, @text, @norm, @start_line, @end_line);
 
 -- name: InsertChunk :exec
 -- vis:system

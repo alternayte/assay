@@ -345,3 +345,128 @@ func Run(ctx context.Context, client *http.Client, base, token string, qs []Ques
 	}
 	return out
 }
+
+// Band is the precision and recall of one band of one decision kind.
+type Band struct {
+	Kind      string  `json:"kind"`
+	Band      string  `json:"band"`
+	Decisions int     `json:"decisions"`
+	Correct   int     `json:"correct"`
+	Found     int     `json:"found"`
+	Positives int     `json:"positives"`
+	Precision float64 `json:"precision"`
+	Recall    float64 `json:"recall"`
+}
+
+// corpusLabels is the labels file of a corpus, or a manifest that holds
+// it under labels.
+type corpusLabels struct {
+	Duplicates []struct{ A, B string } `json:"duplicates"`
+	Different  []struct{ A, B string } `json:"different"`
+	Links      []struct {
+		Item, Mention, Entity string
+	} `json:"links"`
+	Unnamed []struct {
+		Item, Mention string
+	} `json:"unnamed"`
+	RepoSystems []struct {
+		Repository, Group string
+	} `json:"repoSystems"`
+}
+
+// LoadLabels reads the labels of a corpus from a file or an http URL: the
+// labels file, or the manifest of the fixture server.
+func LoadLabels(ctx context.Context, client *http.Client, src string) (map[string]any, error) {
+	var b []byte
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("eval: the labels URL answered %d", resp.StatusCode)
+		}
+		if b, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20)); err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		if b, err = os.ReadFile(src); err != nil { //nolint:gosec // The operator names the file.
+			return nil, err
+		}
+	}
+	var wrap struct {
+		Labels *corpusLabels `json:"labels"`
+	}
+	var l corpusLabels
+	if err := json.Unmarshal(b, &wrap); err == nil && wrap.Labels != nil {
+		l = *wrap.Labels
+	} else if err := json.Unmarshal(b, &l); err != nil {
+		return nil, fmt.Errorf("eval: the labels are not valid JSON: %w", err)
+	}
+	pair := func(ps []struct{ A, B string }) []map[string]string {
+		out := []map[string]string{}
+		for _, p := range ps {
+			out = append(out, map[string]string{"a": p.A, "b": p.B})
+		}
+		return out
+	}
+	mentions := []map[string]string{}
+	for _, m := range l.Links {
+		mentions = append(mentions, map[string]string{"item": m.Item, "mention": m.Mention, "entity": m.Entity})
+	}
+	for _, m := range l.Unnamed {
+		mentions = append(mentions, map[string]string{"item": m.Item, "mention": m.Mention})
+	}
+	repos := []map[string]string{}
+	for _, r := range l.RepoSystems {
+		repos = append(repos, map[string]string{"repository": r.Repository, "group": r.Group})
+	}
+	return map[string]any{"same": pair(l.Duplicates), "different": pair(l.Different), "mentions": mentions, "repos": repos}, nil
+}
+
+// Bands asks an instance to score its decisions against labels. The token
+// user must be an admin.
+func Bands(ctx context.Context, client *http.Client, base, token string, labels map[string]any) ([]Band, error) {
+	body, _ := json.Marshal(labels)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(base, "/")+"/api/v1/decisions/report", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return nil, fmt.Errorf("eval: the decision report answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Bands []Band `json:"bands"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Bands, nil
+}
+
+// BandsMarkdown renders the decision bands as a report section.
+func BandsMarkdown(bs []Band) string {
+	var b strings.Builder
+	b.WriteString("\n## Decisions per band\n\n| Kind | Band | Decisions | Precision | Recall |\n|---|---|---|---|---|\n")
+	for _, x := range bs {
+		fmt.Fprintf(&b, "| %s | %s | %d | %.2f | %.2f |\n", x.Kind, x.Band, x.Decisions, x.Precision, x.Recall)
+	}
+	if len(bs) == 0 {
+		b.WriteString("| No labelled decisions | | | | |\n")
+	}
+	return b.String()
+}

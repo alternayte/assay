@@ -23,6 +23,7 @@ import (
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/design"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/extract"
@@ -63,6 +64,7 @@ type Server struct {
 	registry   *registry.Service
 	vocab      *vocab.Service
 	pages      *pages.Service
+	design     *design.Service
 	review     *review.Service
 	tokens     *tokens.Service
 	agents     *agents.Service
@@ -136,7 +138,7 @@ func (s *Server) services() error {
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
 	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting,
-		pages.Setting}}
+		pages.Setting, design.Setting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
@@ -151,13 +153,18 @@ func (s *Server) services() error {
 	s.review = &review.Service{Pool: s.pool, Now: s.now}
 	s.resolve = &resolve.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Log: s.log, Now: s.now,
 		Apply: map[string]resolve.ApplyFunc{"term_edit": s.registry.ApplyTermEdit, "new_term": s.registry.ApplyNewTerm,
-			"correction": s.review.ApplyCorrection}}
+			"correction": s.review.ApplyCorrection}, CreateSystem: s.registry.CreateSystem}
 	s.review.Resolve = s.resolve
 	s.tokens = &tokens.Service{Pool: s.pool, Keys: s.auth.Keys, Now: s.now}
 	s.pages = &pages.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Extract: s.extract, Log: s.log, Now: s.now}
+	s.design = &design.Service{Pool: s.pool, Models: s.models, Entities: s.entities, Vocab: s.vocab, Resolve: s.resolve, Log: s.log, Now: s.now}
+	s.resolve.Apply["design_edit"] = s.design.ApplyEdit
+	s.resolve.Apply["design_problem"] = s.design.ApplyProblem
+	s.resolve.Apply["design_update"] = s.design.ApplyUpdate
+	s.sync.AfterRun = s.design.QueueBuild
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}
-	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Vocab: s.vocab, Review: s.review,
+	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Design: s.design, Vocab: s.vocab, Review: s.review,
 		BaseURL: s.cfg.BaseURL, Version: Version, Log: s.log}
 	if s.cfg.Demo {
 		s.users.OnSetup = func(ctx context.Context, adminID string) error { return s.sync.Demo(ctx, adminID, s.cfg.DemoURL) }
@@ -188,6 +195,7 @@ func (s *Server) registerAPI(a huma.API) {
 	vocab.RegisterDomains(a, s.pool)
 	s.vocab.Register(a)
 	s.pages.Register(a, s.cfg.BaseURL)
+	s.design.Register(a, s.cfg.BaseURL)
 }
 
 func (s *Server) build(ctx context.Context) error {
@@ -203,6 +211,7 @@ func (s *Server) build(ctx context.Context) error {
 	}
 	s.sync.River = s.river
 	s.extract.River = s.river
+	s.design.River = s.river
 	s.metrics = newMetrics(s.pool, append(s.sync.Metrics.Collectors(), s.extract.Metrics.Collectors()...)...)
 	if s.tracer, err = tracing(ctx); err != nil {
 		return err
@@ -242,6 +251,9 @@ func (s *Server) Resolve() *resolve.Service { return s.resolve }
 
 // Embedder fills the embedding spaces.
 func (s *Server) Embedder() *content.Embedder { return s.embedder }
+
+// Design builds the design pages.
+func (s *Server) Design() *design.Service { return s.design }
 
 // Sync runs the connections.
 func (s *Server) Sync() *syncer.Service { return s.sync }
@@ -294,10 +306,14 @@ func (s *Server) routes() (http.Handler, error) {
 			r2.URL.Path, r2.URL.RawPath = "/api/v1/glossary.md", ""
 			r.ServeHTTP(w, r2)
 		})
-		// /e/{key}.md is the Markdown form of a page (REQ-PAG-005). The
-		// SPA serves /e/{key}.
+		// /e/{key}.md is the Markdown form of a page (REQ-PAG-005), and
+		// /e/{key}/design.md the form of a design page. The SPA serves
+		// /e/{key}.
 		g.Get("/e/*", func(w http.ResponseWriter, req *http.Request) {
 			p, ok := pages.MarkdownPath(req.URL.EscapedPath())
+			if !ok {
+				p, ok = design.MarkdownPath(req.URL.EscapedPath())
+			}
 			if !ok {
 				s.spaHandler.ServeHTTP(w, req)
 				return

@@ -11,20 +11,32 @@ import (
 )
 
 // LabelPair is a labelled pair of entity keys.
-type LabelPair struct{ A, B string }
+type LabelPair struct {
+	A string `json:"a"`
+	B string `json:"b"`
+}
 
 // LabelMention is a labelled mention in an item: the entity that it means,
 // or no entity for an unnamed thing.
 type LabelMention struct {
-	Item    string // external ID
-	Mention string
-	Entity  string
+	Item    string `json:"item" doc:"The external ID of the item."`
+	Mention string `json:"mention"`
+	Entity  string `json:"entity,omitempty"`
+}
+
+// LabelRepo is the labelled group of a repository: the key of its system
+// or service, or empty when it belongs to no known group.
+type LabelRepo struct {
+	Repository string `json:"repository"`
+	Group      string `json:"group,omitempty"`
 }
 
 // EvalLabels are the corpus answers that the report scores against.
 type EvalLabels struct {
-	Same, Different []LabelPair
-	Mentions        []LabelMention
+	Same      []LabelPair    `json:"same"`
+	Different []LabelPair    `json:"different"`
+	Mentions  []LabelMention `json:"mentions"`
+	Repos     []LabelRepo    `json:"repos"`
 }
 
 // BandResult is the precision and recall of one band of one kind
@@ -43,7 +55,7 @@ type BandResult struct {
 }
 
 // ReportKinds are the decision kinds of the report.
-var ReportKinds = []string{KindSameEntity, KindMentionLink, KindDescribes}
+var ReportKinds = []string{KindSameEntity, KindMentionLink, KindDescribes, KindRepoSystem}
 
 type scored struct {
 	kind, band string
@@ -99,9 +111,26 @@ func (s *Service) Report(ctx context.Context, l EvalLabels) ([]BandResult, error
 			positives[KindDescribes]++
 		}
 	}
+	repos := map[string]LabelRepo{}
+	for _, r := range l.Repos {
+		repos[r.Repository] = r
+		if r.Group != "" {
+			positives[KindRepoSystem]++
+		}
+	}
 	var out []scored
 	for _, r := range rows {
 		switch r.Kind {
+		case KindRepoSystem:
+			if len(r.SubjectRefs) == 0 {
+				continue
+			}
+			lr, ok := repos[r.SubjectRefs[0]]
+			if !ok {
+				continue
+			}
+			chosen := choice(r.Probs, r.SubjectRefs[1:])
+			out = append(out, scored{r.Kind, r.Band, chosen == lr.Group, "repo:" + lr.Repository})
 		case KindSameEntity:
 			if len(r.SubjectRefs) != 2 {
 				continue

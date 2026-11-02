@@ -517,6 +517,8 @@ type InsertPassagesParams struct {
 	HeadingPath  []string
 	Text         string
 	Norm         string
+	StartLine    *int32
+	EndLine      *int32
 }
 
 const insertVersion = `-- name: InsertVersion :one

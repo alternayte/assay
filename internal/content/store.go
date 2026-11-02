@@ -107,11 +107,15 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 	if err := q.DeleteItemChunks(ctx, itemID); err != nil {
 		return 0, err
 	}
-	ps := Split(it.Body)
+	ps := it.Passages
+	if ps == nil {
+		ps = Split(it.Body)
+	}
 	rows := make([]InsertPassagesParams, len(ps))
 	for i, p := range ps {
 		rows[i] = InsertPassagesParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID, Hash: p.Hash,
-			Ordinal: int32(p.Ordinal), Kind: p.Kind, HeadingPath: orEmptyStrings(p.HeadingPath), Text: p.Text, Norm: p.Norm} //nolint:gosec // Ordinals are small.
+			Ordinal: int32(p.Ordinal), Kind: p.Kind, HeadingPath: orEmptyStrings(p.HeadingPath), Text: p.Text, Norm: p.Norm, //nolint:gosec // Ordinals are small.
+			StartLine: lineOf(p.StartLine), EndLine: lineOf(p.EndLine)}
 	}
 	if len(rows) > 0 {
 		if _, err := q.InsertPassages(ctx, rows); err != nil {
@@ -416,6 +420,15 @@ func orEmptyIDs(ids []int64) []int64 {
 func DeleteSourceless(ctx context.Context, tx pgx.Tx, ids []int64) error {
 	_, err := New(tx).DeleteSourcelessEntities(ctx, append([]int64{}, ids...))
 	return err
+}
+
+// lineOf is the stored line of a passage: nil for a passage without lines.
+func lineOf(n int) *int32 {
+	if n == 0 {
+		return nil
+	}
+	v := int32(n) //nolint:gosec // Files have at most a few hundred thousand lines.
+	return &v
 }
 
 func deref(p *int64) int64 {

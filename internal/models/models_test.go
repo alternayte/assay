@@ -123,7 +123,7 @@ func TestSCN_MOD_003_BudgetRefusesBeforeSending(t *testing.T) {
 func TestSCN_MOD_004_CostFromTokensAndPrices(t *testing.T) {
 	env := testkit.Start(t)
 	admin := env.Setup("owner@acme.test")
-	_, openaiURL, _ := testkit.FakeModels(t)
+	fake, openaiURL, _ := testkit.FakeModels(t)
 	ep := testkit.CreateEndpoint(t, admin, "Fake", "openai", openaiURL, fixtures.FakeKey, nil)
 	testkit.SetFunction(t, admin, "answer", testkit.Function{Endpoint: ep, Model: "fake-chat", PriceIn: 3, PriceOut: 15})
 	testkit.SetFunction(t, admin, "embed", testkit.Function{Endpoint: ep, Model: "fake-embed-64", PriceIn: 0.02})
@@ -140,6 +140,17 @@ func TestSCN_MOD_004_CostFromTokensAndPrices(t *testing.T) {
 	}
 	if _, err := g.Embed(ctx, []string{"one text", "another text here"}, "test"); err != nil {
 		t.Fatal(err)
+	}
+	// Voyage AI reports only total_tokens.
+	fake.Queue("/v1/embeddings", fixtures.Reply{Body: map[string]any{"model": "voyage-4",
+		"data":  []map[string]any{{"index": 0, "embedding": []float32{0.1, 0.2}}},
+		"usage": map[string]any{"total_tokens": 7}}})
+	if _, err := g.Embed(ctx, []string{"one text"}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	var voyage int
+	if err := env.Server.Pool().QueryRow(ctx, "SELECT tokens_in FROM model_usage WHERE function = 'embed' ORDER BY id DESC LIMIT 1").Scan(&voyage); err != nil || voyage != 7 {
+		t.Fatalf("embed tokens from total_tokens: %d %v", voyage, err)
 	}
 
 	var rows []struct {
@@ -185,7 +196,7 @@ func TestSCN_MOD_004_CostFromTokensAndPrices(t *testing.T) {
 				t.Fatalf("answer spend %+v, want %v", f, want)
 			}
 		case "embed":
-			if f.Calls != 1 || f.Spent <= 0 {
+			if f.Calls != 2 || f.Spent <= 0 {
 				t.Fatalf("embed spend %+v", f)
 			}
 		}

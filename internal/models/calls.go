@@ -146,6 +146,8 @@ func (g *Gateway) embed(ctx context.Context, t *target, texts []string, ref stri
 		} `json:"data"`
 		Usage struct {
 			PromptTokens int `json:"prompt_tokens"`
+			// Voyage AI reports only the total.
+			TotalTokens int `json:"total_tokens"`
 		} `json:"usage"`
 	}
 	if err := g.post(ctx, t, "/embeddings", t.withParams(map[string]any{"input": texts}), &resp); err != nil {
@@ -161,7 +163,11 @@ func (g *Gateway) embed(ctx context.Context, t *target, texts []string, ref stri
 		}
 		out[d.Index] = d.Embedding
 	}
-	if err := g.record(ctx, t, resp.Model, resp.Usage.PromptTokens, 0, ref); err != nil {
+	tokens := resp.Usage.PromptTokens
+	if tokens == 0 {
+		tokens = resp.Usage.TotalTokens
+	}
+	if err := g.record(ctx, t, resp.Model, tokens, 0, ref); err != nil {
 		return nil, err
 	}
 	return &EmbedResult{Vectors: out, Model: t.model}, nil

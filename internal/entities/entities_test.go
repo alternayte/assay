@@ -445,8 +445,10 @@ func TestSCN_CLM_005_ResolutionSupersedesAndReopens(t *testing.T) {
 	if r := w.env.RunNow(w.owner, w.github, "sync"); r.Status != "succeeded" || r.Updated != 1 {
 		t.Fatalf("sync %+v", r)
 	}
-	if n := w.env.Count("SELECT count(*) FROM resolutions WHERE reopened_at IS NOT NULL"); n != 1 {
-		t.Fatalf("%d reopened resolutions", n)
+	// The resolution stays for readers who do not see the new support; the
+	// status rules show the loser again to readers who see it.
+	if n := w.env.Count("SELECT count(*) FROM resolutions WHERE reopened_at IS NULL"); n != 1 {
+		t.Fatalf("%d open resolutions", n)
 	}
 	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'conflict' AND status = 'open'"); n != 1 {
 		t.Fatalf("%d conflict cards", n)

@@ -78,13 +78,18 @@ INSERT INTO resolutions (subject_id, predicate, scope_key, chosen_claim_id, deci
 VALUES (@subject_id, @predicate, @scope_key, @chosen_claim_id, @decided_by, @decided_at)
 RETURNING id;
 
--- name: ReopenResolutions :many
--- Resolutions that chose another claim than the one with new support.
-UPDATE resolutions r SET reopened_at = @now
-FROM claims c
-WHERE c.id = @claim_id AND r.subject_id = c.subject_id AND r.predicate = c.predicate AND r.scope_key = c.scope_env
+-- name: ResolutionsAgainst :many
+-- The open resolutions that chose another claim of the subject, predicate
+-- and scope of a claim.
+SELECT r.id, r.chosen_claim_id
+FROM resolutions r
+JOIN claims c ON c.id = @claim_id
+WHERE r.subject_id = c.subject_id AND r.predicate = c.predicate AND r.scope_key = c.scope_env
   AND r.chosen_claim_id <> c.id AND r.reopened_at IS NULL
-RETURNING r.id, r.chosen_claim_id;
+ORDER BY r.id;
+
+-- name: OpenCardExists :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = @kind AND target = @target AND status = 'open')::boolean;
 
 -- name: InsertCard :one
 INSERT INTO proposals (kind, target, payload, via, connections) VALUES (@kind, @target, @payload, 'system', @connections)

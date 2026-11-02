@@ -115,13 +115,19 @@ RETURNING (xmax = 0) AS inserted;
 
 -- name: ClaimGroupConnections :many
 -- The connections of the evidence of a claim and of the other claims of
--- its subject and predicate.
+-- its subject and predicate, and of the sources of their entities: a card
+-- about the group names them.
 -- vis:system
-SELECT DISTINCT e.connection_id FROM claim_evidence e
+SELECT e.connection_id FROM claim_evidence e
 JOIN claims c ON c.id = e.claim_id
 JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
 WHERE t.id = @claim_id
-ORDER BY e.connection_id;
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = @claim_id
+ORDER BY 1;
 
 -- name: ConnectionKind :one
 SELECT kind FROM connections WHERE id = @id;

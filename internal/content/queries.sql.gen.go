@@ -212,15 +212,21 @@ func (q *Queries) ClaimEntities(ctx context.Context, ids []int64) ([]int64, erro
 }
 
 const claimGroupConnections = `-- name: ClaimGroupConnections :many
-SELECT DISTINCT e.connection_id FROM claim_evidence e
+SELECT e.connection_id FROM claim_evidence e
 JOIN claims c ON c.id = e.claim_id
 JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
 WHERE t.id = $1
-ORDER BY e.connection_id
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = $1
+ORDER BY 1
 `
 
 // The connections of the evidence of a claim and of the other claims of
-// its subject and predicate.
+// its subject and predicate, and of the sources of their entities: a card
+// about the group names them.
 // vis:system
 func (q *Queries) ClaimGroupConnections(ctx context.Context, claimID int64) ([]int64, error) {
 	rows, err := q.db.Query(ctx, claimGroupConnections, claimID)

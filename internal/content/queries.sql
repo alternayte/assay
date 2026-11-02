@@ -226,3 +226,13 @@ SELECT DISTINCT x.id::bigint AS id FROM claims c,
        LATERAL (VALUES (c.subject_id), (c.object_entity_id)) AS x(id)
 WHERE c.id = ANY(@ids::bigint[]) AND x.id IS NOT NULL
 ORDER BY 1;
+
+-- name: ReindexItems :many
+-- The current version of each item after an ID, for assay reindex.
+-- vis:system
+SELECT i.id, i.connection_id, v.id AS version_id, v.title, v.body
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.id > @after
+ORDER BY i.id
+LIMIT @lim;

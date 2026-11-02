@@ -644,6 +644,56 @@ func (q *Queries) RefreshEvidence(ctx context.Context, itemID int64) error {
 	return err
 }
 
+const reindexItems = `-- name: ReindexItems :many
+SELECT i.id, i.connection_id, v.id AS version_id, v.title, v.body
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.id > $1
+ORDER BY i.id
+LIMIT $2
+`
+
+type ReindexItemsParams struct {
+	After int64
+	Lim   int32
+}
+
+type ReindexItemsRow struct {
+	ID           int64
+	ConnectionID int64
+	VersionID    int64
+	Title        string
+	Body         string
+}
+
+// The current version of each item after an ID, for assay reindex.
+// vis:system
+func (q *Queries) ReindexItems(ctx context.Context, arg ReindexItemsParams) ([]ReindexItemsRow, error) {
+	rows, err := q.db.Query(ctx, reindexItems, arg.After, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReindexItemsRow
+	for rows.Next() {
+		var i ReindexItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConnectionID,
+			&i.VersionID,
+			&i.Title,
+			&i.Body,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const retractUnsupported = `-- name: RetractUnsupported :execrows
 UPDATE claims c SET retracted_at = $1
 WHERE c.id = ANY($2::bigint[]) AND c.retracted_at IS NULL

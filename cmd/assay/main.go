@@ -15,6 +15,7 @@ import (
 
 	"github.com/alternayte/assay/internal/app"
 	"github.com/alternayte/assay/internal/auth"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/doctor"
 	"github.com/alternayte/assay/internal/eval"
 	"github.com/alternayte/assay/internal/fixtures"
@@ -35,7 +36,12 @@ Commands:
   doctor                 Check the database, the secret key, the proxy, the CA
                          certificates and each endpoint. Exits 1 on a failure.
   secrets rekey          Encrypt all secrets again with ASSAY_SECRET_KEY_NEW.
-                         Then set ASSAY_SECRET_KEY to that key and restart.
+                         Then set ASSAY_SECRET_KEY to that key and start a
+                         new server process.
+  reindex                Split the current version of each item again and
+                         rebuild its passages, chunks and full-text index.
+                         Then build the embedding vectors of the new chunks
+                         when an embed model is set.
   fixtures serve         Serve the fake model API and the fake source APIs for
                          tests and the demo: --addr, default :8090.
   eval                   Ask a question set and write a Markdown report:
@@ -67,7 +73,7 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return fixturesServe(args[1:], stderr)
 	case "eval":
 		return runEval(args[1:], stdout, stderr)
-	case "serve", "migrate", "admin", "secrets", "doctor":
+	case "serve", "migrate", "admin", "secrets", "doctor", "reindex":
 	default:
 		fmt.Fprintf(stderr, "assay: unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -91,6 +97,8 @@ func run(args, environ []string, stdout, stderr io.Writer) int {
 		return rekey(ctx, cfg, log, args[1:], stdout, stderr)
 	case "doctor":
 		return runDoctor(ctx, cfg, stdout)
+	case "reindex":
+		return runReindex(ctx, cfg, log, stdout, stderr)
 	case "migrate":
 		pool, _, err := app.Open(ctx, cfg, log, auth.Options{})
 		if err != nil {
@@ -187,7 +195,7 @@ func rekey(ctx context.Context, cfg app.Config, log *slog.Logger, args []string,
 		fmt.Fprintf(stderr, "assay: rekey failed. No secret changed: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Encrypted %d secrets with the new key. Set ASSAY_SECRET_KEY to the value of ASSAY_SECRET_KEY_NEW, remove ASSAY_SECRET_KEY_NEW and restart.\n", n)
+	fmt.Fprintf(stdout, "Encrypted %d secrets with the new key. Set ASSAY_SECRET_KEY to the value of ASSAY_SECRET_KEY_NEW, remove ASSAY_SECRET_KEY_NEW and start a new server process.\n", n)
 	return 0
 }
 
@@ -209,6 +217,40 @@ func runDoctor(ctx context.Context, cfg app.Config, stdout io.Writer) int {
 	if doctor.Failed(checks) {
 		return 1
 	}
+	return 0
+}
+
+// runReindex rebuilds the passages, chunks and full-text index of every
+// item from its current version, then embeds the new chunks (SDD section
+// 4.2).
+func runReindex(ctx context.Context, cfg app.Config, log *slog.Logger, stdout, stderr io.Writer) int {
+	s, err := app.New(ctx, cfg, log, app.Options{})
+	if err != nil {
+		log.Error("start failed", "error", err.Error())
+		return 1
+	}
+	defer s.Close()
+	res, err := content.Reindex(ctx, s.Pool())
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: reindex stopped after %d items: %v\n", res.Items, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Reindexed %d items: %d passages, %d chunks.\n", res.Items, res.Passages, res.Chunks)
+	space, err := s.Models().TargetSpace(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay: read the embedding space: %v\n", err)
+		return 1
+	}
+	if space == nil {
+		fmt.Fprintln(stdout, "No embed model is set. Search uses the full-text and trigram index.")
+		return 0
+	}
+	if err := s.Embedder().Run(ctx); err != nil {
+		fmt.Fprintf(stderr, "assay: the index is rebuilt, but the embedding vectors are not complete: %v\n"+
+			"The embed job of the server builds the remaining vectors.\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, "Built the embedding vectors of the new chunks.")
 	return 0
 }
 

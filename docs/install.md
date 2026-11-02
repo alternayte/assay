@@ -90,6 +90,10 @@ For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (
 - Logs are JSON. They never hold `Authorization` headers, tokens or secrets.
 - Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces with OpenTelemetry.
 
+## Rebuild the search index
+
+`docker compose exec assay assay reindex` splits the current version of each item again. It rebuilds the passages, the chunks and the full-text index. Then it builds the embedding vectors of the new chunks when an embed model is set. Use it after an update that changes how Assay splits content, or when search results do not match the sources. The sources are not read again.
+
 ## Roles and replicas
 
 `ASSAY_ROLE` selects the parts of the process: `web` serves the UI, REST and MCP; `worker` runs the sync and model jobs; `all` runs both. Several replicas of each role are safe.

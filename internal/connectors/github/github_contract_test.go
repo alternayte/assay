@@ -13,6 +13,7 @@ import (
 	"github.com/alternayte/assay/internal/connectors/github"
 	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/content"
+	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
 
@@ -49,7 +50,7 @@ func TestSCN_CON_004_GitHubIndexesOnlyMatchingFiles(t *testing.T) {
 				t.Fatalf("validation %+v %v", v, err)
 			}
 			scopes, err := k.Scopes(ctx)
-			if err != nil || len(scopes) != 2 || scopes[0].ID != "acme/payments-api" {
+			if err != nil || len(scopes) != len(fixtures.GitHubRepos) || scopes[0].ID != "acme/checkout-web" {
 				t.Fatalf("scopes %+v %v", scopes, err)
 			}
 			var got []string

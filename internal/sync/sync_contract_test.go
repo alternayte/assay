@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -398,7 +399,12 @@ func TestSCN_EVL_001_DemoCountsMatchManifest(t *testing.T) {
 	}
 	ids := map[string]int64{}
 	for _, mc := range m.Connections {
-		id := testkit.CreateConnection(t, admin, testkit.Connection{Name: mc.Name, Kind: mc.Kind, BaseURL: base, Path: mc.Path, Scope: mc.Scope})
+		var code []string
+		if mc.Kind == "github" || mc.Kind == "azdo" {
+			code = tree.DefaultCodeGlobs // as the demo creates them
+		}
+		id := testkit.CreateConnection(t, admin, testkit.Connection{Name: mc.Name, Kind: mc.Kind, BaseURL: base, Path: mc.Path, Scope: mc.Scope,
+			Code: code})
 		ids[mc.Name] = id
 		run := env.RunNow(admin, id, "sync")
 		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != 0 {

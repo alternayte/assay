@@ -50,7 +50,7 @@ func TestSCN_CON_004_GitHubIndexesOnlyMatchingFiles(t *testing.T) {
 				t.Fatalf("validation %+v %v", v, err)
 			}
 			scopes, err := k.Scopes(ctx)
-			if err != nil || len(scopes) != len(fixtures.GitHubRepos) || scopes[0].ID != "acme/checkout-web" {
+			if err != nil || len(scopes) != len(fixtures.GitHubRepos)+1 || scopes[0].ID != "acme/checkout-web" {
 				t.Fatalf("scopes %+v %v", scopes, err)
 			}
 			var got []string
@@ -117,5 +117,28 @@ func TestSCN_CON_004_GitHubIndexesOnlyMatchingFiles(t *testing.T) {
 		if h.Method != "GET" {
 			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
 		}
+	}
+}
+
+// TestSCN_CON_004_GitHubEmptyRepositoryHasNoFiles checks that a repository
+// without commits gives no files and does not stop the other repositories.
+func TestSCN_CON_004_GitHubEmptyRepositoryHasNoFiles(t *testing.T) {
+	_, base := testkit.FakeSources(t)
+	c := testkit.SourceClient(t, base+"/github")
+	k, err := github.New(c, []byte(`{"repositories":["`+fixtures.EmptyRepo+`","acme/reminder-service"]}`),
+		tree.Globs{Include: tree.DefaultGlobs, Code: []string{"**/*.ts"}}, connectors.Limits{MaxItemBytes: 512 << 10, MaxFilesPerRepo: 2000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := k.Validate(ctx); err != nil {
+		t.Fatalf("validation: %v", err)
+	}
+	var got []string
+	if err := k.Changed(ctx, time.Time{}, func(r connectors.Ref) error { got = append(got, r.ID); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 || slices.ContainsFunc(got, func(id string) bool { return strings.HasPrefix(id, fixtures.EmptyRepo+":") }) {
+		t.Fatalf("files %v", got)
 	}
 }

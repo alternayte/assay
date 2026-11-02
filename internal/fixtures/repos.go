@@ -53,7 +53,12 @@ func (s *Sources) loadRepos() {
 			return nil
 		})
 	}
+	s.repos["github:"+EmptyRepo] = &Repo{Host: "github", ID: EmptyRepo, Branch: "main", Files: map[string][]byte{}}
 }
+
+// EmptyRepo is a GitHub repository without commits. GitHub answers 409 for
+// its tree and 404 for its default branch.
+const EmptyRepo = "acme/sandbox"
 
 // BlobID is the Git blob ID of a file.
 func BlobID(b []byte) string {
@@ -207,7 +212,7 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 	case len(parts) == 2:
 		writeJSON(w, http.StatusOK, repoJSON(rp))
 	case len(parts) == 4 && parts[2] == "branches":
-		if parts[3] != rp.Branch {
+		if parts[3] != rp.Branch || len(rp.Files) == 0 {
 			writeJSON(w, http.StatusNotFound, map[string]any{"message": "Branch not found"})
 			return
 		}
@@ -215,6 +220,10 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 	case len(parts) == 5 && parts[2] == "git" && parts[3] == "trees":
 		if parts[4] != rp.Branch {
 			writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
+			return
+		}
+		if len(rp.Files) == 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{"message": "Git Repository is empty."})
 			return
 		}
 		entries := []map[string]any{}

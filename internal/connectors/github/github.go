@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -114,7 +116,12 @@ func (h *Host) Tree(ctx context.Context, r tree.Repo) ([]tree.Entry, error) {
 		} `json:"tree"`
 		Truncated bool `json:"truncated"`
 	}
-	if err := h.c.GetJSON(ctx, "/repos/"+r.ID+"/git/trees/"+url.PathEscape(r.Branch), url.Values{"recursive": {"1"}}, &t); err != nil {
+	err := h.c.GetJSON(ctx, "/repos/"+r.ID+"/git/trees/"+url.PathEscape(r.Branch), url.Values{"recursive": {"1"}}, &t)
+	// GitHub answers 409 for the tree of a repository without commits.
+	if se := (*connectors.StatusError)(nil); errors.As(err, &se) && se.Status == http.StatusConflict {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	if t.Truncated {

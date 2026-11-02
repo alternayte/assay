@@ -265,7 +265,8 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 	if err != nil {
 		return nil, err
 	}
-	if len(k.globs.Code) > 0 {
+	// An empty repository has no branch head.
+	if len(k.globs.Code) > 0 && len(entries) > 0 {
 		if r.Commit, err = k.host.Commit(ctx, r); err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/alternayte/assay/internal/outbound"
@@ -36,6 +37,10 @@ type Config struct {
 	DemoURL  string
 	LogLevel slog.Level
 	Outbound outbound.Settings
+	// JobWorkers and SyncWorkers are the job workers of the default queue
+	// and of the sync queue.
+	JobWorkers  int
+	SyncWorkers int
 }
 
 var knownVars = map[string]bool{
@@ -51,6 +56,8 @@ var knownVars = map[string]bool{
 	"ASSAY_DEMO":           true,
 	"ASSAY_DEMO_URL":       true,
 	"ASSAY_LOG_LEVEL":      true,
+	"ASSAY_JOB_WORKERS":    true,
+	"ASSAY_SYNC_WORKERS":   true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -113,6 +120,17 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 	}
 	if err := cfg.LogLevel.UnmarshalText([]byte(valueOr(env["ASSAY_LOG_LEVEL"], "info"))); err != nil {
 		errs = append(errs, fmt.Errorf("ASSAY_LOG_LEVEL is %q. Set it to debug, info, warn or error", env["ASSAY_LOG_LEVEL"]))
+	}
+	for _, w := range []struct {
+		name string
+		def  int
+		out  *int
+	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers}} {
+		n, err := strconv.Atoi(valueOr(env[w.name], strconv.Itoa(w.def)))
+		if err != nil || n < 1 || n > 100 {
+			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))
+		}
+		*w.out = n
 	}
 	if _, err := cfg.Outbound.RootCAs(); err != nil {
 		errs = append(errs, fmt.Errorf("the extra CA certificates are not valid: %w", err))

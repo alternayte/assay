@@ -68,7 +68,8 @@ type searchPage struct {
 	Results []struct {
 		ID      string `json:"id"`
 		Version struct {
-			When string `json:"when"`
+			Number int    `json:"number"`
+			When   string `json:"when"`
 		} `json:"version"`
 	} `json:"results"`
 	Size      int `json:"size"`
@@ -117,7 +118,7 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	}
 }
 
-func (k *Connector) search(ctx context.Context, cql, expand string, fn func(id, when string) error) error {
+func (k *Connector) search(ctx context.Context, cql, expand string, fn func(id, when string, version int) error) error {
 	const limit = 100
 	for start := 0; ; start += limit {
 		q := url.Values{"cql": {cql}, "start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(limit)}}
@@ -129,7 +130,7 @@ func (k *Connector) search(ctx context.Context, cql, expand string, fn func(id, 
 			return err
 		}
 		for _, r := range p.Results {
-			if err := fn(r.ID, r.Version.When); err != nil {
+			if err := fn(r.ID, r.Version.When, r.Version.Number); err != nil {
 				return err
 			}
 		}
@@ -147,15 +148,15 @@ func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connec
 		cql += fmt.Sprintf(` AND lastmodified >= "%s"`, since.Add(-connectors.Overlap).UTC().Format("2006/01/02 15:04"))
 	}
 	cql += " order by lastmodified asc"
-	return k.search(ctx, cql, "version", func(id, when string) error {
+	return k.search(ctx, cql, "version", func(id, when string, version int) error {
 		t, _ := time.Parse(time.RFC3339, when)
-		return fn(connectors.Ref{ID: id, Updated: t})
+		return fn(connectors.Ref{ID: id, Updated: t, Version: revision(version)})
 	})
 }
 
 // ListIDs lists all page IDs in scope.
 func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.search(ctx, k.cql(), "", func(id, _ string) error { return fn(id) })
+	return k.search(ctx, k.cql(), "", func(id, _ string, _ int) error { return fn(id) })
 }
 
 type person struct {
@@ -239,7 +240,7 @@ func (k *Connector) item(p *pageJSON) (*content.Item, error) {
 		ExternalID: p.ID, Kind: "page", Title: p.Title,
 		URL:    k.c.URL(p.Links.WebUI, nil),
 		Author: p.History.CreatedBy.name(), EditedBy: p.Version.By.name(),
-		Created: created, Updated: updated, Body: body,
+		Created: created, Updated: updated, Body: body, Revision: revision(p.Version.Number),
 		Metadata: map[string]any{"space": p.Space.Key, "spaceName": p.Space.Name, "ancestors": ancestors,
 			"labels": labels, "version": p.Version.Number},
 	}
@@ -258,4 +259,13 @@ func (k *Connector) item(p *pageJSON) (*content.Item, error) {
 		it.Entity = &content.EntityRef{Type: "decision", Key: "confluence:" + k.c.Host() + ":" + p.ID, Name: p.Title}
 	}
 	return it, nil
+}
+
+// revision is the page version as the revision of an item. Sync skips a
+// page whose version is stored.
+func revision(version int) string {
+	if version <= 0 {
+		return ""
+	}
+	return strconv.Itoa(version)
 }

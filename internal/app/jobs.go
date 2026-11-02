@@ -103,9 +103,18 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	cfg := &river.Config{
 		Workers: workers,
 		Logger:  s.log.With("component", "river"),
+		// A job is stuck only after the longest worker timeout, the six
+		// hours of a sync run. The default of one hour starts a long sync
+		// again while it still runs.
+		RescueStuckJobsAfter: 7 * time.Hour,
 	}
 	if s.cfg.Role != RoleWeb {
-		cfg.Queues = map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 10}}
+		// Syncs have their own queue, so that model jobs never hold a sync
+		// back.
+		cfg.Queues = map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: orDefault(s.cfg.JobWorkers, 10)},
+			syncer.Queue:       {MaxWorkers: orDefault(s.cfg.SyncWorkers, 4)},
+		}
 		cfg.PeriodicJobs = []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 				return RetentionArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}
@@ -121,4 +130,12 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 // ApplyRetention runs one retention pass now.
 func (s *Server) ApplyRetention(ctx context.Context) error {
 	return (&RetentionWorker{pool: s.pool, log: s.log, now: s.now}).Work(ctx, nil)
+}
+
+// orDefault is n, or def when n is not set.
+func orDefault(n, def int) int {
+	if n < 1 {
+		return def
+	}
+	return n
 }

@@ -509,6 +509,36 @@ func (q *Queries) ItemRevisions(ctx context.Context, connectionID int64) ([]Item
 	return items, nil
 }
 
+const itemUpdates = `-- name: ItemUpdates :many
+SELECT external_id, source_updated_at FROM source_items WHERE connection_id = $1 AND source_updated_at IS NOT NULL
+`
+
+type ItemUpdatesRow struct {
+	ExternalID      string
+	SourceUpdatedAt *time.Time
+}
+
+// vis:system
+func (q *Queries) ItemUpdates(ctx context.Context, connectionID int64) ([]ItemUpdatesRow, error) {
+	rows, err := q.db.Query(ctx, itemUpdates, connectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemUpdatesRow
+	for rows.Next() {
+		var i ItemUpdatesRow
+		if err := rows.Scan(&i.ExternalID, &i.SourceUpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConnections = `-- name: ListConnections :many
 SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.status_epoch, c.code_globs, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
@@ -773,6 +803,15 @@ func (q *Queries) RemoveVisibility(ctx context.Context, arg RemoveVisibilityPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const requeueRun = `-- name: RequeueRun :exec
+UPDATE sync_runs SET status = 'queued', started_at = NULL WHERE id = $1 AND status = 'running'
+`
+
+func (q *Queries) RequeueRun(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, requeueRun, id)
+	return err
 }
 
 const setConnectionSecret = `-- name: SetConnectionSecret :exec

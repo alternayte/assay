@@ -28,6 +28,9 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    # Assay needs up to 30 seconds to finish requests and put running jobs
+    # back in the queue. Docker stops a container after 10 seconds by default.
+    stop_grace_period: 45s
 
   # The demo profile adds the fixture server: the fake Acme sources and the
   # fake model API.

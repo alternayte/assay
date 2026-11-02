@@ -72,6 +72,9 @@ SELECT * FROM sync_runs WHERE id = @id;
 UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor, status_epoch = @status_epoch
 WHERE id = @id AND status IN ('queued', 'running');
 
+-- name: RequeueRun :exec
+UPDATE sync_runs SET status = 'queued', started_at = NULL WHERE id = @id AND status = 'running';
+
 -- name: FinishRun :exec
 UPDATE sync_runs
 SET status = @status, finished_at = @now, cursor_to = @cursor_to, seen = @seen, created = @created, updated = @updated,
@@ -107,6 +110,10 @@ SELECT id, external_id FROM source_items WHERE connection_id = @connection_id;
 -- name: ItemRevisions :many
 -- vis:system
 SELECT external_id, revision FROM source_items WHERE connection_id = @connection_id AND revision <> '';
+
+-- name: ItemUpdates :many
+-- vis:system
+SELECT external_id, source_updated_at FROM source_items WHERE connection_id = @connection_id AND source_updated_at IS NOT NULL;
 
 -- name: ItemByExternalID :one
 -- vis:system

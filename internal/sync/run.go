@@ -29,9 +29,12 @@ type RunArgs struct {
 // Kind is the River job kind.
 func (RunArgs) Kind() string { return "sync_run" }
 
+// Queue is the River queue of sync jobs. Model jobs use the default queue.
+const Queue = "sync"
+
 // InsertOpts keeps one job per run.
 func (RunArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true}}
+	return river.InsertOpts{Queue: Queue, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true}}
 }
 
 // RunWorker works sync runs.
@@ -75,7 +78,7 @@ func (s *Service) Workers(ws *river.Workers) {
 // PeriodicJobs returns the periodic sync jobs.
 func (s *Service) PeriodicJobs() []*river.PeriodicJob {
 	return []*river.PeriodicJob{river.NewPeriodicJob(river.PeriodicInterval(time.Minute), func() (river.JobArgs, *river.InsertOpts) {
-		return ScheduleArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
+		return ScheduleArgs{}, &river.InsertOpts{Queue: Queue, UniqueOpts: river.UniqueOpts{ByPeriod: time.Minute}}
 	}, &river.PeriodicJobOpts{RunOnStart: true, ID: "sync_schedule"})}
 }
 
@@ -233,7 +236,22 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 			cursor = s.sync(ctx, conn, k, st)
 		}
 	}
+	if stopped(ctx) {
+		// The process stops. The run goes back to the queue and starts
+		// again after the restart. The items it stored stay, and the
+		// next attempt skips them.
+		if err := New(s.Pool).RequeueRun(context.WithoutCancel(ctx), runID); err != nil {
+			return err
+		}
+		return river.JobSnooze(time.Second)
+	}
 	return s.finish(ctx, conn, run, cursor, st)
+}
+
+// stopped reports a run that the shutdown of the process cancelled. A
+// timeout and a cancel in the job queue end the run as failed.
+func stopped(ctx context.Context) bool {
+	return errors.Is(ctx.Err(), context.Canceled) && !errors.Is(context.Cause(ctx), river.ErrJobCancelledRemotely)
 }
 
 func (s *Service) finish(ctx context.Context, conn Connection, run SyncRun, cursor string, st *stats) error {
@@ -306,7 +324,7 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		st.fail(err)
 		return conn.Cursor
 	}
-	revisions, err := s.revisions(ctx, conn.ID, refs)
+	stored, err := s.stored(ctx, conn.ID, refs)
 	if err != nil {
 		st.fail(err)
 		return conn.Cursor
@@ -320,7 +338,7 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		if r.Updated.After(newest) {
 			newest = r.Updated
 		}
-		if r.Version != "" && revisions[r.ID] == r.Version {
+		if stored.has(r) {
 			st.add(content.Unchanged)
 			continue
 		}
@@ -338,19 +356,50 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 	return newest.UTC().Format(time.RFC3339Nano)
 }
 
-// revisions returns the stored revisions of a connection when a ref has a
-// version, as the refs of a repository connector have.
-func (s *Service) revisions(ctx context.Context, connectionID int64, refs []connectors.Ref) (map[string]string, error) {
-	out := map[string]string{}
-	if !slices.ContainsFunc(refs, func(r connectors.Ref) bool { return r.Version != "" }) {
-		return out, nil
+// storedItems are the revisions and source update times of the stored
+// items of a connection.
+type storedItems struct {
+	revisions map[string]string
+	updated   map[string]time.Time
+}
+
+// has reports whether the stored item is the listed one: the same revision,
+// or, when the item has no stored revision, the same or a later source
+// update time. Items that an older Assay stored have no revision. Sync
+// skips the fetch, so that a run after an interrupted one fetches only the
+// items it did not store.
+func (st storedItems) has(r connectors.Ref) bool {
+	if rev, ok := st.revisions[r.ID]; ok && r.Version != "" {
+		return rev == r.Version
 	}
-	rows, err := New(s.Pool).ItemRevisions(ctx, connectionID)
-	if err != nil {
-		return nil, err
+	at, ok := st.updated[r.ID]
+	return ok && !r.Updated.IsZero() && !r.Updated.After(at)
+}
+
+// stored returns the stored revisions and source update times of a
+// connection, each when a ref has one to compare.
+func (s *Service) stored(ctx context.Context, connectionID int64, refs []connectors.Ref) (storedItems, error) {
+	out := storedItems{revisions: map[string]string{}, updated: map[string]time.Time{}}
+	q := New(s.Pool)
+	if slices.ContainsFunc(refs, func(r connectors.Ref) bool { return r.Version != "" }) {
+		rows, err := q.ItemRevisions(ctx, connectionID)
+		if err != nil {
+			return out, err
+		}
+		for _, r := range rows {
+			out.revisions[r.ExternalID] = r.Revision
+		}
 	}
-	for _, r := range rows {
-		out[r.ExternalID] = r.Revision
+	if slices.ContainsFunc(refs, func(r connectors.Ref) bool { return !r.Updated.IsZero() }) {
+		rows, err := q.ItemUpdates(ctx, connectionID)
+		if err != nil {
+			return out, err
+		}
+		for _, r := range rows {
+			if r.SourceUpdatedAt != nil {
+				out.updated[r.ExternalID] = *r.SourceUpdatedAt
+			}
+		}
 	}
 	return out, nil
 }

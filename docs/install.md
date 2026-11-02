@@ -109,6 +109,8 @@ For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (
 
 `ASSAY_ROLE` selects the parts of the process: `web` serves the UI, REST and MCP; `worker` runs the sync and model jobs; `all` runs both. Several replicas of each role are safe.
 
+`ASSAY_SYNC_WORKERS` sets how many syncs run at the same time, 4 by default. Each connection runs one sync at a time. `ASSAY_JOB_WORKERS` sets the workers of the model jobs, such as extraction, embedding and resolution, 10 by default. To change one, add the line to `.env` and run the install script again. The speed of one sync comes from the rate settings of its connection, not from the worker count.
+
 ## Rotate the secret key
 
 A running container keeps the environment that it started with. A change to `.env` takes effect only in a new container. These steps run the rekey in a new container and then start Assay again with the new key:

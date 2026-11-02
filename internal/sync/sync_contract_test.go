@@ -548,3 +548,62 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 		t.Fatal("no request reached the Azure DevOps fixture")
 	}
 }
+
+// pageHits counts the page fetches of the fake Confluence after mark.
+func pageHits(src *fixtures.Sources, mark int) int {
+	n := 0
+	for _, h := range src.Hits()[mark:] {
+		if strings.Contains(h.Path, "/rest/api/content/") && !strings.HasSuffix(h.Path, "/content/search") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	conn := publicConnection(t, env, admin, base)
+	first := env.RunNow(admin, conn, "sync")
+	if first.Status != "succeeded" || first.Created != 8 {
+		t.Fatalf("first sync %+v", first)
+	}
+
+	// A run that stopped before its end leaves the cursor where it was.
+	// Assay before 1.3.3 stored pages without a revision.
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE source_items SET revision = '' WHERE connection_id = $1", conn); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := src.Page("1007")
+	p.Body += "<p>The reminder service also sends a weekly digest.</p>"
+	p.Updated = time.Time{}
+	src.PutPage(p)
+	mark := len(src.Hits())
+	again := env.RunNow(admin, conn, "sync")
+	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 7 {
+		t.Fatalf("sync after the stop %+v", again)
+	}
+	if n := pageHits(src, mark); n != 1 {
+		t.Fatalf("the sync fetched %d pages, want 1", n)
+	}
+
+	// The fetched page stored its version. Two edits in the same second
+	// still differ by version.
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = src.Page("1007")
+	p.Body += "<p>The digest goes out on Monday.</p>"
+	src.PutPage(p)
+	mark = len(src.Hits())
+	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 {
+		t.Fatalf("sync after a second edit %+v", third)
+	}
+	if n := pageHits(src, mark); n != 1 {
+		t.Fatalf("the sync fetched %d pages, want 1", n)
+	}
+}

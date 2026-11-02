@@ -909,7 +909,12 @@
     "cancel": "Cancel",
     "close": "Close",
     "undoAuto": "Undo",
-    "autoUndone": "The auto-applied decision is undone."
+    "autoUndone": "The auto-applied decision is undone.",
+    "winner": "Pick as winner: {claim}",
+    "winnerHint": "Pick the claim that is correct. Assay marks the other claims as superseded.",
+    "failedChecks": "Failed checks",
+    "summary": "Corrected summary",
+    "summaryHint": "Each sentence must cite a claim with a marker, such as [C1]."
   },
   "updates": {
     "title": "Updates",

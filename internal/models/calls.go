@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -78,7 +79,8 @@ func (g *Gateway) chat(ctx context.Context, t *target, req ChatRequest) (*ChatRe
 	if err := g.checkBudget(ctx, t, in, maxTokens); err != nil {
 		return nil, err
 	}
-	body := t.withParams(map[string]any{"messages": msgs, "max_tokens": maxTokens})
+	body := t.withParams(map[string]any{"messages": msgs})
+	completion := g.setTokenLimit(t, body, maxTokens)
 	if req.Schema != nil {
 		name := req.SchemaName
 		if name == "" {
@@ -92,7 +94,13 @@ func (g *Gateway) chat(ctx context.Context, t *target, req ChatRequest) (*ChatRe
 	delete(body, "tool_choice")
 	delete(body, "functions")
 	var resp chatResponse
-	if err := g.post(ctx, t, "/chat/completions", body, &resp); err != nil {
+	err := g.post(ctx, t, "/chat/completions", body, &resp)
+	if !completion && refusesMaxTokens(err) {
+		g.completionTokens.Store(t.limitKey(), true)
+		g.setTokenLimit(t, body, maxTokens)
+		err = g.post(ctx, t, "/chat/completions", body, &resp)
+	}
+	if err != nil {
 		return nil, err
 	}
 	if len(resp.Choices) == 0 {
@@ -538,14 +546,15 @@ func (g *Gateway) ChatStream(ctx context.Context, fn Function, req ChatRequest, 
 	if err := g.checkBudget(ctx, t, in, maxTokens); err != nil {
 		return nil, err
 	}
-	body := t.withParams(map[string]any{"messages": msgs, "max_tokens": maxTokens, "stream": true,
+	body := t.withParams(map[string]any{"messages": msgs, "stream": true,
 		"stream_options": map[string]any{"include_usage": true}})
+	completion := g.setTokenLimit(t, body, maxTokens)
 	delete(body, "tools")
 	delete(body, "tool_choice")
 	delete(body, "functions")
 	var content strings.Builder
 	res := &ChatResult{}
-	err = g.stream(ctx, t, "/chat/completions", body, func(data []byte) error {
+	onData := func(data []byte) error {
 		var chunk struct {
 			Model   string `json:"model"`
 			Choices []struct {
@@ -574,7 +583,14 @@ func (g *Gateway) ChatStream(ctx context.Context, fn Function, req ChatRequest, 
 			res.TokensIn, res.TokensOut = chunk.Usage.PromptTokens, chunk.Usage.CompletionTokens
 		}
 		return nil
-	})
+	}
+	// A refusal comes before the stream starts, so no delta was sent.
+	err = g.stream(ctx, t, "/chat/completions", body, onData)
+	if !completion && refusesMaxTokens(err) {
+		g.completionTokens.Store(t.limitKey(), true)
+		g.setTokenLimit(t, body, maxTokens)
+		err = g.stream(ctx, t, "/chat/completions", body, onData)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -588,4 +604,28 @@ func (g *Gateway) ChatStream(ctx context.Context, fn Function, req ChatRequest, 
 	}
 	res.CostUSD = Cost(res.TokensIn, res.TokensOut, t.priceIn, t.priceOut)
 	return res, nil
+}
+
+// setTokenLimit sets the output limit of a chat request and reports whether
+// it used max_completion_tokens. OpenAI's GPT-5 and later models refuse
+// max_tokens and take max_completion_tokens. Other OpenAI-compatible
+// endpoints take max_tokens. The gateway sends max_tokens until the
+// endpoint refuses it for a model, or the parameters name the other field.
+func (g *Gateway) setTokenLimit(t *target, body map[string]any, n int) bool {
+	_, learned := g.completionTokens.Load(t.limitKey())
+	_, named := t.params["max_completion_tokens"]
+	if learned || named {
+		delete(body, "max_tokens")
+		body["max_completion_tokens"] = n
+		return true
+	}
+	delete(body, "max_completion_tokens")
+	body["max_tokens"] = n
+	return false
+}
+
+// refusesMaxTokens reports a 400 answer that asks for max_completion_tokens.
+func refusesMaxTokens(err error) bool {
+	var ce *CallError
+	return errors.As(err, &ce) && ce.Status == http.StatusBadRequest && strings.Contains(ce.Message, "max_completion_tokens")
 }

@@ -3,8 +3,10 @@ package models_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -235,3 +237,45 @@ func TestSCN_MOD_007_RetriesAndTimeout(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// TestSCN_MOD_002_MaxCompletionTokens checks that a model that refuses
+// max_tokens gets max_completion_tokens, on the retry and on later calls.
+func TestSCN_MOD_002_MaxCompletionTokens(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	fake, openaiURL, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, admin, "Fake", "openai", openaiURL, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, admin, "answer", testkit.Function{Endpoint: ep, Model: "fake-reasoning"})
+	testkit.SetFunction(t, admin, "compile", testkit.Function{Endpoint: ep, Model: "fake-reasoning-stream"})
+	refusal := fixtures.Reply{Status: http.StatusBadRequest, Body: map[string]any{"error": map[string]any{
+		"message": "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+		"type":    "invalid_request_error", "param": "max_tokens", "code": "unsupported_parameter"}}}
+	ctx := context.Background()
+	msgs := []models.Message{{Role: "user", Content: "Hello."}}
+	limits := func() []string {
+		var out []string
+		for _, r := range fake.RequestsTo("/v1/chat/completions") {
+			_, old := r.Body["max_tokens"]
+			_, current := r.Body["max_completion_tokens"]
+			out = append(out, fmt.Sprintf("%v %v/%v", r.Body["model"], old, current))
+		}
+		return out
+	}
+
+	fake.Queue("/v1/chat/completions", refusal)
+	for range 2 {
+		if _, err := env.Server.Models().Chat(ctx, models.Answer, models.ChatRequest{Messages: msgs, MaxTokens: 200}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake.Queue("/v1/chat/completions", refusal)
+	res, err := env.Server.Models().ChatStream(ctx, models.Compile, models.ChatRequest{Messages: msgs, MaxTokens: 200}, func(string) {})
+	if err != nil || res.Content == "" {
+		t.Fatalf("stream: %+v %v", res, err)
+	}
+	want := []string{"fake-reasoning true/false", "fake-reasoning false/true", "fake-reasoning false/true",
+		"fake-reasoning-stream true/false", "fake-reasoning-stream false/true"}
+	if got := limits(); !slices.Equal(got, want) {
+		t.Fatalf("token limit fields\n got %v\nwant %v", got, want)
+	}
+}

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -77,6 +78,10 @@ type Gateway struct {
 	Timeouts map[Function]time.Duration
 	// Backoff is the first retry delay. Zero means 500 ms.
 	Backoff time.Duration
+
+	// completionTokens holds the endpoint and model pairs that refused
+	// max_tokens and take max_completion_tokens.
+	completionTokens sync.Map
 }
 
 // Extra is the extra configuration of an endpoint.
@@ -324,6 +329,9 @@ func errorMessage(b []byte) string {
 	}
 	return s
 }
+
+// limitKey names the endpoint and model of the target.
+func (t *target) limitKey() string { return fmt.Sprintf("%d:%s", t.endpointID, t.model) }
 
 func (t *target) withParams(body map[string]any) map[string]any {
 	for k, v := range t.params {

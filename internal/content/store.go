@@ -423,8 +423,9 @@ func orEmptyIDs(ids []int64) []int64 {
 	return ids
 }
 
-// DeleteSourceless deletes the entities of ids that have no source left.
-// Entities merged into a deleted entity become active again.
+// DeleteSourceless deletes the entities of ids that have no source left and
+// no claim with evidence. Entities merged into a deleted entity become
+// active again, and merges drop the deleted losers.
 func DeleteSourceless(ctx context.Context, tx pgx.Tx, ids []int64) error {
 	_, err := New(tx).DeleteSourcelessEntities(ctx, append([]int64{}, ids...))
 	return err

@@ -306,15 +306,24 @@ func (q *Queries) DeleteItemPassages(ctx context.Context, itemID int64) error {
 
 const deleteSourcelessEntities = `-- name: DeleteSourcelessEntities :execrows
 WITH gone AS (SELECT e.id FROM entities e
-              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)
+                AND NOT EXISTS (SELECT 1 FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+                                WHERE (c.subject_id = e.id OR c.object_entity_id = e.id) AND c.retracted_at IS NULL)),
 freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
-          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone)),
+pruned AS (UPDATE merges m
+           SET loser_ids = array(SELECT x FROM unnest(m.loser_ids) x WHERE x NOT IN (SELECT id FROM gone)),
+               undone_at = CASE WHEN m.undone_at IS NULL AND m.loser_ids <@ array(SELECT id FROM gone) THEN now() ELSE m.undone_at END
+           WHERE m.loser_ids && array(SELECT id FROM gone))
 DELETE FROM entities WHERE id IN (SELECT id FROM gone)
 `
 
-// Deletes the entities of ids that have no source left. Entities merged
-// into a deleted entity become active again. Claims, profiles and pages of
-// the deleted entities go by cascade.
+// Deletes the entities of ids that have no source left and that no claim
+// with evidence names: a claim that rests on evidence of another connection
+// stays with its entity. Entities merged into a deleted entity become
+// active again, and merges drop deleted losers, so that they still split. A
+// merge without a loser left is undone. Claims, profiles and pages of the
+// deleted entities go by cascade.
 // vis:system
 func (q *Queries) DeleteSourcelessEntities(ctx context.Context, ids []int64) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteSourcelessEntities, ids)

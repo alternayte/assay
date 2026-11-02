@@ -60,7 +60,7 @@ var ReportKinds = []string{KindSameEntity, KindMentionLink, KindDescribes, KindR
 type scored struct {
 	kind, band string
 	correct    bool
-	label      string // the positive label that a right decision finds
+	label      string // the positive label that a right decision finds; empty for a negative
 }
 
 // Report scores the stored decisions of the report kinds against labels.
@@ -130,7 +130,11 @@ func (s *Service) Report(ctx context.Context, l EvalLabels) ([]BandResult, error
 				continue
 			}
 			chosen := choice(r.Probs, r.SubjectRefs[1:])
-			out = append(out, scored{r.Kind, r.Band, chosen == lr.Group, "repo:" + lr.Repository})
+			label := ""
+			if lr.Group != "" {
+				label = "repo:" + lr.Repository
+			}
+			out = append(out, scored{r.Kind, r.Band, chosen == lr.Group, label})
 		case KindSameEntity:
 			if len(r.SubjectRefs) != 2 {
 				continue
@@ -208,7 +212,7 @@ func tally(ss []scored, positives map[string]int) []BandResult {
 		r.Decisions++
 		if s.correct {
 			r.Correct++
-			if !found[k][s.label] {
+			if s.label != "" && !found[k][s.label] {
 				found[k][s.label] = true
 				r.Found++
 			}

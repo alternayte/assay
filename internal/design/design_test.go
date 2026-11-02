@@ -174,7 +174,6 @@ func cited(t *testing.T, s section) {
 	}
 }
 
-
 // TestSCN_DSG_003_BuildWritesCitedRepositoryPage builds the design pages
 // of the Acme repositories and checks the repository page: an overview, an
 // architecture diagram, one section per component and a data section, each
@@ -215,7 +214,9 @@ func TestSCN_DSG_003_BuildWritesCitedRepositoryPage(t *testing.T) {
 		t.Fatalf("code cite %+v", code)
 	}
 	over := find(p, "overview")
-	if !slices.ContainsFunc(over.Cites, func(c cite) bool { return !c.Code && strings.HasPrefix(c.Path, "README") || strings.HasPrefix(c.Path, "docs/") }) {
+	if !slices.ContainsFunc(over.Cites, func(c cite) bool {
+		return !c.Code && strings.HasPrefix(c.Path, "README") || strings.HasPrefix(c.Path, "docs/")
+	}) {
 		t.Errorf("the overview cites no document: %+v", over.Cites)
 	}
 	md := string(w.member.Must(http.StatusOK, http.MethodGet, designPath(key)+".md", nil).Body)
@@ -442,4 +443,50 @@ func TestSCN_DSG_007_SystemPagesFollowTheVisibleSet(t *testing.T) {
 		t.Fatalf("the owner does not see the worker: %+v", theirs.Sections)
 	}
 	w.member.Must(http.StatusNotFound, http.MethodGet, designPath(worker), nil)
+}
+
+// TestSCN_DSG_008_SearchAndAskReadCode checks that search shows source
+// code only with the code filter, and that a question about how something
+// works cites code with its line range.
+func TestSCN_DSG_008_SearchAndAskReadCode(t *testing.T) {
+	w := start(t)
+	type results struct {
+		Results []struct {
+			Kind  string `json:"kind"`
+			Title string `json:"title"`
+		} `json:"results"`
+	}
+	var prose, code results
+	w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/search?q=capture", nil).JSON(t, &prose)
+	w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/search?q=capture&code=true", nil).JSON(t, &code)
+	for _, r := range prose.Results {
+		if r.Kind == "code" {
+			t.Errorf("search without the code filter shows %s", r.Title)
+		}
+	}
+	if len(code.Results) == 0 {
+		t.Fatal("search with the code filter finds no code")
+	}
+	for _, r := range code.Results {
+		if r.Kind != "code" {
+			t.Errorf("search with the code filter shows %s of kind %s", r.Title, r.Kind)
+		}
+	}
+	_, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, w.owner, "answer", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, w.owner, "answer", testkit.Function{Endpoint: ep, Model: "fake-chat"})
+	ask := func(q string) string {
+		r := w.member.Do(http.MethodPost, "/api/v1/ask", map[string]string{"question": q})
+		if r.Status != http.StatusOK {
+			t.Fatalf("ask: %d %s", r.Status, r.Body)
+		}
+		return string(r.Body)
+	}
+	how := ask("How does the payments service capture a payment?")
+	if !strings.Contains(how, `"kind":"code"`) || !regexp.MustCompile(`service\.go#L\d+-L\d+`).MatchString(how) {
+		t.Fatalf("the answer to a how question cites no code with lines:\n%s", how)
+	}
+	if who := ask("Who owns the Payments API?"); strings.Contains(who, `"kind":"code"`) {
+		t.Fatalf("the answer to a who question cites code:\n%s", who)
+	}
 }

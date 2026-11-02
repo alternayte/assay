@@ -11,8 +11,8 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/fixtures"
+	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/testkit"
 )
 

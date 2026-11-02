@@ -65,3 +65,33 @@ VALUES ($1, $2, sha256(random()::text::bytea), $3::jsonb, 0.5, $4, '{}')`, kind,
 		t.Errorf("markdown:\n%s", md)
 	}
 }
+
+// TestSCN_DSG_009_ReportScoresRepoSystem scores repo_system decisions
+// against the labelled group of each repository.
+func TestSCN_DSG_009_ReportScoresRepoSystem(t *testing.T) {
+	w := start(t)
+	seed := func(band, probs string, refs ...string) {
+		w.exec(t, `INSERT INTO decisions (kind, subject_refs, input_hash, probs, raw_p, band, connections)
+VALUES ('repo_system', $1, sha256(random()::text::bytea), $2::jsonb, 0.5, $3, '{}')`, refs, probs, band)
+	}
+	seed("high", `{"c1":0.9,"c2":0.05,"new":0.03,"none":0.02}`, "r:worker", "s:payments", "s:billing")
+	seed("high", `{"c1":0.1,"c2":0.8,"new":0.05,"none":0.05}`, "r:web", "s:payments", "s:billing")
+	seed("low", `{"c1":0.2,"new":0.1,"none":0.7}`, "r:fraud", "s:payments")
+	seed("low", `{"c1":0.9,"new":0.05,"none":0.05}`, "r:unlabelled", "s:payments")
+	rs, err := w.env.Server.Resolve().Report(context.Background(), resolve.EvalLabels{Repos: []resolve.LabelRepo{
+		{Repository: "r:worker", Group: "s:payments"}, {Repository: "r:web", Group: "s:payments"}, {Repository: "r:fraud"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]resolve.BandResult{}
+	for _, r := range rs {
+		got[r.Kind+"/"+r.Band] = r
+	}
+	high, low := got["repo_system/high"], got["repo_system/low"]
+	if high.Decisions != 2 || math.Abs(high.Precision-0.5) > 1e-9 || math.Abs(high.Recall-0.5) > 1e-9 {
+		t.Errorf("high band %+v", high)
+	}
+	if low.Decisions != 1 || low.Precision != 1 || low.Recall != 0 {
+		t.Errorf("low band %+v", low)
+	}
+}

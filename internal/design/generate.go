@@ -20,18 +20,18 @@ const PromptVersion = "design-1"
 
 // Cite is the source of one marker: a passage or a claim.
 type Cite struct {
-	Kind    string `json:"kind" enum:"passage,claim"`
-	ItemID  int64  `json:"itemId,omitempty"`
-	Hash    string `json:"hash,omitempty" doc:"The hex hash of the passage."`
-	Title   string `json:"title,omitempty"`
-	URL     string `json:"url,omitempty" doc:"The browse URL of the passage, with its line range for code."`
-	Path    string `json:"path,omitempty"`
-	Start   int    `json:"start,omitempty"`
-	End     int    `json:"end,omitempty"`
+	Kind       string `json:"kind" enum:"passage,claim"`
+	ItemID     int64  `json:"itemId,omitempty"`
+	Hash       string `json:"hash,omitempty" doc:"The hex hash of the passage."`
+	Title      string `json:"title,omitempty"`
+	URL        string `json:"url,omitempty" doc:"The browse URL of the passage, with its line range for code."`
+	Path       string `json:"path,omitempty"`
+	Start      int    `json:"start,omitempty"`
+	End        int    `json:"end,omitempty"`
 	Code       bool   `json:"code,omitempty" doc:"The passage is source code. A reason needs a cite that is not code."`
 	SourceType string `json:"sourceType,omitempty" doc:"The kind of the source connection of a passage."`
-	ClaimID int64  `json:"claimId,omitempty"`
-	Text    string `json:"text,omitempty" doc:"The claim as a sentence, or the first words of the passage."`
+	ClaimID    int64  `json:"claimId,omitempty"`
+	Text       string `json:"text,omitempty" doc:"The claim as a sentence, or the first words of the passage."`
 }
 
 // citeSet is the stored form of the markers of a version.

@@ -46,7 +46,7 @@ type DesignPageSection struct {
 	Markdown      string          `json:"markdown" doc:"Markers such as [S1] cite the sources."`
 	Diagram       string          `json:"diagram" doc:"A Mermaid flowchart, or empty."`
 	DiagramCites  []string        `json:"diagramCites" doc:"The markers of the diagram nodes and edges."`
-	Cites         []DesignCite      `json:"cites"`
+	Cites         []DesignCite    `json:"cites"`
 	Author        string          `json:"author" enum:"model,user,"`
 	Pinned        bool            `json:"pinned" doc:"A person corrected the section. Regeneration does not replace it."`
 	Editable      bool            `json:"editable" doc:"People can edit and report the section."`
@@ -72,13 +72,13 @@ type DesignRunView struct {
 
 // DesignPage is a design page as one reader sees it.
 type DesignPage struct {
-	Key           string        `json:"key"`
-	Type          string        `json:"type"`
-	Name          string        `json:"name"`
-	Level         string        `json:"level" enum:"repository,system" doc:"repository: one repository. system: a system or a service of several repositories."`
-	Updating      bool          `json:"updating" doc:"A build runs. The page shows the last good version."`
+	Key           string              `json:"key"`
+	Type          string              `json:"type"`
+	Name          string              `json:"name"`
+	Level         string              `json:"level" enum:"repository,system" doc:"repository: one repository. system: a system or a service of several repositories."`
+	Updating      bool                `json:"updating" doc:"A build runs. The page shows the last good version."`
 	Run           *DesignRunView      `json:"run,omitempty"`
-	VisibilityKey string        `json:"visibilityKey"`
+	VisibilityKey string              `json:"visibilityKey"`
 	Sections      []DesignPageSection `json:"sections"`
 
 	entityID    int64

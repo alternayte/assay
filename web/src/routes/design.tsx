@@ -236,7 +236,9 @@ function SectionSheet({
   const [reporting, setReporting] = useState(false);
   const [msg, setMsg] = useState<string>();
   const description = [
-    section.kind === "component" && section.componentPath && section.componentPath !== "." ? section.componentPath : "",
+    section.kind === "component" && section.componentPath && section.componentPath !== "."
+      ? section.componentPath
+      : "",
     section.editedAt
       ? section.pinned
         ? t("design.editedBy", { when: formatAgo(section.editedAt) })

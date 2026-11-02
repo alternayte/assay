@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/alternayte/assay/internal/models"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
+
+	"github.com/alternayte/assay/internal/models"
 )
 
 // Queue queues one job for the passages that have no cached result. It

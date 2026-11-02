@@ -27,7 +27,7 @@ func (s *Service) Register(a huma.API) {
 	type estimateOut struct{ Body progress }
 	huma.Register(a, huma.Operation{
 		OperationID: "estimateExtraction", Method: http.MethodGet, Path: "/api/v1/connections/{id}/extraction", Tags: tags,
-		Summary:     "Estimate the extraction of a connection",
+		Summary: "Estimate the extraction of a connection",
 		Description: "Counts the passages with no cached result and estimates the cost. Sends no model request. " +
 			"running tells whether an extraction of the connection is still in the queue.",
 		Middlewares: admins,
@@ -56,7 +56,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "startExtraction", Method: http.MethodPost, Path: "/api/v1/connections/{id}/extraction", Tags: tags,
-		Summary:     "Extract the claims of a connection",
+		Summary: "Extract the claims of a connection",
 		Description: "Confirm the passage count of the estimate. A different count returns 409 with the new estimate in the message. " +
 			"The jobs are queued in the background.",
 		Middlewares: admins, DefaultStatus: http.StatusAccepted,

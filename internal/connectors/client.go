@@ -34,9 +34,15 @@ var (
 type StatusError struct {
 	Status int
 	Path   string
+	// RateLimit is true when the source refused the request for its rate
+	// limit. It is never a refused token.
+	RateLimit bool
 }
 
 func (e *StatusError) Error() string {
+	if e.RateLimit {
+		return fmt.Sprintf("the source rate limit is used up for %s", e.Path)
+	}
 	return fmt.Sprintf("the source answered %d for %s", e.Status, e.Path)
 }
 
@@ -106,8 +112,9 @@ type SkipLister interface {
 
 // Client is the HTTP client of one connection. It sends only GET and HEAD,
 // only to the connection host, and follows no redirect to another host. It
-// keeps the concurrency and rate limits of the connection, and retries 429
-// and 5xx responses with Retry-After or exponential backoff with jitter.
+// keeps the concurrency and rate limits of the connection, and retries rate
+// limit and 5xx responses with Retry-After, the rate limit reset or
+// exponential backoff with jitter.
 type Client struct {
 	http    *http.Client
 	base    *url.URL
@@ -226,11 +233,19 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch {
-	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
+		if wait, ok := rateLimit(resp); ok {
+			return nil, wait, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
+		}
+		if resp.StatusCode == http.StatusForbidden {
+			return nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
+		}
+		return nil, 0, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
+	case resp.StatusCode == http.StatusUnauthorized:
 		return nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, -1, ErrNotFound
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+	case resp.StatusCode >= 500:
 		return nil, retryAfter(resp.Header.Get("Retry-After")), &StatusError{Status: resp.StatusCode, Path: path}
 	case resp.StatusCode >= 300:
 		return nil, -1, &StatusError{Status: resp.StatusCode, Path: path}
@@ -258,6 +273,26 @@ func isCertificate(err error) bool {
 	var host x509.HostnameError
 	var invalid x509.CertificateInvalidError
 	return errors.As(err, &verify) || errors.As(err, &unknown) || errors.As(err, &host) || errors.As(err, &invalid)
+}
+
+// rateLimit reports whether a 403 or 429 is for the rate limit of the
+// source, and the delay until the source takes requests again. GitHub
+// answers 403 for its primary and secondary rate limits: the first with
+// X-RateLimit-Remaining 0 and the reset time, the second with Retry-After
+// or only a message. A delay of 0 means the default backoff.
+func rateLimit(resp *http.Response) (time.Duration, bool) {
+	if v := resp.Header.Get("Retry-After"); v != "" {
+		return retryAfter(v), true
+	}
+	if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		reset, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64)
+		if err != nil {
+			return 0, true
+		}
+		return min(max(time.Until(time.Unix(reset, 0))+time.Second, time.Second), 5*time.Minute), true
+	}
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	return 0, strings.Contains(strings.ToLower(string(b)), "rate limit")
 }
 
 func retryAfter(v string) time.Duration {

@@ -191,11 +191,13 @@ func sourceError(err error) string {
 	var skip *connectors.SkipError
 	switch {
 	case errors.Is(err, connectors.ErrUnauthorized) && errors.As(err, &se):
-		return fmt.Sprintf("The source refused the token with status %d. Check the token and its permissions.", se.Status)
+		return fmt.Sprintf("The source refused the token with status %d for %s. Check the token and its permissions.", se.Status, se.Path)
 	case errors.Is(err, connectors.ErrNotFound):
 		return "The source returned 404. Check the base URL."
+	case errors.As(err, &se) && se.RateLimit:
+		return fmt.Sprintf("The source rate limit is used up (%s). The next sync continues from the files that changed.", se.Path)
 	case errors.As(err, &se):
-		return fmt.Sprintf("The source answered %d (%s).", se.Status, http.StatusText(se.Status))
+		return fmt.Sprintf("The source answered %d (%s) for %s.", se.Status, http.StatusText(se.Status), se.Path)
 	case errors.Is(err, errPaused):
 		return "The connection is paused. Resume it to sync."
 	case errors.As(err, &skip):

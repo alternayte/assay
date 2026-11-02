@@ -55,3 +55,22 @@ VALUES ('needs_edit', @target, @payload, 'system', @connections);
 
 -- name: EntityKey :one
 SELECT key FROM entities WHERE id = @id;
+
+-- name: PageForEdit :one
+-- The needs_edit page of a card: the page of the visibility key of the
+-- card, or for a card without one the newest needs_edit page of the entity
+-- whose connections the reviewer sees.
+SELECT p.id, p.connections, p.citations
+FROM pages p
+JOIN entities e ON e.id = p.entity_id
+WHERE e.key = @key AND p.state = 'needs_edit'
+  AND ((@vkey::text = '' AND p.connections <@ @visible::bigint[]) OR encode(p.visibility_key, 'hex') = @vkey::text)
+ORDER BY p.compiled_at DESC
+LIMIT 1
+FOR UPDATE OF p;
+
+-- name: SaveEditedSummary :exec
+UPDATE pages
+SET summary_md = @summary_md, claim_set_hash = @claim_set_hash, claim_ids = @claim_ids, lint = '[]', state = 'fresh', model = @model,
+    compiled_at = @compiled_at
+WHERE id = @id;

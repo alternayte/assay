@@ -266,12 +266,15 @@ func (s *Service) enrich(ctx context.Context, vis visibility.Set, cs []Card) err
 	want := make([][]int64, len(cs))
 	for i := range cs {
 		c := &cs[i]
-		var ref struct{ Claim, ValueClaim, Chosen int64 }
+		var ref struct {
+			Claim, ValueClaim, Chosen int64
+			Claims                    []int64
+		}
 		if b, err := json.Marshal(c.Payload); err == nil {
 			_ = json.Unmarshal(b, &ref)
 		}
-		for _, id := range []int64{ref.Claim, ref.ValueClaim, ref.Chosen} {
-			if id != 0 {
+		for _, id := range append([]int64{ref.Claim, ref.ValueClaim, ref.Chosen}, ref.Claims...) {
+			if id != 0 && !slices.Contains(want[i], id) {
 				want[i] = append(want[i], id)
 				ids = append(ids, id)
 			}
@@ -357,7 +360,9 @@ var errCardKind = errors.New("resolve: this card kind is decided on its own page
 // Accept accepts a card as a reviewer. A merge card merges its entities
 // with an optional canonical name and stores the verdict same. A link card
 // adds the claim of its mention. An unnamed card makes its entity active,
-// with the canonical name as its name.
+// with the canonical name as its name. A conflict card makes the picked
+// claim the winner, and the other claims become Superseded with the
+// reviewer as the source of the choice.
 func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edits Edits, by string) error {
 	canonical := strings.TrimSpace(edits.Name)
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -374,6 +379,10 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 			}
 		case "unnamed":
 			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical); err != nil {
+				return err
+			}
+		case "conflict":
+			if err := s.acceptConflict(ctx, tx, vis, c.Payload, edits.Winner, by); err != nil {
 				return err
 			}
 		case "finding":
@@ -561,6 +570,40 @@ func (s *Service) NotSame(ctx context.Context, vis visibility.Set, keys []string
 	})
 }
 
+// conflictClaims are the claims of a conflict card: the claims of a
+// conflict set, or the chosen claim and the claim with new support of a
+// resolution.
+func conflictClaims(payload []byte) []int64 {
+	var p struct {
+		Claims        []int64 `json:"claims"`
+		Chosen, Claim int64
+	}
+	_ = json.Unmarshal(payload, &p)
+	out := slices.Clone(p.Claims)
+	for _, id := range []int64{p.Chosen, p.Claim} {
+		if id != 0 && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// acceptConflict resolves the conflict of a card with the winner that the
+// reviewer picks among its claims (REQ-CLM-006).
+func (s *Service) acceptConflict(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, winner int64, by string) error {
+	if winner == 0 {
+		return &InvalidEdit{Code: "winner", Message: "Pick the claim that wins."}
+	}
+	if !slices.Contains(conflictClaims(payload), winner) {
+		return &InvalidEdit{Code: "winner", Message: "The winner must be a claim of the card."}
+	}
+	_, err := claims.Resolve(ctx, tx, vis, winner, by, s.now())
+	if errors.Is(err, claims.ErrNotVisible) {
+		return ErrNotFound
+	}
+	return err
+}
+
 // skippable reports whether an accept failed for a reason of the card
 // alone, so that a bulk accept goes on.
 func skippable(err error) bool {
@@ -569,7 +612,8 @@ func skippable(err error) bool {
 			return true
 		}
 	}
-	return false
+	var inv *InvalidEdit
+	return errors.As(err, &inv)
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -730,6 +774,10 @@ func (s *Service) Register(a huma.API) {
 		case errors.Is(err, errCardKind):
 			return api.Problem(http.StatusUnprocessableEntity, "card_kind", "Decide this card on its own page.")
 		}
+		var inv *InvalidEdit
+		if errors.As(err, &inv) {
+			return api.Problem(http.StatusUnprocessableEntity, inv.Code, inv.Message)
+		}
 		return api.Internal(err)
 	}
 	type acceptIn struct {
@@ -738,7 +786,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "acceptCard", Method: http.MethodPost, Path: "/api/v1/cards/{id}/accept", Tags: tags,
-		Summary: "Accept a card", Description: "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.",
+		Summary: "Accept a card", Description: "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional. A conflict card needs the winner. A needs_edit card needs the corrected summary.",
 		Middlewares: reviewers, DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, in *acceptIn) (*struct{}, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)

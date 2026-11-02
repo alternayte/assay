@@ -201,6 +201,39 @@ func (q *Queries) OpenPageCard(ctx context.Context, target string) (bool, error)
 	return column_1, err
 }
 
+const pageForEdit = `-- name: PageForEdit :one
+SELECT p.id, p.connections, p.citations
+FROM pages p
+JOIN entities e ON e.id = p.entity_id
+WHERE e.key = $1 AND p.state = 'needs_edit'
+  AND (($2::text = '' AND p.connections <@ $3::bigint[]) OR encode(p.visibility_key, 'hex') = $2::text)
+ORDER BY p.compiled_at DESC
+LIMIT 1
+FOR UPDATE OF p
+`
+
+type PageForEditParams struct {
+	Key     string
+	Vkey    string
+	Visible []int64
+}
+
+type PageForEditRow struct {
+	ID          int64
+	Connections []int64
+	Citations   json.RawMessage
+}
+
+// The needs_edit page of a card: the page of the visibility key of the
+// card, or for a card without one the newest needs_edit page of the entity
+// whose connections the reviewer sees.
+func (q *Queries) PageForEdit(ctx context.Context, arg PageForEditParams) (PageForEditRow, error) {
+	row := q.db.QueryRow(ctx, pageForEdit, arg.Key, arg.Vkey, arg.Visible)
+	var i PageForEditRow
+	err := row.Scan(&i.ID, &i.Connections, &i.Citations)
+	return i, err
+}
+
 const permissionsChecked = `-- name: PermissionsChecked :one
 SELECT coalesce(bool_or(permissions_checked_at IS NULL), true)::boolean AS unchecked,
        coalesce(min(permissions_checked_at), now())::timestamptz AS checked_at
@@ -219,6 +252,34 @@ func (q *Queries) PermissionsChecked(ctx context.Context, ids []int64) (Permissi
 	var i PermissionsCheckedRow
 	err := row.Scan(&i.Unchecked, &i.CheckedAt)
 	return i, err
+}
+
+const saveEditedSummary = `-- name: SaveEditedSummary :exec
+UPDATE pages
+SET summary_md = $1, claim_set_hash = $2, claim_ids = $3, lint = '[]', state = 'fresh', model = $4,
+    compiled_at = $5
+WHERE id = $6
+`
+
+type SaveEditedSummaryParams struct {
+	SummaryMd    string
+	ClaimSetHash []byte
+	ClaimIds     []int64
+	Model        string
+	CompiledAt   time.Time
+	ID           int64
+}
+
+func (q *Queries) SaveEditedSummary(ctx context.Context, arg SaveEditedSummaryParams) error {
+	_, err := q.db.Exec(ctx, saveEditedSummary,
+		arg.SummaryMd,
+		arg.ClaimSetHash,
+		arg.ClaimIds,
+		arg.Model,
+		arg.CompiledAt,
+		arg.ID,
+	)
+	return err
 }
 
 const upsertPage = `-- name: UpsertPage :exec

@@ -1641,6 +1641,16 @@
             },
             "maxItems": 50,
             "type": "array"
+          },
+          "summary": {
+            "description": "The corrected summary of a needs_edit card, with claim markers such as [C1].",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "winner": {
+            "description": "The claim that wins a conflict card. The other claims of the card become Superseded.",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "type": "object"
@@ -7108,7 +7118,7 @@
     },
     "/api/v1/cards/{id}/accept": {
       "post": {
-        "description": "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.",
+        "description": "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional. A conflict card needs the winner. A needs_edit card needs the corrected summary.",
         "operationId": "acceptCard",
         "parameters": [
           {

@@ -449,7 +449,8 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 		if err != nil || open {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]any{"entityKey": p.Key, "name": p.Name, "draft": draft, "lint": failures})
+		payload, _ := json.Marshal(map[string]any{"entityKey": p.Key, "visibilityKey": p.VisibilityKey, "name": p.Name, "draft": draft,
+			"lint": failures})
 		return q.InsertPageCard(ctx, InsertPageCardParams{Target: target, Payload: payload, Connections: orEmpty(p.connections)})
 	})
 	if err != nil {

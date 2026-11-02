@@ -15,7 +15,10 @@ builds:
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
     goarch: [amd64, arm64]
+    # The tags keep only the tree-sitter grammars that the code splitter uses.
     flags: [-trimpath]
+    tags: [grammar_subset, grammar_subset_go, grammar_subset_typescript, grammar_subset_tsx, grammar_subset_javascript, grammar_subset_c_sharp,
+      grammar_subset_python]
     ldflags: ["-s -w -X main.version={{ .Tag }}"]
 
 archives:

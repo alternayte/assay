@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/assay ./cmd/assay
+    go build -trimpath -tags grammar_subset,grammar_subset_go,grammar_subset_typescript,grammar_subset_tsx,grammar_subset_javascript,grammar_subset_c_sharp,grammar_subset_python -ldflags "-s -w -X main.version=${VERSION}" -o /out/assay ./cmd/assay
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/assay /usr/local/bin/assay

@@ -376,6 +376,10 @@ func (s *Service) refs(ctx context.Context, tx pgx.Tx, rec RegistryRecord, vis v
 		return nil, err
 	}
 	for _, r := range rows {
+		if !r.Public {
+			// A registry source would show the entity to everyone.
+			return nil, invalid("the registry is shared with everyone, so a record can name only entities that everyone can read; %s is not one", r.Key)
+		}
 		out[r.Key] = ref{key: r.Key, typ: r.Type, name: r.Name}
 	}
 	for _, k := range keys {
@@ -487,7 +491,7 @@ func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 // current record, so that a newer edit, such as a deprecation, stays. A field
 // that also changed to another value after the proposal is a conflict, and
 // the result wraps resolve.ErrStale.
-func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string, _ resolve.Edits) error {
+func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, proposerID, reviewerID string, edits resolve.Edits) error {
 	var p struct {
 		Key    string          `json:"key"`
 		Record *RegistryRecord `json:"record"`
@@ -523,6 +527,14 @@ func (s *Service) ApplyTermEdit(ctx context.Context, tx pgx.Tx, vis visibility.S
 	userID := proposerID
 	if userID == "" {
 		userID = reviewerID
+	}
+	// The name and definition of the reviewer replace the proposed ones,
+	// and the reviewer is the editor of that version.
+	if n := strings.TrimSpace(edits.Name); n != "" && n != rec.Term.Name {
+		rec.Term.Name, userID = n, reviewerID
+	}
+	if d := strings.TrimSpace(edits.Definition); d != "" && d != rec.Term.Definition {
+		rec.Term.Definition, userID = d, reviewerID
 	}
 	name, err := q.UserName(ctx, userID)
 	if err != nil {

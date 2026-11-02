@@ -327,7 +327,8 @@ func (q *Queries) UserName(ctx context.Context, id string) (string, error) {
 }
 
 const visibleRefs = `-- name: VisibleRefs :many
-SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name
+SELECT e.id, e.key, e.type, coalesce(entity_display_name(e.id, $1::bigint[]), e.key)::text AS name,
+       EXISTS (SELECT 1 FROM entity_sources p WHERE p.entity_id = e.id AND p.connection_id = ANY($1::bigint[]))::boolean AS public
 FROM entities e
 WHERE e.key = ANY($2::text[]) AND e.status <> 'merged'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY($3::bigint[]))
@@ -340,14 +341,17 @@ type VisibleRefsParams struct {
 }
 
 type VisibleRefsRow struct {
-	ID   int64
-	Key  string
-	Type string
-	Name string
+	ID     int64
+	Key    string
+	Type   string
+	Name   string
+	Public bool
 }
 
 // Entities by key that have a visible source, with a name for the
-// visible set of Everyone.
+// visible set of Everyone. public is set when a connection shared with
+// Everyone is a source: only such an entity can appear in the registry,
+// which everyone reads.
 func (q *Queries) VisibleRefs(ctx context.Context, arg VisibleRefsParams) ([]VisibleRefsRow, error) {
 	rows, err := q.db.Query(ctx, visibleRefs, arg.Everyone, arg.Keys, arg.Visible)
 	if err != nil {
@@ -362,6 +366,7 @@ func (q *Queries) VisibleRefs(ctx context.Context, arg VisibleRefsParams) ([]Vis
 			&i.Key,
 			&i.Type,
 			&i.Name,
+			&i.Public,
 		); err != nil {
 			return nil, err
 		}

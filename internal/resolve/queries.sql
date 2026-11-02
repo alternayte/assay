@@ -524,3 +524,36 @@ ORDER BY a.id LIMIT 1;
 -- The candidates of the open and accepted edge cards of a repository.
 SELECT DISTINCT e.id FROM proposals p JOIN entities e ON e.key = p.payload->>'candidate'
 WHERE p.kind = 'mention_link' AND p.target = @target AND p.status IN ('open', 'accepted') AND e.status = 'active';
+
+-- name: ConflictSubjects :many
+-- Subjects with two or more current values of one of the predicates.
+-- vis:system
+SELECT DISTINCT g.subject_id FROM (
+    SELECT c.subject_id FROM claims c
+    WHERE c.retracted_at IS NULL AND c.predicate = ANY(@predicates::text[])
+      AND EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id AND e.stance = 'supports' AND e.state = 'current')
+    GROUP BY c.subject_id, c.predicate
+    HAVING count(DISTINCT (coalesce(c.object_entity_id, 0), c.object_norm)) > 1
+) g
+ORDER BY g.subject_id;
+
+-- name: ActiveConnections :many
+SELECT id FROM connections WHERE status = 'active' ORDER BY id;
+
+-- name: ConflictCardKnown :one
+-- Whether a conflict card exists for the target, or an open conflict card
+-- names one of the claims.
+SELECT (EXISTS (SELECT 1 FROM proposals k WHERE k.kind = 'conflict' AND k.target = @target::text)
+     OR EXISTS (SELECT 1 FROM proposals p, jsonb_array_elements(coalesce(p.payload->'claims', '[]'::jsonb)) x
+                WHERE p.kind = 'conflict' AND p.status = 'open' AND x::text::bigint = ANY(@ids::bigint[])))::boolean;
+
+-- name: ClaimsConnections :many
+-- The connections of the evidence of the claims and of the sources of their
+-- entities: the inputs of a conflict card.
+-- vis:system
+SELECT e.connection_id FROM claim_evidence e WHERE e.claim_id = ANY(@ids::bigint[])
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+WHERE c.id = ANY(@ids::bigint[])
+ORDER BY 1;

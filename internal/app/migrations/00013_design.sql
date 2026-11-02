@@ -113,9 +113,13 @@ CREATE INDEX design_runs_entity ON design_runs (entity_id, id DESC);
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION purge_connection_outputs() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    UPDATE claim_evidence ev SET kind = 'human', proposal_id = NULL, updated_at = now()
+    FROM proposals p
+    WHERE ev.proposal_id = p.id AND p.status = 'accepted' AND OLD.id = ANY(p.connections) AND ev.connection_id <> OLD.id;
     DELETE FROM decisions WHERE OLD.id = ANY(connections);
     DELETE FROM proposals WHERE OLD.id = ANY(connections);
     DELETE FROM pages WHERE OLD.id = ANY(connections);
+    DELETE FROM entity_profiles WHERE OLD.id = ANY(connections);
     DELETE FROM design_versions WHERE OLD.id = ANY(connections);
     RETURN OLD;
 END
@@ -126,9 +130,13 @@ $$;
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION purge_connection_outputs() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+    UPDATE claim_evidence ev SET kind = 'human', proposal_id = NULL, updated_at = now()
+    FROM proposals p
+    WHERE ev.proposal_id = p.id AND p.status = 'accepted' AND OLD.id = ANY(p.connections) AND ev.connection_id <> OLD.id;
     DELETE FROM decisions WHERE OLD.id = ANY(connections);
     DELETE FROM proposals WHERE OLD.id = ANY(connections);
     DELETE FROM pages WHERE OLD.id = ANY(connections);
+    DELETE FROM entity_profiles WHERE OLD.id = ANY(connections);
     RETURN OLD;
 END
 $$;

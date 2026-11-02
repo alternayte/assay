@@ -115,13 +115,19 @@ RETURNING (xmax = 0) AS inserted;
 
 -- name: ClaimGroupConnections :many
 -- The connections of the evidence of a claim and of the other claims of
--- its subject and predicate.
+-- its subject and predicate, and of the sources of their entities: a card
+-- about the group names them.
 -- vis:system
-SELECT DISTINCT e.connection_id FROM claim_evidence e
+SELECT e.connection_id FROM claim_evidence e
 JOIN claims c ON c.id = e.claim_id
 JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
 WHERE t.id = @claim_id
-ORDER BY e.connection_id;
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = @claim_id
+ORDER BY 1;
 
 -- name: ConnectionKind :one
 SELECT kind FROM connections WHERE id = @id;
@@ -191,14 +197,23 @@ FROM source_items i WHERE i.id = ANY(@items::bigint[])
 ON CONFLICT (claim_id, item_id, passage_hash, stance) DO UPDATE SET state = 'current', quote = EXCLUDED.quote, updated_at = now();
 
 -- name: DeleteSourcelessEntities :execrows
--- Deletes the entities of ids that have no source left. Entities merged
--- into a deleted entity become active again. Claims, profiles and pages of
--- the deleted entities go by cascade.
+-- Deletes the entities of ids that have no source left and that no claim
+-- with evidence names: a claim that rests on evidence of another connection
+-- stays with its entity. Entities merged into a deleted entity become
+-- active again, and merges drop deleted losers, so that they still split. A
+-- merge without a loser left is undone. Claims, profiles and pages of the
+-- deleted entities go by cascade.
 -- vis:system
 WITH gone AS (SELECT e.id FROM entities e
-              WHERE e.id = ANY(@ids::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+              WHERE e.id = ANY(@ids::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)
+                AND NOT EXISTS (SELECT 1 FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+                                WHERE (c.subject_id = e.id OR c.object_entity_id = e.id) AND c.retracted_at IS NULL)),
 freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
-          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone)),
+pruned AS (UPDATE merges m
+           SET loser_ids = array(SELECT x FROM unnest(m.loser_ids) x WHERE x NOT IN (SELECT id FROM gone)),
+               undone_at = CASE WHEN m.undone_at IS NULL AND m.loser_ids <@ array(SELECT id FROM gone) THEN now() ELSE m.undone_at END
+           WHERE m.loser_ids && array(SELECT id FROM gone))
 DELETE FROM entities WHERE id IN (SELECT id FROM gone);
 
 -- name: ItemEntity :one
@@ -226,3 +241,13 @@ SELECT DISTINCT x.id::bigint AS id FROM claims c,
        LATERAL (VALUES (c.subject_id), (c.object_entity_id)) AS x(id)
 WHERE c.id = ANY(@ids::bigint[]) AND x.id IS NOT NULL
 ORDER BY 1;
+
+-- name: ReindexItems :many
+-- The current version of each item after an ID, for assay reindex.
+-- vis:system
+SELECT i.id, i.connection_id, i.kind, i.external_id, v.id AS version_id, v.title, v.body
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.id > @after
+ORDER BY i.id
+LIMIT @lim;

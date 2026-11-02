@@ -266,12 +266,15 @@ func (s *Service) enrich(ctx context.Context, vis visibility.Set, cs []Card) err
 	want := make([][]int64, len(cs))
 	for i := range cs {
 		c := &cs[i]
-		var ref struct{ Claim, ValueClaim, Chosen int64 }
+		var ref struct {
+			Claim, ValueClaim, Chosen int64
+			Claims                    []int64
+		}
 		if b, err := json.Marshal(c.Payload); err == nil {
 			_ = json.Unmarshal(b, &ref)
 		}
-		for _, id := range []int64{ref.Claim, ref.ValueClaim, ref.Chosen} {
-			if id != 0 {
+		for _, id := range append([]int64{ref.Claim, ref.ValueClaim, ref.Chosen}, ref.Claims...) {
+			if id != 0 && !slices.Contains(want[i], id) {
 				want[i] = append(want[i], id)
 				ids = append(ids, id)
 			}
@@ -347,6 +350,10 @@ func (s *Service) kindCalibration(ctx context.Context, kind string) (Calibration
 // ErrCardDone means that the card has a decision already.
 var ErrCardDone = errors.New("resolve: the card is decided")
 
+// ErrStale means that the target of a proposal changed after the proposal in
+// a way that conflicts with it.
+var ErrStale = errors.New("resolve: the target changed after the proposal")
+
 // ErrNotFound means that the card or decision does not exist or is not
 // visible.
 var ErrNotFound = errors.New("resolve: not found")
@@ -363,7 +370,9 @@ var errCardKind = errors.New("resolve: this card kind is decided on its own page
 // Accept accepts a card as a reviewer. A merge card merges its entities
 // with an optional canonical name and stores the verdict same. A link card
 // adds the claim of its mention. An unnamed card makes its entity active,
-// with the canonical name as its name.
+// with the canonical name as its name. A conflict card makes the picked
+// claim the winner, and the other claims become Superseded with the
+// reviewer as the source of the choice.
 func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edits Edits, by string) error {
 	canonical := strings.TrimSpace(edits.Name)
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -384,6 +393,10 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 			}
 		case KindRepoSystem:
 			if err := s.ApplyRepoSystem(ctx, tx, vis, c.Payload, by, edits); err != nil {
+				return err
+			}
+		case "conflict":
+			if err := s.acceptConflict(ctx, tx, vis, c.Payload, edits.Winner, by); err != nil {
 				return err
 			}
 		case "finding":
@@ -486,7 +499,10 @@ func (s *Service) acceptCluster(ctx context.Context, tx pgx.Tx, vis visibility.S
 			return errMembers
 		}
 	}
-	if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: members, Canonical: canonical, By: by}); err != nil {
+	// An earlier merge can have joined the members already. The pairs are
+	// then the same, so the cards are accepted with no new merge.
+	if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: members, Canonical: canonical, By: by}); err != nil &&
+		!errors.Is(err, entities.ErrAlreadyOne) {
 		return err
 	}
 	for _, pid := range cl.Pairs {
@@ -568,6 +584,52 @@ func (s *Service) NotSame(ctx context.Context, vis visibility.Set, keys []string
 	})
 }
 
+// conflictClaims are the claims of a conflict card: the claims of a
+// conflict set, or the chosen claim and the claim with new support of a
+// resolution.
+func conflictClaims(payload []byte) []int64 {
+	var p struct {
+		Claims        []int64 `json:"claims"`
+		Chosen, Claim int64
+	}
+	_ = json.Unmarshal(payload, &p)
+	out := slices.Clone(p.Claims)
+	for _, id := range []int64{p.Chosen, p.Claim} {
+		if id != 0 && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// acceptConflict resolves the conflict of a card with the winner that the
+// reviewer picks among its claims (REQ-CLM-006).
+func (s *Service) acceptConflict(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, winner int64, by string) error {
+	if winner == 0 {
+		return &InvalidEdit{Code: "winner", Message: "Pick the claim that wins."}
+	}
+	if !slices.Contains(conflictClaims(payload), winner) {
+		return &InvalidEdit{Code: "winner", Message: "The winner must be a claim of the card."}
+	}
+	_, err := claims.Resolve(ctx, tx, vis, winner, by, s.now())
+	if errors.Is(err, claims.ErrNotVisible) {
+		return ErrNotFound
+	}
+	return err
+}
+
+// skippable reports whether an accept failed for a reason of the card
+// alone, so that a bulk accept goes on.
+func skippable(err error) bool {
+	for _, e := range []error{ErrCardDone, ErrNotFound, ErrStale, errMembers, errCardKind, entities.ErrNotFound, entities.ErrMergeChanged} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	var inv *InvalidEdit
+	return errors.As(err, &inv)
+}
+
 func ptr[T any](v T) *T { return &v }
 
 func (s *Service) openCard(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64) (CardForUpdateRow, error) {
@@ -647,7 +709,9 @@ func (s *Service) Undo(ctx context.Context, vis visibility.Set, id int64) error 
 }
 
 // AcceptBand accepts each open card of the band of f that f selects, and
-// returns the accepted card IDs (REQ-REV-011).
+// returns the accepted card IDs (REQ-REV-011). A card that cannot be
+// accepted with no edits, or whose entities changed, stays open, and the
+// next card follows.
 func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilter, by string) ([]int64, error) {
 	if f.Band == "" {
 		return nil, errCardKind
@@ -662,7 +726,7 @@ func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilt
 		switch {
 		case err == nil:
 			ids = append(ids, c.ID)
-		case errors.Is(err, ErrCardDone), errors.Is(err, ErrNotFound):
+		case skippable(err):
 		default:
 			return ids, err
 		}
@@ -722,10 +786,16 @@ func (s *Service) Register(a huma.API) {
 			return api.ErrNotFound
 		case errors.Is(err, ErrCardDone):
 			return api.Problem(http.StatusConflict, "decided", "The card already has a decision.")
+		case errors.Is(err, ErrStale):
+			return api.Problem(http.StatusConflict, "stale", "The term changed after this edit. Reject the edit and ask for a new one.")
 		case errors.Is(err, errMembers):
 			return api.Problem(http.StatusUnprocessableEntity, "members", "Pick two or more members of the cluster.")
 		case errors.Is(err, errCardKind):
 			return api.Problem(http.StatusUnprocessableEntity, "card_kind", "Decide this card on its own page.")
+		}
+		var inv *InvalidEdit
+		if errors.As(err, &inv) {
+			return api.Problem(http.StatusUnprocessableEntity, inv.Code, inv.Message)
 		}
 		return api.Internal(err)
 	}
@@ -735,7 +805,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "acceptCard", Method: http.MethodPost, Path: "/api/v1/cards/{id}/accept", Tags: tags,
-		Summary: "Accept a card", Description: "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.",
+		Summary: "Accept a card", Description: "A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional. A conflict card needs the winner. A needs_edit card needs the corrected summary.",
 		Middlewares: reviewers, DefaultStatus: http.StatusNoContent,
 	}, func(ctx context.Context, in *acceptIn) (*struct{}, error) {
 		vis, err := visibility.OfCaller(ctx, s.Pool)

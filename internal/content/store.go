@@ -101,36 +101,8 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		Revision: it.Revision}); err != nil {
 		return 0, err
 	}
-	if err := q.DeleteItemPassages(ctx, itemID); err != nil {
-		return 0, err
-	}
-	if err := q.DeleteItemChunks(ctx, itemID); err != nil {
-		return 0, err
-	}
-	ps := it.Passages
-	if ps == nil {
-		ps = Split(it.Body)
-	}
-	rows := make([]InsertPassagesParams, len(ps))
-	for i, p := range ps {
-		rows[i] = InsertPassagesParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID, Hash: p.Hash,
-			Ordinal: int32(p.Ordinal), Kind: p.Kind, HeadingPath: orEmptyStrings(p.HeadingPath), Text: p.Text, Norm: p.Norm, //nolint:gosec // Ordinals are small.
-			StartLine: lineOf(p.StartLine), EndLine: lineOf(p.EndLine)}
-	}
-	if len(rows) > 0 {
-		if _, err := q.InsertPassages(ctx, rows); err != nil {
-			return 0, err
-		}
-	}
-	for _, c := range Chunks(it.Title, ps) {
-		body := c.Text[len(prefix(it.Title, c.HeadingPath)):]
-		if err := q.InsertChunk(ctx, InsertChunkParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID,
-			Ordinal: int32(c.Ordinal), HeadingPath: orEmptyStrings(c.HeadingPath), Text: c.Text, PassageHashes: c.PassageHashes, //nolint:gosec // Ordinals are small.
-			Tokens: int32(c.Tokens), Title: it.Title, Heading: strings.Join(c.HeadingPath, " "), Body: body}); err != nil { //nolint:gosec // Chunks have at most 400 tokens.
-			return 0, err
-		}
-	}
-	if err := q.RefreshEvidence(ctx, itemID); err != nil {
+	ps, _, err := writeIndex(ctx, q, itemID, versionID, connectionID, it.Title, it.Body, it.Passages)
+	if err != nil {
 		return 0, err
 	}
 	in := ingest{q: q, tx: tx, connectionID: connectionID, domainID: domainID, itemID: itemID, log: log, ids: map[string]int64{}}
@@ -183,6 +155,45 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		}
 	}
 	return outcome, nil
+}
+
+// writeIndex replaces the passages and chunks of an item with those of a
+// body and updates the evidence state. It returns the passages and the
+// number of chunks.
+func writeIndex(ctx context.Context, q *Queries, itemID, versionID, connectionID int64, title, body string, ps []Passage) ([]Passage, int, error) {
+	if err := q.DeleteItemPassages(ctx, itemID); err != nil {
+		return nil, 0, err
+	}
+	if err := q.DeleteItemChunks(ctx, itemID); err != nil {
+		return nil, 0, err
+	}
+	if ps == nil {
+		ps = Split(body)
+	}
+	rows := make([]InsertPassagesParams, len(ps))
+	for i, p := range ps {
+		rows[i] = InsertPassagesParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID, Hash: p.Hash,
+			Ordinal: int32(p.Ordinal), Kind: p.Kind, HeadingPath: orEmptyStrings(p.HeadingPath), Text: p.Text, Norm: p.Norm, //nolint:gosec // Ordinals are small.
+			StartLine: lineOf(p.StartLine), EndLine: lineOf(p.EndLine)}
+	}
+	if len(rows) > 0 {
+		if _, err := q.InsertPassages(ctx, rows); err != nil {
+			return nil, 0, err
+		}
+	}
+	chunks := Chunks(title, ps)
+	for _, c := range chunks {
+		rest := c.Text[len(prefix(title, c.HeadingPath)):]
+		if err := q.InsertChunk(ctx, InsertChunkParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID,
+			Ordinal: int32(c.Ordinal), HeadingPath: orEmptyStrings(c.HeadingPath), Text: c.Text, PassageHashes: c.PassageHashes, //nolint:gosec // Ordinals are small.
+			Tokens: int32(c.Tokens), Title: title, Heading: strings.Join(c.HeadingPath, " "), Body: rest}); err != nil { //nolint:gosec // Chunks have at most 400 tokens.
+			return nil, 0, err
+		}
+	}
+	if err := q.RefreshEvidence(ctx, itemID); err != nil {
+		return nil, 0, err
+	}
+	return ps, len(chunks), nil
 }
 
 type ingest struct {
@@ -415,8 +426,9 @@ func orEmptyIDs(ids []int64) []int64 {
 	return ids
 }
 
-// DeleteSourceless deletes the entities of ids that have no source left.
-// Entities merged into a deleted entity become active again.
+// DeleteSourceless deletes the entities of ids that have no source left and
+// no claim with evidence. Entities merged into a deleted entity become
+// active again, and merges drop the deleted losers.
 func DeleteSourceless(ctx context.Context, tx pgx.Tx, ids []int64) error {
 	_, err := New(tx).DeleteSourcelessEntities(ctx, append([]int64{}, ids...))
 	return err

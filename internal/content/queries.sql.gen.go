@@ -212,15 +212,21 @@ func (q *Queries) ClaimEntities(ctx context.Context, ids []int64) ([]int64, erro
 }
 
 const claimGroupConnections = `-- name: ClaimGroupConnections :many
-SELECT DISTINCT e.connection_id FROM claim_evidence e
+SELECT e.connection_id FROM claim_evidence e
 JOIN claims c ON c.id = e.claim_id
 JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
 WHERE t.id = $1
-ORDER BY e.connection_id
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+JOIN claims t ON t.subject_id = c.subject_id AND t.predicate = c.predicate
+WHERE t.id = $1
+ORDER BY 1
 `
 
 // The connections of the evidence of a claim and of the other claims of
-// its subject and predicate.
+// its subject and predicate, and of the sources of their entities: a card
+// about the group names them.
 // vis:system
 func (q *Queries) ClaimGroupConnections(ctx context.Context, claimID int64) ([]int64, error) {
 	rows, err := q.db.Query(ctx, claimGroupConnections, claimID)
@@ -306,15 +312,24 @@ func (q *Queries) DeleteItemPassages(ctx context.Context, itemID int64) error {
 
 const deleteSourcelessEntities = `-- name: DeleteSourcelessEntities :execrows
 WITH gone AS (SELECT e.id FROM entities e
-              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)),
+              WHERE e.id = ANY($1::bigint[]) AND NOT EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id)
+                AND NOT EXISTS (SELECT 1 FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+                                WHERE (c.subject_id = e.id OR c.object_entity_id = e.id) AND c.retracted_at IS NULL)),
 freed AS (UPDATE entities SET status = 'active', merged_into = NULL, updated_at = now()
-          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone))
+          WHERE merged_into IN (SELECT id FROM gone) AND id NOT IN (SELECT id FROM gone)),
+pruned AS (UPDATE merges m
+           SET loser_ids = array(SELECT x FROM unnest(m.loser_ids) x WHERE x NOT IN (SELECT id FROM gone)),
+               undone_at = CASE WHEN m.undone_at IS NULL AND m.loser_ids <@ array(SELECT id FROM gone) THEN now() ELSE m.undone_at END
+           WHERE m.loser_ids && array(SELECT id FROM gone))
 DELETE FROM entities WHERE id IN (SELECT id FROM gone)
 `
 
-// Deletes the entities of ids that have no source left. Entities merged
-// into a deleted entity become active again. Claims, profiles and pages of
-// the deleted entities go by cascade.
+// Deletes the entities of ids that have no source left and that no claim
+// with evidence names: a claim that rests on evidence of another connection
+// stays with its entity. Entities merged into a deleted entity become
+// active again, and merges drop deleted losers, so that they still split. A
+// merge without a loser left is undone. Claims, profiles and pages of the
+// deleted entities go by cascade.
 // vis:system
 func (q *Queries) DeleteSourcelessEntities(ctx context.Context, ids []int64) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteSourcelessEntities, ids)
@@ -644,6 +659,60 @@ WHERE e.item_id = $1 AND e.kind <> 'human'
 func (q *Queries) RefreshEvidence(ctx context.Context, itemID int64) error {
 	_, err := q.db.Exec(ctx, refreshEvidence, itemID)
 	return err
+}
+
+const reindexItems = `-- name: ReindexItems :many
+SELECT i.id, i.connection_id, i.kind, i.external_id, v.id AS version_id, v.title, v.body
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.id > $1
+ORDER BY i.id
+LIMIT $2
+`
+
+type ReindexItemsParams struct {
+	After int64
+	Lim   int32
+}
+
+type ReindexItemsRow struct {
+	ID           int64
+	ConnectionID int64
+	Kind         string
+	ExternalID   string
+	VersionID    int64
+	Title        string
+	Body         string
+}
+
+// The current version of each item after an ID, for assay reindex.
+// vis:system
+func (q *Queries) ReindexItems(ctx context.Context, arg ReindexItemsParams) ([]ReindexItemsRow, error) {
+	rows, err := q.db.Query(ctx, reindexItems, arg.After, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ReindexItemsRow
+	for rows.Next() {
+		var i ReindexItemsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ConnectionID,
+			&i.Kind,
+			&i.ExternalID,
+			&i.VersionID,
+			&i.Title,
+			&i.Body,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const retractUnsupported = `-- name: RetractUnsupported :execrows

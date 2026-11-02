@@ -50,7 +50,7 @@ RETURNING group_id;
 SELECT count(*) FROM groups WHERE id = ANY(@ids::bigint[]);
 
 -- name: SetStatus :execrows
-UPDATE connections SET status = @status, status_reason = @reason, updated_at = now()
+UPDATE connections SET status = @status, status_reason = @reason, status_epoch = status_epoch + 1, updated_at = now()
 WHERE id = @id AND kind <> 'registry';
 
 -- name: DeleteConnection :execrows
@@ -69,7 +69,7 @@ ORDER BY id DESC LIMIT 1;
 SELECT * FROM sync_runs WHERE id = @id;
 
 -- name: StartRun :execrows
-UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor
+UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor, status_epoch = @status_epoch
 WHERE id = @id AND status IN ('queued', 'running');
 
 -- name: FinishRun :exec
@@ -92,10 +92,12 @@ DELETE FROM sync_runs WHERE queued_at < @before AND status IN ('succeeded', 'fai
 UPDATE connections SET cursor = @cursor, last_sync_at = @now WHERE id = @id;
 
 -- name: FinishReconcile :exec
+-- Only a reconciliation that started after the last status change ends a
+-- resume.
 UPDATE connections
 SET last_reconcile_at = @now, permissions_checked_at = @now,
-    status = CASE WHEN status = 'resuming' THEN 'active' ELSE status END,
-    status_reason = CASE WHEN status = 'resuming' THEN '' ELSE status_reason END
+    status = CASE WHEN status = 'resuming' AND status_epoch = @status_epoch THEN 'active' ELSE status END,
+    status_reason = CASE WHEN status = 'resuming' AND status_epoch = @status_epoch THEN '' ELSE status_reason END
 WHERE id = @id;
 
 -- name: ItemIDs :many
@@ -131,3 +133,18 @@ SELECT id FROM groups WHERE builtin;
 -- The entities with a source in the connection, for a purge.
 -- vis:system
 SELECT DISTINCT entity_id FROM entity_sources WHERE connection_id = @id;
+
+-- name: ReadsConnection :one
+-- Whether a user owns a connection or is in a group that it is shared with,
+-- in any status.
+SELECT coalesce(EXISTS (SELECT 1 FROM connections c WHERE c.id = @id AND c.owner_id = @user_id::uuid)
+    OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+               WHERE v.connection_id = @id
+                 AND (g.builtin OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = @user_id::uuid))),
+    false)::boolean AS reads;
+
+-- name: MemberGroups :many
+-- The groups of ids that hold the user. Everyone holds every user.
+SELECT g.id FROM groups g
+WHERE g.id = ANY(@ids::bigint[])
+  AND (g.builtin OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = @user_id));

@@ -28,7 +28,12 @@ type Edits = {
   members?: string[];
   text?: string;
   diagram?: string;
+  winner?: number;
+  summary?: string;
 };
+/** What a reviewer gives for a card kind that cannot be accepted without it. */
+type Answer = { winner?: number; summary?: string };
+type EditPayload = { draft?: string; lint?: { rule: string; message: string }[] };
 
 /** A decision that waits for the undo period before it goes to the server. */
 type Pending = { card: Card; action: "accept" | "reject"; reason?: string; edits?: Edits; timer: number };
@@ -51,6 +56,19 @@ const kinds: Kind[] = [
 ];
 const bandTone = { high: "supported", medium: "stale", low: "conflict" } as const;
 const editable: string[] = ["merge", "unnamed", "new_term", "term_edit", "repo_system", ...designKinds];
+
+const editPayload = (card: Card) => (card.payload ?? {}) as EditPayload;
+const summaryOf = (card: Card, a: Answer) => a.summary ?? editPayload(card).draft ?? "";
+
+/** The answer that accept sends for a conflict or needs_edit card, or undefined while it is missing. */
+function answerFor(card: Card, a: Answer): Answer | undefined {
+  if (card.kind === "conflict") return a.winner === undefined ? undefined : { winner: a.winner };
+  if (card.kind === "needs_edit") {
+    const summary = summaryOf(card, a).trim();
+    return summary ? { summary } : undefined;
+  }
+  return {};
+}
 
 const kindLabel = (k: string) => t(`review.kinds.${k}` as CopyKey);
 const bandLabel = (b?: string) => t(`review.bands.${b || "none"}` as CopyKey);
@@ -151,12 +169,14 @@ const problemLabel: Record<string, CopyKey> = {
 };
 
 /** The text fields of a payload, one level deep. Numbers are IDs that the claims above show. */
+const hiddenDetails = ["draft", "visibilityKey", "entityKey"];
+
 function Details({ payload }: { payload: unknown }) {
   if (!payload || typeof payload !== "object") return null;
   const p = payload as Record<string, unknown> & { mention?: { value?: string }; claim?: { Quote?: string } };
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(p)) {
-    if (typeof v !== "string" || v === "") continue;
+    if (typeof v !== "string" || v === "" || hiddenDetails.includes(k)) continue;
     rows.push([k, k === "problem" && problemLabel[v] ? t(problemLabel[v]) : v]);
   }
   if (p.mention?.value) rows.push(["mention", p.mention.value]);
@@ -174,11 +194,34 @@ function Details({ payload }: { payload: unknown }) {
   );
 }
 
-function ClaimBlock({ claim }: { claim: Schemas["Claim"] }) {
+function ClaimBlock({
+  claim,
+  pick,
+}: {
+  claim: Schemas["Claim"];
+  pick?: { name: string; checked: boolean; onChange: () => void };
+}) {
+  const text = claimText(claim);
   return (
-    <div className="flex flex-col gap-1 rounded-sm border border-rule bg-paper px-3 py-2">
+    <div
+      className={cn(
+        "flex flex-col gap-1 rounded-sm border bg-paper px-3 py-2",
+        pick?.checked ? "border-accent" : "border-rule",
+      )}
+      data-testid="claim"
+    >
       <div className="flex flex-wrap items-baseline gap-2">
-        <span className="break-words">{claimText(claim)}</span>
+        {pick && (
+          <input
+            type="radio"
+            name={pick.name}
+            className="size-4 self-center accent-accent"
+            checked={pick.checked}
+            onChange={pick.onChange}
+            aria-label={t("review.winner", { claim: text })}
+          />
+        )}
+        <span className="break-words">{text}</span>
         <ClaimStatus status={claim.status} noted={claim.conflictNoted} />
       </div>
       {claim.evidence.map((e) => (
@@ -200,11 +243,15 @@ function Evidence({
   editing,
   edits,
   setEdits,
+  answer,
+  setAnswer,
 }: {
   card: Card;
   editing: boolean;
   edits: Edits;
   setEdits: (e: Edits) => void;
+  answer: Answer;
+  setAnswer: (a: Answer) => void;
 }) {
   const subjects = card.kind === "merge" ? (card.members ?? card.subjects) : card.subjects;
   const members = edits.members ?? subjects.map((s) => s.key);
@@ -252,10 +299,26 @@ function Evidence({
           ))}
         </div>
       )}
+      {card.kind === "conflict" && (card.claims ?? []).length > 0 && (
+        <p className="text-sm">{t("review.winnerHint")}</p>
+      )}
       {(card.claims ?? []).map((c) => (
-        <ClaimBlock key={c.id} claim={c} />
+        <ClaimBlock
+          key={c.id}
+          claim={c}
+          pick={
+            card.kind === "conflict"
+              ? {
+                  name: `winner-${card.id}`,
+                  checked: answer.winner === c.id,
+                  onChange: () => setAnswer({ ...answer, winner: c.id }),
+                }
+              : undefined
+          }
+        />
       ))}
       <Details payload={card.payload} />
+      {card.kind === "needs_edit" && <SummaryEdit card={card} answer={answer} setAnswer={setAnswer} />}
       {editing && (
         <div className="flex flex-col gap-3 rounded-sm border border-accent bg-accent-wash px-3 py-2">
           <p className="text-sm">{t("review.editHint")}</p>
@@ -285,6 +348,44 @@ function Evidence({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The corrected summary of a needs_edit card, with the checks that the draft failed. */
+function SummaryEdit({
+  card,
+  answer,
+  setAnswer,
+}: {
+  card: Card;
+  answer: Answer;
+  setAnswer: (a: Answer) => void;
+}) {
+  const lint = editPayload(card).lint ?? [];
+  return (
+    <div className="flex flex-col gap-3 rounded-sm border border-accent bg-accent-wash px-3 py-2">
+      {lint.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <span className="label">{t("review.failedChecks")}</span>
+          <ul className="flex list-disc flex-col gap-0.5 pl-5 text-sm" data-testid="lint">
+            {lint.map((l) => (
+              <li key={`${l.rule}-${l.message}`}>{l.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Field label={t("review.summary")} hint={t("review.summaryHint")}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={6}
+            maxLength={4000}
+            value={summaryOf(card, answer)}
+            onChange={(e) => setAnswer({ ...answer, summary: e.target.value })}
+          />
+        )}
+      </Field>
     </div>
   );
 }
@@ -407,6 +508,8 @@ function Needs({ f }: { f: Filter }) {
   const [current, setCurrent] = useState<number>();
   const [editing, setEditing] = useState(false);
   const [edits, setEdits] = useState<Edits>({});
+  // Answers stay per card until the server accepts them, so a refused summary comes back for the next try.
+  const [answers, setAnswers] = useState<Record<number, Answer>>({});
   const [asking, setAsking] = useState<"reject" | "needs">();
   const [bulk, setBulk] = useState(false);
   const [msg, setMsg] = useState<{ tone: "success" | "danger" | "info"; text: string }>();
@@ -431,6 +534,7 @@ function Needs({ f }: { f: Filter }) {
         } else {
           unwrap(await api.POST("/api/v1/cards/{id}/reject", { ...path, body: { reason: p.reason ?? "" } }));
         }
+        setAnswers(({ [p.card.id]: _, ...rest }) => rest);
       } catch (e) {
         setMsg({ tone: "danger", text: t("review.failed", { message: errorText(e) }) });
       }
@@ -451,9 +555,13 @@ function Needs({ f }: { f: Filter }) {
     [send],
   );
 
+  const answer = card ? (answers[card.id] ?? {}) : {};
+  const ready = card ? answerFor(card, answer) : undefined;
+  const setAnswer = (a: Answer) => card && setAnswers((as) => ({ ...as, [card.id]: a }));
   const decide = (action: "accept" | "reject", reason?: string) => {
     if (!card) return;
-    const e = editing ? edits : undefined;
+    if (action === "accept" && !ready) return;
+    const e = action === "accept" ? { ...(editing ? edits : {}), ...ready } : undefined;
     const p: Pending = { card, action, reason, edits: e, timer: 0 };
     p.timer = window.setTimeout(() => send(p), UNDO_MS);
     setPending((ps) => [...ps, p]);
@@ -498,7 +606,8 @@ function Needs({ f }: { f: Filter }) {
   keys.current = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement;
     if (e.metaKey || e.ctrlKey || e.altKey || asking || bulk) return;
-    if (target.closest("input, textarea, select, [role=dialog]")) return;
+    // A picked radio or checkbox keeps the focus; the keys still work there, but not in a text field.
+    if (target.closest("input:not([type=radio], [type=checkbox]), textarea, select, [role=dialog]")) return;
     const k = e.key.toLowerCase();
     if (k === "a") decide("accept");
     else if (k === "r") setAsking("reject");
@@ -566,9 +675,16 @@ function Needs({ f }: { f: Filter }) {
             className="grid gap-4 rounded-md border border-rule-strong bg-paper-raised p-4 shadow-sheet md:grid-cols-[minmax(12rem,1fr)_3fr]"
           >
             <Decision card={card} />
-            <Evidence card={card} editing={editing} edits={edits} setEdits={setEdits} />
+            <Evidence
+              card={card}
+              editing={editing}
+              edits={edits}
+              setEdits={setEdits}
+              answer={answer}
+              setAnswer={setAnswer}
+            />
             <div className="flex flex-wrap gap-2 md:col-span-2">
-              <Button variant="primary" onClick={() => decide("accept")}>
+              <Button variant="primary" onClick={() => decide("accept")} disabled={!ready}>
                 <Check aria-hidden />
                 {t("review.accept")}
                 <kbd className="font-mono text-xs opacity-70">A</kbd>

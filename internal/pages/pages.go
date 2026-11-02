@@ -2,7 +2,8 @@
 // facts, conflicts, decisions, timeline, related entities and sources are
 // computed per request from visible claims. Only the summary uses a model.
 // It is cached per entity and visibility key, the hash of the sorted
-// visible connections with evidence for the entity (REQ-VIS-007).
+// visible connections with evidence for the entity and of the connections
+// of the term definitions in the compile prompt (REQ-VIS-007).
 package pages
 
 import (
@@ -123,6 +124,8 @@ type Page struct {
 	connections []int64
 	vkey        []byte
 	input       []claims.Claim
+	terms       []vocab.Term
+	vocab       []vocab.Term
 	hash        []byte
 	all         []claims.Claim
 }
@@ -134,7 +137,7 @@ func (s *Service) Get(ctx context.Context, vis visibility.Set, key string) (*Pag
 	if err != nil {
 		return nil, err
 	}
-	if err := s.cached(ctx, vis, p); err != nil {
+	if err := s.cached(ctx, p); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -150,18 +153,9 @@ func (s *Service) build(ctx context.Context, vis visibility.Set, key string) (*P
 	if err != nil {
 		return nil, err
 	}
-	pc, err := q.PermissionsChecked(ctx, conns)
-	if err != nil {
-		return nil, err
-	}
-	var checked *time.Time
-	if !pc.Unchecked {
-		checked = &pc.CheckedAt
-	}
 	p := &Page{Key: d.Key, Type: d.Type, Name: d.Name, Domain: d.Domain, DomainID: d.DomainID, Aliases: d.Aliases, Owners: []PageLink{},
-		Newest: d.Newest, Permissions: checked, Facts: []claims.Claim{}, Decisions: []PageLink{}, Timeline: d.Timeline, Related: []PageLink{},
-		Sources: d.Sources, entityID: d.ID, members: d.Members, connections: conns, vkey: VisibilityKey(conns)}
-	p.VisibilityKey = hex.EncodeToString(p.vkey)
+		Facts: []claims.Claim{}, Decisions: []PageLink{}, Timeline: d.Timeline, Related: []PageLink{},
+		Newest: d.Newest, Sources: d.Sources, entityID: d.ID, members: d.Members}
 	p.all = append(slices.Clone(d.Claims), d.Incoming...)
 	p.Conflicts = claims.Conflicts(p.all)
 	for _, c := range d.Claims {
@@ -193,7 +187,31 @@ func (s *Service) build(ctx context.Context, vis visibility.Set, key string) (*P
 			p.input = append(p.input, c)
 		}
 	}
-	p.hash = claimSetHash(p.Name, p.input)
+	// The compile prompt holds the definitions of the approved terms that
+	// the input uses, so their connections are part of the key.
+	if p.vocab, err = s.Vocab.Terms(ctx, vis); err != nil {
+		return nil, err
+	}
+	approved := slices.DeleteFunc(slices.Clone(p.vocab), func(t vocab.Term) bool { return t.Status != vocab.StatusApproved })
+	var text strings.Builder
+	text.WriteString(p.Name)
+	for _, c := range p.input {
+		text.WriteString("\n\n" + c.SubjectName + " " + c.Object())
+	}
+	p.terms = vocab.InText(approved, text.String(), vocab.MaxPromptTerms)
+	conns = append(conns, vocab.ConnectionsOf(p.terms)...)
+	slices.Sort(conns)
+	p.connections = slices.Compact(conns)
+	p.vkey = VisibilityKey(p.connections)
+	p.VisibilityKey = hex.EncodeToString(p.vkey)
+	pc, err := q.PermissionsChecked(ctx, p.connections)
+	if err != nil {
+		return nil, err
+	}
+	if !pc.Unchecked {
+		p.Permissions = &pc.CheckedAt
+	}
+	p.hash = claimSetHash(p.Name, p.input, p.terms)
 	return p, nil
 }
 
@@ -216,11 +234,15 @@ func VisibilityKey(conns []int64) []byte {
 	return h.Sum(nil)
 }
 
-// claimSetHash covers the input claims with their status and evidence. A
-// change of either makes the cached summary stale.
-func claimSetHash(name string, cs []claims.Claim) []byte {
+// claimSetHash covers the input claims with their status and evidence, and
+// the prompt terms with their definitions. A change of any makes the cached
+// summary stale.
+func claimSetHash(name string, cs []claims.Claim, terms []vocab.Term) []byte {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00", name)
+	for _, t := range terms {
+		fmt.Fprintf(h, "term|%s|%s|%s\x00", t.Key, t.Name, t.Definition)
+	}
 	for _, c := range cs {
 		fmt.Fprintf(h, "%d|%s|%s|%s|%s|%s\x00", c.ID, c.SubjectName, c.Predicate, c.Object(), c.Status, c.Scope)
 		ev := make([]string, 0, len(c.Evidence))
@@ -234,7 +256,7 @@ func claimSetHash(name string, cs []claims.Claim) []byte {
 }
 
 // cached fills the summary from the stored page of the visibility key.
-func (s *Service) cached(ctx context.Context, vis visibility.Set, p *Page) error {
+func (s *Service) cached(ctx context.Context, p *Page) error {
 	p.Summary = PageSummary{State: StateMissing, Citations: []PageCitation{}, Links: vocab.LinkText(nil, "", 0), Lint: []Failure{}}
 	if len(p.input) < MinClaims {
 		p.Summary.State = StateInsufficient
@@ -264,11 +286,12 @@ func (s *Service) cached(ctx context.Context, vis visibility.Set, p *Page) error
 	}
 	var ids map[string]int64
 	_ = json.Unmarshal(row.Citations, &ids)
-	return s.fill(ctx, vis, p, row.SummaryMd, ids)
+	fill(p, row.SummaryMd, ids)
+	return nil
 }
 
 // fill sets the summary text, its citations and its term links.
-func (s *Service) fill(ctx context.Context, vis visibility.Set, p *Page, md string, ids map[string]int64) error {
+func fill(p *Page, md string, ids map[string]int64) {
 	p.Summary.Markdown = md
 	byID := map[int64]claims.Claim{}
 	for _, c := range p.input {
@@ -279,16 +302,12 @@ func (s *Service) fill(ctx context.Context, vis visibility.Set, p *Page, md stri
 			p.Summary.Citations = append(p.Summary.Citations, PageCitation{ID: m, ClaimID: c.ID, Claim: c})
 		}
 	}
-	approved, err := s.Vocab.Approved(ctx, vis)
-	if err != nil {
-		return err
-	}
+	approved := slices.DeleteFunc(slices.Clone(p.vocab), func(t vocab.Term) bool { return t.Status != vocab.StatusApproved })
 	var domain int64
 	if p.DomainID != nil {
 		domain = *p.DomainID
 	}
 	p.Summary.Links = vocab.LinkText(approved, md, domain)
-	return nil
 }
 
 var claimMarker = regexp.MustCompile(`\[(C\d+)\]`)
@@ -377,17 +396,7 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 	if err := s.queueExtraction(ctx, vis, p, rules.ExtractPassages); err != nil {
 		s.Log.Warn("page extraction not queued", "entity", p.Key, "error", err.Error())
 	}
-	all, err := s.Vocab.Terms(ctx, vis)
-	if err != nil {
-		return nil, err
-	}
-	approved := slices.DeleteFunc(slices.Clone(all), func(t vocab.Term) bool { return t.Status != vocab.StatusApproved })
-	var text strings.Builder
-	text.WriteString(p.Name)
-	for _, c := range p.input {
-		text.WriteString("\n\n" + c.SubjectName + " " + c.Object())
-	}
-	msgs, ids := messages(p, vocab.InText(approved, text.String(), vocab.MaxPromptTerms), rules)
+	msgs, ids := messages(p, p.terms, rules)
 	known := map[string]bool{}
 	for id := range ids {
 		known[id] = true
@@ -415,7 +424,7 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 			return p, nil
 		}
 		model = res.Model
-		draft, failures = check(res.Content, known, rules, all)
+		draft, failures = check(res.Content, known, rules, p.vocab)
 		if len(failures) == 0 {
 			break
 		}
@@ -449,7 +458,8 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 		if err != nil || open {
 			return err
 		}
-		payload, _ := json.Marshal(map[string]any{"entityKey": p.Key, "name": p.Name, "draft": draft, "lint": failures})
+		payload, _ := json.Marshal(map[string]any{"entityKey": p.Key, "visibilityKey": p.VisibilityKey, "name": p.Name, "draft": draft,
+			"lint": failures})
 		return q.InsertPageCard(ctx, InsertPageCardParams{Target: target, Payload: payload, Connections: orEmpty(p.connections)})
 	})
 	if err != nil {
@@ -458,9 +468,7 @@ func (s *Service) Compile(ctx context.Context, vis visibility.Set, key string, e
 	p.Summary = PageSummary{State: state, Citations: []PageCitation{}, Links: vocab.LinkText(nil, "", 0), Lint: orEmpty(failures), Model: model,
 		CompiledAt: &now}
 	if state == StateFresh {
-		if err := s.fill(ctx, vis, p, draft, ids); err != nil {
-			return nil, err
-		}
+		fill(p, draft, ids)
 	}
 	return p, nil
 }
@@ -537,26 +545,26 @@ func aliasPattern(norms []string) string {
 }
 
 // Orientation returns the fresh summary of an entity for the reader without
-// its markers, or "" when the page has none. Ask adds it as orientation
-// only; it is never evidence (REQ-ASK-005).
-func (s *Service) Orientation(ctx context.Context, vis visibility.Set, entityID int64) (string, string, error) {
+// its markers, or "" when the page has none, with the connections of the
+// page. Ask adds it as orientation only; it is never evidence (REQ-ASK-005).
+func (s *Service) Orientation(ctx context.Context, vis visibility.Set, entityID int64) (string, string, []int64, error) {
 	key, err := New(s.Pool).EntityKey(ctx, entityID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", nil
+		return "", "", nil, nil
 	}
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	p, err := s.Get(ctx, vis, key)
 	if errors.Is(err, entities.ErrNotFound) {
-		return "", "", nil
+		return "", "", nil, nil
 	}
 	if err != nil || p.Summary.State != StateFresh {
-		return "", "", err
+		return "", "", nil, err
 	}
 	text := strings.Join(strings.Fields(claimMarker.ReplaceAllString(p.Summary.Markdown, "")), " ")
 	text = strings.ReplaceAll(text, " .", ".")
-	return p.Name, text, nil
+	return p.Name, text, p.connections, nil
 }
 
 func orEmpty[T any](s []T) []T {

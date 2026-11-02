@@ -77,6 +77,13 @@ func (s *Sources) DeleteFile(host, repo, file string) {
 	delete(s.repos[host+":"+repo].Files, file)
 }
 
+// DeleteRepo removes a repository, so that the API answers 404 for it.
+func (s *Sources) DeleteRepo(host, repo string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.repos, host+":"+repo)
+}
+
 // RepoFiles returns the paths of the files of a repository, sorted.
 func (s *Sources) RepoFiles(host, repo string) []string {
 	s.mu.Lock()

@@ -186,6 +186,13 @@ VALUES ('finding', 'entity:e2e:service:kinds', '{"note": "seeded restricted"}', 
     const card = page.getByTestId("card");
     await expect(card).toContainText(label);
     await expect(card).toContainText(`seeded ${kind}`);
+    const accept = card.getByRole("button", { name: /^Accept/ });
+    if (kind === "conflict") await expect(accept).toBeDisabled();
+    if (kind === "needs_edit") {
+      await expect(accept).toBeDisabled();
+      await card.getByLabel("Corrected summary").fill("Kinds Service runs in production [C1].");
+      await expect(accept).toBeEnabled();
+    }
   }
   await page.getByLabel("Kind").selectOption("finding");
   await page.getByLabel("Search cards").fill("seeded restricted");

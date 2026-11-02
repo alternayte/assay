@@ -67,6 +67,30 @@ func (q *Queries) ActivateEntity(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const activeConnections = `-- name: ActiveConnections :many
+SELECT id FROM connections WHERE status = 'active' ORDER BY id
+`
+
+func (q *Queries) ActiveConnections(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, activeConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const addDecisionEvidence = `-- name: AddDecisionEvidence :exec
 INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
 VALUES ($1, $2, $3, $4, 'passage', 'supports', $5, 'current', 'decision')
@@ -199,6 +223,38 @@ func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow
 	return i, err
 }
 
+const claimsConnections = `-- name: ClaimsConnections :many
+SELECT e.connection_id FROM claim_evidence e WHERE e.claim_id = ANY($1::bigint[])
+UNION
+SELECT s.connection_id FROM entity_sources s
+JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
+WHERE c.id = ANY($1::bigint[])
+ORDER BY 1
+`
+
+// The connections of the evidence of the claims and of the sources of their
+// entities: the inputs of a conflict card.
+// vis:system
+func (q *Queries) ClaimsConnections(ctx context.Context, ids []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, claimsConnections, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var connection_id int64
+		if err := rows.Scan(&connection_id); err != nil {
+			return nil, err
+		}
+		items = append(items, connection_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claimsInUse = `-- name: ClaimsInUse :many
 SELECT x.id::bigint AS id
 FROM questions q
@@ -269,6 +325,59 @@ func (q *Queries) CodeIdentities(ctx context.Context) ([]CodeIdentitiesRow, erro
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const conflictCardKnown = `-- name: ConflictCardKnown :one
+SELECT (EXISTS (SELECT 1 FROM proposals k WHERE k.kind = 'conflict' AND k.target = $1::text)
+     OR EXISTS (SELECT 1 FROM proposals p, jsonb_array_elements(coalesce(p.payload->'claims', '[]'::jsonb)) x
+                WHERE p.kind = 'conflict' AND p.status = 'open' AND x::text::bigint = ANY($2::bigint[])))::boolean
+`
+
+type ConflictCardKnownParams struct {
+	Target string
+	Ids    []int64
+}
+
+// Whether a conflict card exists for the target, or an open conflict card
+// names one of the claims.
+func (q *Queries) ConflictCardKnown(ctx context.Context, arg ConflictCardKnownParams) (bool, error) {
+	row := q.db.QueryRow(ctx, conflictCardKnown, arg.Target, arg.Ids)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const conflictSubjects = `-- name: ConflictSubjects :many
+SELECT DISTINCT g.subject_id FROM (
+    SELECT c.subject_id FROM claims c
+    WHERE c.retracted_at IS NULL AND c.predicate = ANY($1::text[])
+      AND EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id AND e.stance = 'supports' AND e.state = 'current')
+    GROUP BY c.subject_id, c.predicate
+    HAVING count(DISTINCT (coalesce(c.object_entity_id, 0), c.object_norm)) > 1
+) g
+ORDER BY g.subject_id
+`
+
+// Subjects with two or more current values of one of the predicates.
+// vis:system
+func (q *Queries) ConflictSubjects(ctx context.Context, predicates []string) ([]int64, error) {
+	rows, err := q.db.Query(ctx, conflictSubjects, predicates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var subject_id int64
+		if err := rows.Scan(&subject_id); err != nil {
+			return nil, err
+		}
+		items = append(items, subject_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

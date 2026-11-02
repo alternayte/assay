@@ -85,6 +85,30 @@ func (q *Queries) DeleteGroup(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const gainedConnections = `-- name: GainedConnections :one
+SELECT count(*) FROM connection_visibility v
+JOIN connections c ON c.id = v.connection_id
+WHERE v.group_id = $1 AND c.owner_id IS DISTINCT FROM $2::uuid
+  AND NOT EXISTS (SELECT 1 FROM connection_visibility o JOIN groups g ON g.id = o.group_id
+                  WHERE o.connection_id = c.id AND o.group_id <> $1
+                    AND (g.builtin OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = $2::uuid)))
+`
+
+type GainedConnectionsParams struct {
+	GroupID int64
+	UserID  string
+}
+
+// The connections that a user would read only through the group: shared
+// with it, not owned by the user and not shared with another group of the
+// user.
+func (q *Queries) GainedConnections(ctx context.Context, arg GainedConnectionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, gainedConnections, arg.GroupID, arg.UserID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getGroup = `-- name: GetGroup :one
 SELECT id, name, builtin FROM groups WHERE id = $1
 `

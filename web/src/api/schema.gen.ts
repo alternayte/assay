@@ -254,7 +254,7 @@ export interface paths {
         put?: never;
         /**
          * Accept a card
-         * @description A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional.
+         * @description A merge card merges its entities. A link card adds the claim of its mention. An unnamed card makes its entity active. The canonical name is optional. A conflict card needs the winner. A needs_edit card needs the corrected summary.
          */
         post: operations["acceptCard"];
         delete?: never;
@@ -2550,8 +2550,15 @@ export interface components {
             diagram?: string;
             /** @description The entity keys of a merge cluster to merge. Empty merges all members. */
             members?: string[];
+            /** @description The corrected summary of a needs_edit card, with claim markers such as [C1]. */
+            summary?: string;
             /** @description The corrected text of a design section. */
             text?: string;
+            /**
+             * Format: int64
+             * @description The claim that wins a conflict card. The other claims of the card become Superseded.
+             */
+            winner?: number;
         };
         EndpointBody: {
             /**

@@ -155,43 +155,20 @@ func (q *Queries) InsertResolution(ctx context.Context, arg InsertResolutionPara
 	return id, err
 }
 
-const reopenResolutions = `-- name: ReopenResolutions :many
-UPDATE resolutions r SET reopened_at = $1
-FROM claims c
-WHERE c.id = $2 AND r.subject_id = c.subject_id AND r.predicate = c.predicate AND r.scope_key = c.scope_env
-  AND r.chosen_claim_id <> c.id AND r.reopened_at IS NULL
-RETURNING r.id, r.chosen_claim_id
+const openCardExists = `-- name: OpenCardExists :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = $1 AND target = $2 AND status = 'open')::boolean
 `
 
-type ReopenResolutionsParams struct {
-	Now     *time.Time
-	ClaimID int64
+type OpenCardExistsParams struct {
+	Kind   string
+	Target string
 }
 
-type ReopenResolutionsRow struct {
-	ID            int64
-	ChosenClaimID int64
-}
-
-// Resolutions that chose another claim than the one with new support.
-func (q *Queries) ReopenResolutions(ctx context.Context, arg ReopenResolutionsParams) ([]ReopenResolutionsRow, error) {
-	rows, err := q.db.Query(ctx, reopenResolutions, arg.Now, arg.ClaimID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ReopenResolutionsRow
-	for rows.Next() {
-		var i ReopenResolutionsRow
-		if err := rows.Scan(&i.ID, &i.ChosenClaimID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) OpenCardExists(ctx context.Context, arg OpenCardExistsParams) (bool, error) {
+	row := q.db.QueryRow(ctx, openCardExists, arg.Kind, arg.Target)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const resolutions = `-- name: Resolutions :many
@@ -239,6 +216,42 @@ func (q *Queries) Resolutions(ctx context.Context, arg ResolutionsParams) ([]Res
 			&i.DecidedAt,
 			&i.ReopenedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resolutionsAgainst = `-- name: ResolutionsAgainst :many
+SELECT r.id, r.chosen_claim_id
+FROM resolutions r
+JOIN claims c ON c.id = $1
+WHERE r.subject_id = c.subject_id AND r.predicate = c.predicate AND r.scope_key = c.scope_env
+  AND r.chosen_claim_id <> c.id AND r.reopened_at IS NULL
+ORDER BY r.id
+`
+
+type ResolutionsAgainstRow struct {
+	ID            int64
+	ChosenClaimID int64
+}
+
+// The open resolutions that chose another claim of the subject, predicate
+// and scope of a claim.
+func (q *Queries) ResolutionsAgainst(ctx context.Context, claimID int64) ([]ResolutionsAgainstRow, error) {
+	rows, err := q.db.Query(ctx, resolutionsAgainst, claimID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResolutionsAgainstRow
+	for rows.Next() {
+		var i ResolutionsAgainstRow
+		if err := rows.Scan(&i.ID, &i.ChosenClaimID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

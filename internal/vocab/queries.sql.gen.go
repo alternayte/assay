@@ -132,43 +132,78 @@ SELECT e.id, e.key, coalesce(e.domain_id, 0)::bigint AS domain_id, coalesce(d.na
        ARRAY(SELECT DISTINCT a.alias FROM entity_aliases a
              WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT x.id FROM entities x WHERE x.merged_into = e.id))
                AND a.connection_id = ANY($1::bigint[]) ORDER BY a.alias)::text[] AS aliases,
-       coalesce((SELECT c.object_text FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'status' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY($1::bigint[]) AND ev.source_type IN ('registry', 'review')
-                 ORDER BY c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1), '')::text AS status,
-       coalesce((SELECT c.object_text FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'defined_as' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY($1::bigint[])
-                 ORDER BY (ev.source_type IN ('registry', 'review')) DESC, c.id LIMIT 1), '')::text AS definition,
-       coalesce((SELECT o.key FROM claims c JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'preferred_term' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY($1::bigint[]) ORDER BY c.id LIMIT 1), '')::text AS preferred,
-       coalesce((SELECT entity_display_name(c.object_entity_id, $1::bigint[]) FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
-                 WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL AND ev.state = 'current'
-                   AND ev.connection_id = ANY($1::bigint[]) ORDER BY c.id LIMIT 1), '')::text AS owner
+       coalesce(st.value, '')::text AS status,
+       coalesce(df.value, '')::text AS definition,
+       coalesce(pf.value, '')::text AS preferred,
+       coalesce(ow.value, '')::text AS owner,
+       ARRAY(SELECT DISTINCT x.connection_id FROM (
+               SELECT s.connection_id FROM entity_sources s
+               WHERE (s.entity_id = e.id OR s.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+                 AND s.connection_id = ANY($1::bigint[])
+               UNION
+               SELECT a.connection_id FROM entity_aliases a
+               WHERE (a.entity_id = e.id OR a.entity_id IN (SELECT m.id FROM entities m WHERE m.merged_into = e.id))
+                 AND a.connection_id = ANY($1::bigint[])
+               UNION
+               SELECT u.conn FROM (VALUES (st.connection_id), (df.connection_id), (pf.connection_id), (ow.connection_id)) u (conn)
+               WHERE u.conn IS NOT NULL) x
+             ORDER BY x.connection_id)::bigint[] AS connections
 FROM entities e
 LEFT JOIN domains d ON d.id = e.domain_id
+LEFT JOIN LATERAL (
+    SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'status' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY($1::bigint[]) AND ev.source_type IN ('registry', 'review')
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+    ORDER BY EXISTS (SELECT 1 FROM resolutions r WHERE r.chosen_claim_id = c.id AND r.reopened_at IS NULL) DESC,
+             c.valid_from DESC NULLS LAST, c.id DESC LIMIT 1) st ON true
+LEFT JOIN LATERAL (
+    SELECT c.object_text AS value, ev.connection_id FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'defined_as' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+    ORDER BY (ev.source_type IN ('registry', 'review')) DESC, c.id LIMIT 1) df ON true
+LEFT JOIN LATERAL (
+    SELECT o.key AS value, ev.connection_id FROM claims c JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'preferred_term' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+      AND EXISTS (SELECT 1 FROM entity_sources os WHERE os.entity_id = o.id AND os.connection_id = ANY($1::bigint[]))
+    ORDER BY c.id LIMIT 1) pf ON true
+LEFT JOIN LATERAL (
+    SELECT entity_display_name(c.object_entity_id, $1::bigint[]) AS value, ev.connection_id
+    FROM claims c JOIN claim_evidence ev ON ev.claim_id = c.id
+    WHERE c.subject_id = e.id AND c.predicate = 'owned_by' AND c.retracted_at IS NULL AND ev.state = 'current'
+      AND ev.connection_id = ANY($1::bigint[])
+      AND (ev.proposal_id IS NULL OR EXISTS (SELECT 1 FROM proposals pr WHERE pr.id = ev.proposal_id AND pr.status = 'accepted'))
+    ORDER BY c.id LIMIT 1) ow ON true
 WHERE e.type = 'term' AND e.status = 'active'
   AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = ANY($1::bigint[]))
 ORDER BY lower(coalesce(entity_display_name(e.id, $1::bigint[]), e.key)), e.id
 `
 
 type VisibleTermsRow struct {
-	ID         int64
-	Key        string
-	DomainID   int64
-	Domain     string
-	Name       string
-	Aliases    []string
-	Status     string
-	Definition string
-	Preferred  string
-	Owner      string
+	ID          int64
+	Key         string
+	DomainID    int64
+	Domain      string
+	Name        string
+	Aliases     []string
+	Status      string
+	Definition  string
+	Preferred   string
+	Owner       string
+	Connections []int64
 }
 
 // Active terms with a visible source. Status comes from visible registry
-// or review evidence, the newest value first. Names and aliases come from
-// visible connections only (SI-16).
+// or review evidence: the claim that an open resolution chose, else the
+// newest value. Status, definition, preferred term and owner use only
+// evidence with no proposal or an accepted proposal. The preferred term
+// needs a visible source. Names and aliases come from
+// visible connections only (SI-16). Connections are the visible connections
+// that give the name, the aliases, the status, the definition, the
+// preferred term and the owner: a text that shows the term depends on them.
 func (q *Queries) VisibleTerms(ctx context.Context, visible []int64) ([]VisibleTermsRow, error) {
 	rows, err := q.db.Query(ctx, visibleTerms, visible)
 	if err != nil {
@@ -189,6 +224,7 @@ func (q *Queries) VisibleTerms(ctx context.Context, visible []int64) ([]VisibleT
 			&i.Definition,
 			&i.Preferred,
 			&i.Owner,
+			&i.Connections,
 		); err != nil {
 			return nil, err
 		}

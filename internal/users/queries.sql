@@ -90,3 +90,14 @@ DELETE FROM group_members WHERE group_id = @group_id AND user_id = @user_id;
 
 -- name: SetInviteUser :exec
 UPDATE invites SET accepted_user_id = @user_id WHERE id = @id;
+
+-- name: GainedConnections :one
+-- The connections that a user would read only through the group: shared
+-- with it, not owned by the user and not shared with another group of the
+-- user.
+SELECT count(*) FROM connection_visibility v
+JOIN connections c ON c.id = v.connection_id
+WHERE v.group_id = @group_id AND c.owner_id IS DISTINCT FROM @user_id::uuid
+  AND NOT EXISTS (SELECT 1 FROM connection_visibility o JOIN groups g ON g.id = o.group_id
+                  WHERE o.connection_id = c.id AND o.group_id <> @group_id
+                    AND (g.builtin OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = @user_id::uuid)));

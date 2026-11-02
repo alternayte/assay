@@ -50,7 +50,15 @@ type Edits struct {
 	Members    []string `json:"members,omitempty" maxItems:"50" doc:"The entity keys of a merge cluster to merge. Empty merges all members."`
 	Text       string   `json:"text,omitempty" maxLength:"8000" doc:"The corrected text of a design section."`
 	Diagram    string   `json:"diagram,omitempty" maxLength:"8000" doc:"The corrected Mermaid diagram of a design section."`
+	Winner     int64    `json:"winner,omitempty" doc:"The claim that wins a conflict card. The other claims of the card become Superseded."`
+	Summary    string   `json:"summary,omitempty" maxLength:"4000" doc:"The corrected summary of a needs_edit card, with claim markers such as [C1]."`
 }
+
+// InvalidEdit is an edit that an accept refuses, such as a missing winner
+// or a summary that fails the checks.
+type InvalidEdit struct{ Code, Message string }
+
+func (e *InvalidEdit) Error() string { return e.Message }
 
 // ProfileText is the deterministic profile of an entity: display name,
 // type, aliases, domain, up to 10 claims and up to 5 source titles, cut to

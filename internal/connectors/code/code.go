@@ -60,6 +60,18 @@ func language(name string) *ts.Language {
 	return langs[name]
 }
 
+func init() { content.SplitSource = SplitBody }
+
+// SplitBody splits a stored body, one fenced code block, into the passages
+// of its source file.
+func SplitBody(file, body string) []content.Passage {
+	lines := strings.Split(body, "\n")
+	if len(lines) >= 2 && strings.HasPrefix(lines[0], "```") && strings.HasPrefix(lines[len(lines)-1], "```") {
+		lines = lines[1 : len(lines)-1]
+	}
+	return Split(file, []byte(strings.Join(lines, "\n")))
+}
+
 // Body is the normalized Markdown body of a source file: one fenced code
 // block.
 func Body(file string, src []byte) string {

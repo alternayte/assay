@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -319,6 +320,7 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
+		reconcile := false
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 			q := New(tx)
 			cur, err := q.GetConnection(ctx, in.ID)
@@ -350,10 +352,27 @@ func (s *Service) Register(a huma.API) {
 					return err
 				}
 			}
+			// Content of the old source selection stays hidden until a
+			// reconciliation of the new one succeeds.
+			if cur.Status != "paused" && sourceChanged(cur, b) {
+				if _, err := q.SetStatus(ctx, SetStatusParams{ID: in.ID, Status: "resuming",
+					Reason: "The source selection changed. The content shows again after the next successful reconciliation."}); err != nil {
+					return err
+				}
+				reconcile = true
+			}
 			return audit.Write(ctx, tx, audit.Entry{Action: "connections.update", Target: fmt.Sprintf("connection:%d", in.ID),
 				Details: map[string]any{"name": b.Name, "baseUrl": b.BaseURL, "scope": b.Scope, "tokenChanged": b.Token != ""}})
 		})
-		return nil, wrap(err)
+		if err != nil {
+			return nil, wrap(err)
+		}
+		if reconcile {
+			if _, err := s.Queue(ctx, in.ID, "reconcile", "manual"); err != nil && !errors.Is(err, ErrRunActive) {
+				return nil, api.Internal(err)
+			}
+		}
+		return nil, nil
 	})
 
 	type visibilityIn struct {
@@ -489,6 +508,19 @@ func (s *Service) Register(a huma.API) {
 	})
 }
 
+// sourceChanged reports whether a change selects other source content:
+// another base URL, scope, options or globs.
+func sourceChanged(cur Connection, b connectionBody) bool {
+	same := func(stored []byte, m map[string]any) bool {
+		var a, c any
+		_ = json.Unmarshal(stored, &a)
+		_ = json.Unmarshal(rawJSON(m), &c)
+		return reflect.DeepEqual(a, c)
+	}
+	return cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") || !same(cur.Scope, b.Scope) || !same(cur.Options, b.Options) ||
+		!slices.Equal(orStrings(cur.IncludeGlobs), orStrings(b.IncludeGlobs)) || !slices.Equal(orStrings(cur.ExcludeGlobs), orStrings(b.ExcludeGlobs))
+}
+
 func registryProblem() error {
 	return api.Problem(http.StatusConflict, "registry", "The registry is built in. It cannot be changed, paused or purged.")
 }
@@ -533,9 +565,8 @@ func (s *Service) setToken(ctx context.Context, tx pgx.Tx, id int64, token strin
 	return New(tx).SetConnectionSecret(ctx, SetConnectionSecretParams{ID: id, SecretID: &sid})
 }
 
-// setVisibility shares a connection with groups. Adding a group needs the
-// confirmation (REQ-VIS-003).
-// setVisibility sets the groups of a connection. by confirms the new groups.
+// setVisibility sets the groups of a connection. Adding a group needs the
+// confirmation of by (REQ-VIS-003).
 func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64, confirm bool, by string) error {
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		q := New(tx)
@@ -569,6 +600,24 @@ func (s *Service) setVisibility(ctx context.Context, id int64, groupIDs []int64,
 		for _, g := range groupIDs {
 			if !current[g] {
 				added = append(added, g)
+			}
+		}
+		// An admin shares a connection with a group of the admin only when
+		// the admin reads it already (SI-01).
+		if len(added) > 0 {
+			reads, err := q.ReadsConnection(ctx, ReadsConnectionParams{ID: id, UserID: by})
+			if err != nil {
+				return err
+			}
+			if !reads {
+				own, err := q.MemberGroups(ctx, MemberGroupsParams{Ids: added, UserID: by})
+				if err != nil {
+					return err
+				}
+				if len(own) > 0 {
+					return api.Problem(http.StatusForbidden, "own_access",
+						"You cannot share a connection that you cannot read with a group that you are in. Ask the owner.")
+				}
 			}
 		}
 		if len(added) > 0 && !confirm {

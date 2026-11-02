@@ -365,6 +365,9 @@
     "fail": "Fail",
     "allPass": "All checks pass.",
     "someFail": "Some checks fail. Each failed check names its cause.",
+    "jobsTitle": "Job queue",
+    "jobsBody": "River UI shows the background jobs: sync runs, embedding, extraction, resolution and design pages. You can retry, cancel or delete a job there.",
+    "jobsOpen": "Open the job queue",
     "notRun": "Run the checks to see the state of this install.",
     "colCheck": "Check",
     "colResult": "Result"

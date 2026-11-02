@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"riverqueue.com/riverui"
 
 	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/ask"
@@ -73,6 +74,7 @@ type Server struct {
 	tracer     *sdktrace.TracerProvider
 	handler    http.Handler
 	spaHandler http.Handler
+	jobsUI     *riverui.Handler
 	now        func() time.Time
 	opts       Options
 	addr       chan string
@@ -291,6 +293,9 @@ func (s *Server) routes() (http.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.jobsUI, err = s.newJobsUI(); err != nil {
+		return nil, err
+	}
 	s.spaHandler = spa
 	var apiErr error
 	r.Group(func(g chi.Router) {
@@ -301,6 +306,8 @@ func (s *Server) routes() (http.Handler, error) {
 			return
 		}
 		s.registerAPI(a)
+		g.Handle(JobsPath, http.RedirectHandler(JobsPath+"/", http.StatusMovedPermanently))
+		g.Handle(JobsPath+"/*", adminOnly(s.jobsUI))
 		// MCP for agents with an access token (REQ-AGT-001).
 		g.Handle("/mcp", s.agents.Handler())
 		g.Get(pages.GlossaryPath, func(w http.ResponseWriter, req *http.Request) {
@@ -368,6 +375,12 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	srv := &http.Server{Handler: s.handler, ReadHeaderTimeout: 10 * time.Second}
+	if s.jobsUI != nil {
+		if err := s.jobsUI.Start(ctx); err != nil {
+			_ = ln.Close()
+			return err
+		}
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
 	if s.cfg.Role != RoleWeb {

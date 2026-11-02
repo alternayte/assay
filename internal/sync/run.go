@@ -212,7 +212,7 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 		return err
 	}
 	now := s.now()
-	if _, err := q.StartRun(ctx, StartRunParams{ID: runID, Now: &now, Cursor: conn.Cursor}); err != nil {
+	if _, err := q.StartRun(ctx, StartRunParams{ID: runID, Now: &now, Cursor: conn.Cursor, StatusEpoch: conn.StatusEpoch}); err != nil {
 		return err
 	}
 	st := &stats{}
@@ -262,7 +262,7 @@ func (s *Service) finish(ctx context.Context, conn Connection, run SyncRun, curs
 					return err
 				}
 			case "reconcile":
-				if err := q.FinishReconcile(ctx, FinishReconcileParams{ID: conn.ID, Now: &now}); err != nil {
+				if err := q.FinishReconcile(ctx, FinishReconcileParams{ID: conn.ID, Now: &now, StatusEpoch: conn.StatusEpoch}); err != nil {
 					return err
 				}
 			}
@@ -420,21 +420,11 @@ func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Co
 	var skip *connectors.SkipError
 	switch {
 	case errors.As(err, &skip):
+		// A stored version of a skipped item would stay stale, so it goes.
 		st.skip(id, skip.Reason)
-		return nil
+		return s.tombstoneStored(ctx, conn.ID, id, st)
 	case errors.Is(err, connectors.ErrNotFound):
-		existing, err := New(s.Pool).ItemByExternalID(ctx, ItemByExternalIDParams{ConnectionID: conn.ID, ExternalID: id})
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if err := s.tombstone(ctx, existing); err != nil {
-			return err
-		}
-		st.deleted()
-		return nil
+		return s.tombstoneStored(ctx, conn.ID, id, st)
 	case err != nil:
 		return err
 	}
@@ -448,6 +438,22 @@ func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Co
 		return err
 	}
 	st.add(outcome)
+	return nil
+}
+
+// tombstoneStored tombstones the stored item with an external ID, if any.
+func (s *Service) tombstoneStored(ctx context.Context, connectionID int64, externalID string, st *stats) error {
+	existing, err := New(s.Pool).ItemByExternalID(ctx, ItemByExternalIDParams{ConnectionID: connectionID, ExternalID: externalID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.tombstone(ctx, existing); err != nil {
+		return err
+	}
+	st.deleted()
 	return nil
 }
 

@@ -33,6 +33,7 @@ type Connection struct {
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	StatusEpoch          int64
 }
 
 type SyncRun struct {
@@ -53,4 +54,5 @@ type SyncRun struct {
 	QueuedAt     time.Time
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
+	StatusEpoch  int64
 }

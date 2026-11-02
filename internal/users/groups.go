@@ -194,6 +194,18 @@ func (s *Service) registerGroups(a huma.API) {
 			if g.Builtin {
 				return errBuiltin
 			}
+			// An admin does not give itself the content of a connection
+			// of another owner (SI-01).
+			if in.UserID == api.Caller(ctx).User.ID {
+				n, err := q.GainedConnections(ctx, GainedConnectionsParams{GroupID: in.ID, UserID: in.UserID})
+				if err != nil {
+					return err
+				}
+				if n > 0 {
+					return api.Problem(http.StatusForbidden, "own_access",
+						"This group reads a connection of another owner that you cannot read. Another admin can add you.")
+				}
+			}
 			if err := q.AddGroupMember(ctx, AddGroupMemberParams{GroupID: in.ID, UserID: in.UserID}); err != nil {
 				return err
 			}

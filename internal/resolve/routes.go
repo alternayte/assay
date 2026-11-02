@@ -476,7 +476,10 @@ func (s *Service) acceptCluster(ctx context.Context, tx pgx.Tx, vis visibility.S
 			return errMembers
 		}
 	}
-	if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: members, Canonical: canonical, By: by}); err != nil {
+	// An earlier merge can have joined the members already. The pairs are
+	// then the same, so the cards are accepted with no new merge.
+	if _, _, err := s.Entities.MergeTx(ctx, tx, vis, entities.MergeRequest{Keys: members, Canonical: canonical, By: by}); err != nil &&
+		!errors.Is(err, entities.ErrAlreadyOne) {
 		return err
 	}
 	for _, pid := range cl.Pairs {
@@ -558,6 +561,17 @@ func (s *Service) NotSame(ctx context.Context, vis visibility.Set, keys []string
 	})
 }
 
+// skippable reports whether an accept failed for a reason of the card
+// alone, so that a bulk accept goes on.
+func skippable(err error) bool {
+	for _, e := range []error{ErrCardDone, ErrNotFound, errMembers, errCardKind, entities.ErrNotFound, entities.ErrMergeChanged} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
 func ptr[T any](v T) *T { return &v }
 
 func (s *Service) openCard(ctx context.Context, tx pgx.Tx, vis visibility.Set, id int64) (CardForUpdateRow, error) {
@@ -637,7 +651,9 @@ func (s *Service) Undo(ctx context.Context, vis visibility.Set, id int64) error 
 }
 
 // AcceptBand accepts each open card of the band of f that f selects, and
-// returns the accepted card IDs (REQ-REV-011).
+// returns the accepted card IDs (REQ-REV-011). A card that cannot be
+// accepted with no edits, or whose entities changed, stays open, and the
+// next card follows.
 func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilter, by string) ([]int64, error) {
 	if f.Band == "" {
 		return nil, errCardKind
@@ -652,7 +668,7 @@ func (s *Service) AcceptBand(ctx context.Context, vis visibility.Set, f CardFilt
 		switch {
 		case err == nil:
 			ids = append(ids, c.ID)
-		case errors.Is(err, ErrCardDone), errors.Is(err, ErrNotFound):
+		case skippable(err):
 		default:
 			return ids, err
 		}

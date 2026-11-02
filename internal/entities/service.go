@@ -395,7 +395,7 @@ func (s *Service) MergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, r 
 		}
 	}
 	if len(ids) < 2 {
-		return 0, "", errors.New("entities: the entities are already one")
+		return 0, "", ErrAlreadyOne
 	}
 	return s.mergeTx(ctx, tx, vis, ids, r)
 }
@@ -481,6 +481,10 @@ func boolFirst(b bool) int {
 	}
 	return 1
 }
+
+// ErrAlreadyOne means that the keys of a merge name one entity: an earlier
+// merge joined them.
+var ErrAlreadyOne = errors.New("entities: the entities are already one")
 
 // ErrMergeUndone means that the merge is already split.
 var ErrMergeUndone = errors.New("entities: the merge is already split")

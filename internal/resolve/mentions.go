@@ -48,9 +48,15 @@ type mentionPayload struct {
 	Candidate    string            `json:"candidate"`
 	Claim        content.Extracted `json:"claim"`
 	Side         string            `json:"side" doc:"subject or object: the side of the claim that the mention fills."`
+	// Index is the index of the claim in the extraction output.
+	Index int `json:"index"`
 	// Types are the entity types that the side allows: the types that an
 	// accept of an unnamed card can set.
 	Types []string `json:"types,omitempty"`
+	// Occurrences are the places where the question of the card was
+	// found. A card from before occurrences has none and stands for the
+	// one place above.
+	Occurrences []occurrence `json:"occurrences,omitempty"`
 }
 
 type side struct {
@@ -153,7 +159,7 @@ func (s *Service) mentionClaim(ctx context.Context, r PendingMentionsRow, index 
 	if r.SourceUpdatedAt != nil {
 		at = *r.SourceUpdatedAt
 	}
-	pl := mentionPayload{ItemID: r.ItemID, PassageHash: hex.EncodeToString(r.PassageHash), ConnectionID: r.ConnectionID, At: at,
+	pl := mentionPayload{ItemID: r.ItemID, PassageHash: hex.EncodeToString(r.PassageHash), ConnectionID: r.ConnectionID, At: at, Index: index,
 		Claim: content.Extracted{Predicate: raw.Predicate, Stance: raw.Stance, Quote: content.Normalize(raw.Quote)}}
 	if raw.Scope != nil {
 		pl.Claim.Scope = entities.NormalizeAlias(raw.Scope.Env)
@@ -180,10 +186,13 @@ func (s *Service) mentionClaim(ctx context.Context, r PendingMentionsRow, index 
 	if err != nil || done {
 		return err
 	}
+	if pl.Mention.Kind == "description" && !namesOneThing(pl.Mention.Value) {
+		return nil
+	}
+	if known, err := s.knownMention(ctx, pl); err != nil || known {
+		return err
+	}
 	if pl.Mention.Kind == "description" {
-		if !namesOneThing(pl.Mention.Value) {
-			return nil
-		}
 		return s.describe(ctx, r, target, types, pl)
 	}
 	return s.linkName(ctx, r, target, types, pl)
@@ -249,7 +258,10 @@ func (s *Service) describe(ctx context.Context, r PendingMentionsRow, target str
 		// rejected it: no model call and no card.
 		e, err := New(s.Pool).EntityByKeyAny(ctx, key)
 		if err == nil {
-			return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.addMentionClaim(ctx, tx, pl, e.ID) })
+			if err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.addMentionClaim(ctx, tx, pl, e.ID) }); err != nil {
+				return err
+			}
+			return s.unnamedOccurrence(ctx, key, pl)
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -370,14 +382,48 @@ func (s *Service) linkName(ctx context.Context, r PendingMentionsRow, target str
 	return s.mentionCard(ctx, "mention_link", target, pl, append([]int64{r.ConnectionID}, p.Connections...), &d.ID)
 }
 
+// mentionCard opens the card of a mention and a candidate. When the
+// question has an open card already, the mention joins it.
 func (s *Service) mentionCard(ctx context.Context, kind, target string, pl mentionPayload, conns []int64, decision *int64) error {
+	id, err := New(s.Pool).EntityRoot(ctx, pl.Candidate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	key := mentionKey(pl.ConnectionID, pl.Mention.Value, id)
+	pl.Occurrences = []occurrence{occurrenceOf(pl)}
 	payload, err := json.Marshal(pl)
 	if err != nil {
 		return err
 	}
 	_, err = New(s.Pool).InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: kind, Target: target, Payload: payload,
-		Connections: slices.Compact(sorted(conns)), DecisionID: decision})
-	return err
+		Connections: slices.Compact(sorted(conns)), DecisionID: decision, DedupeKey: &key})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	return s.openOccurrence(ctx, kind, key, pl)
+}
+
+// openOccurrence adds the occurrence of a mention to the open card of key.
+func (s *Service) openOccurrence(ctx context.Context, kind, key string, pl mentionPayload) error {
+	cs, err := New(s.Pool).CardsByKey(ctx, CardsByKeyParams{Kind: kind, Key: &key})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if c.Status == "open" {
+			return s.addOccurrence(ctx, c.ID, c.Payload, occurrenceOf(pl))
+		}
+	}
+	return nil
+}
+
+// unnamedOccurrence adds a mention of a known description to the open
+// unnamed card of its entity.
+func (s *Service) unnamedOccurrence(ctx context.Context, key string, pl mentionPayload) error {
+	return s.openOccurrence(ctx, "unnamed", "entity:"+key, pl)
 }
 
 // unnamed creates a proposed entity "<description> (unnamed)" with the
@@ -401,12 +447,17 @@ func (s *Service) unnamed(ctx context.Context, r PendingMentionsRow, key, typ st
 		if err := s.addMentionClaim(ctx, tx, pl, id); err != nil {
 			return err
 		}
+		pl.Occurrences = []occurrence{occurrenceOf(pl)}
 		payload, err := json.Marshal(pl)
 		if err != nil {
 			return err
 		}
-		_, err = q.InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: "unnamed", Target: "entity:" + key, Payload: payload,
-			Connections: []int64{r.ConnectionID}})
+		target := "entity:" + key
+		_, err = q.InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: "unnamed", Target: target, Payload: payload,
+			Connections: []int64{r.ConnectionID}, DedupeKey: &target})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return err
 	})
 }
@@ -441,8 +492,10 @@ func (s *Service) acceptMention(ctx context.Context, tx pgx.Tx, raw []byte) erro
 	if err != nil {
 		return err
 	}
-	if err := s.addMentionClaim(ctx, tx, pl, e.ID); err != nil {
-		return err
+	for _, o := range pl.all() {
+		if err := s.addMentionClaim(ctx, tx, o, e.ID); err != nil {
+			return err
+		}
 	}
 	if pl.Mention.Kind == "name" {
 		return New(tx).AddMentionAlias(ctx, AddMentionAliasParams{EntityID: e.ID, ConnectionID: pl.ConnectionID, Alias: pl.Mention.Value,

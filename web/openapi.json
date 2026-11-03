@@ -530,11 +530,13 @@
             "type": "number"
           },
           "status": {
+            "description": "closed is a card whose question no longer applies. It has no reviewer.",
             "enum": [
               "open",
               "accepted",
               "rejected",
-              "needs_evidence"
+              "needs_evidence",
+              "closed"
             ],
             "type": "string"
           },

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/alternayte/assay/internal/content"
@@ -228,8 +229,12 @@ func (s *Service) phrase(ctx context.Context, p Phrase) error {
 	if err != nil {
 		return err
 	}
+	key := termKey(p.Norm)
 	_, err = New(s.Pool).InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: "new_term", Target: "phrase:" + p.Norm, Payload: payload,
-		Connections: conns, DecisionID: &d.ID})
+		Connections: conns, DecisionID: &d.ID, DedupeKey: &key})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	return err
 }
 

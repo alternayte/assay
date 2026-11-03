@@ -49,7 +49,7 @@ type Card struct {
 	Pairs       []int64          `json:"pairs,omitempty" doc:"The merge cards of a cluster."`
 	Connections []CardConnection `json:"connections" doc:"The connections of the card inputs."`
 	Claims      []claims.Claim   `json:"claims,omitempty" doc:"The claims of a correction, finding or conflict card, with their visible evidence."`
-	Status      string           `json:"status" enum:"open,accepted,rejected,needs_evidence"`
+	Status      string           `json:"status" enum:"open,accepted,rejected,needs_evidence,closed" doc:"closed is a card whose question no longer applies. It has no reviewer."`
 	Reason      string           `json:"reason,omitempty"`
 	Reviewer    string           `json:"reviewer,omitempty" doc:"The email of the reviewer of a decided card."`
 	DecidedAt   *time.Time       `json:"decidedAt,omitempty"`

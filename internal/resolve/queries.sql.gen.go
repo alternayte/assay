@@ -223,6 +223,107 @@ func (q *Queries) CardForUpdate(ctx context.Context, id int64) (CardForUpdateRow
 	return i, err
 }
 
+const cardsByKey = `-- name: CardsByKey :many
+SELECT id, status, payload, decided_at FROM proposals WHERE kind = $1 AND dedupe_key = $2 ORDER BY id
+`
+
+type CardsByKeyParams struct {
+	Kind string
+	Key  *string
+}
+
+type CardsByKeyRow struct {
+	ID        int64
+	Status    string
+	Payload   json.RawMessage
+	DecidedAt *time.Time
+}
+
+// The cards of a question in any status, oldest first.
+func (q *Queries) CardsByKey(ctx context.Context, arg CardsByKeyParams) ([]CardsByKeyRow, error) {
+	rows, err := q.db.Query(ctx, cardsByKey, arg.Kind, arg.Key)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CardsByKeyRow
+	for rows.Next() {
+		var i CardsByKeyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Payload,
+			&i.DecidedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cardsByKeyPrefix = `-- name: CardsByKeyPrefix :many
+SELECT id, status, dedupe_key, payload FROM proposals WHERE kind = $1 AND dedupe_key LIKE $2 ORDER BY id
+`
+
+type CardsByKeyPrefixParams struct {
+	Kind   string
+	Prefix *string
+}
+
+type CardsByKeyPrefixRow struct {
+	ID        int64
+	Status    string
+	DedupeKey *string
+	Payload   json.RawMessage
+}
+
+// The cards whose key starts with prefix, in any status, oldest first.
+func (q *Queries) CardsByKeyPrefix(ctx context.Context, arg CardsByKeyPrefixParams) ([]CardsByKeyPrefixRow, error) {
+	rows, err := q.db.Query(ctx, cardsByKeyPrefix, arg.Kind, arg.Prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CardsByKeyPrefixRow
+	for rows.Next() {
+		var i CardsByKeyPrefixRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.DedupeKey,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const claimIdentity = `-- name: ClaimIdentity :one
+SELECT subject_id, predicate, scope_env FROM claims WHERE id = $1
+`
+
+type ClaimIdentityRow struct {
+	SubjectID int64
+	Predicate string
+	ScopeEnv  string
+}
+
+func (q *Queries) ClaimIdentity(ctx context.Context, id int64) (ClaimIdentityRow, error) {
+	row := q.db.QueryRow(ctx, claimIdentity, id)
+	var i ClaimIdentityRow
+	err := row.Scan(&i.SubjectID, &i.Predicate, &i.ScopeEnv)
+	return i, err
+}
+
 const claimsConnections = `-- name: ClaimsConnections :many
 SELECT e.connection_id FROM claim_evidence e WHERE e.claim_id = ANY($1::bigint[])
 UNION
@@ -284,6 +385,23 @@ func (q *Queries) ClaimsInUse(ctx context.Context, since time.Time) ([]int64, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const closeCard = `-- name: CloseCard :exec
+UPDATE proposals SET status = 'closed', reason = $1, decided_at = $2 WHERE id = $3 AND status = 'open'
+`
+
+type CloseCardParams struct {
+	Reason    string
+	DecidedAt *time.Time
+	ID        int64
+}
+
+// A card whose question no longer applies closes without a reviewer and
+// without a decision outcome.
+func (q *Queries) CloseCard(ctx context.Context, arg CloseCardParams) error {
+	_, err := q.db.Exec(ctx, closeCard, arg.Reason, arg.DecidedAt, arg.ID)
+	return err
 }
 
 const codeIdentities = `-- name: CodeIdentities :many
@@ -417,6 +535,17 @@ func (q *Queries) ConnectionNames(ctx context.Context, arg ConnectionNamesParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const currentClaims = `-- name: CurrentClaims :one
+SELECT count(*) FROM claims WHERE id = ANY($1::bigint[]) AND retracted_at IS NULL
+`
+
+func (q *Queries) CurrentClaims(ctx context.Context, ids []int64) (int64, error) {
+	row := q.db.QueryRow(ctx, currentClaims, ids)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const decideCard = `-- name: DecideCard :exec
@@ -752,6 +881,18 @@ func (q *Queries) EntityRefs(ctx context.Context, arg EntityRefsParams) ([]Entit
 	return items, nil
 }
 
+const entityRoot = `-- name: EntityRoot :one
+SELECT coalesce(e.merged_into, e.id)::bigint AS id FROM entities e WHERE e.key = $1
+`
+
+// The entity of a key, or the entity it is merged into.
+func (q *Queries) EntityRoot(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRow(ctx, entityRoot, key)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const evalDecisions = `-- name: EvalDecisions :many
 SELECT d.id, d.kind, d.subject_refs, d.probs, d.band::text AS band FROM decisions d
 WHERE d.kind = ANY($1::text[]) AND d.band IS NOT NULL
@@ -1002,8 +1143,9 @@ func (q *Queries) InsertDecision(ctx context.Context, arg InsertDecisionParams) 
 }
 
 const insertDecisionCard = `-- name: InsertDecisionCard :one
-INSERT INTO proposals (kind, target, payload, via, connections, decision_id)
-VALUES ($1, $2, $3, 'system', $4, $5)
+INSERT INTO proposals (kind, target, payload, via, connections, decision_id, dedupe_key)
+VALUES ($1, $2, $3, 'system', $4, $5, $6)
+ON CONFLICT (kind, dedupe_key) WHERE status = 'open' AND dedupe_key IS NOT NULL DO NOTHING
 RETURNING id
 `
 
@@ -1013,8 +1155,11 @@ type InsertDecisionCardParams struct {
 	Payload     json.RawMessage
 	Connections []int64
 	DecisionID  *int64
+	DedupeKey   *string
 }
 
+// A second open card for the same question inserts nothing and returns no
+// row.
 func (q *Queries) InsertDecisionCard(ctx context.Context, arg InsertDecisionCardParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertDecisionCard,
 		arg.Kind,
@@ -1022,6 +1167,7 @@ func (q *Queries) InsertDecisionCard(ctx context.Context, arg InsertDecisionCard
 		arg.Payload,
 		arg.Connections,
 		arg.DecisionID,
+		arg.DedupeKey,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -1465,6 +1611,23 @@ func (q *Queries) OwnedGroups(ctx context.Context, owners []string) ([]OwnedGrou
 		return nil, err
 	}
 	return items, nil
+}
+
+const passageCurrent = `-- name: PassageCurrent :one
+SELECT EXISTS (SELECT 1 FROM passages WHERE item_id = $1 AND hash = $2)::boolean
+`
+
+type PassageCurrentParams struct {
+	ItemID int64
+	Hash   []byte
+}
+
+// vis:system
+func (q *Queries) PassageCurrent(ctx context.Context, arg PassageCurrentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, passageCurrent, arg.ItemID, arg.Hash)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const pendingMentions = `-- name: PendingMentions :many
@@ -1946,6 +2109,34 @@ func (q *Queries) SetAutoApply(ctx context.Context, arg SetAutoApplyParams) erro
 	return err
 }
 
+const setCardKey = `-- name: SetCardKey :exec
+UPDATE proposals SET dedupe_key = $1 WHERE id = $2 AND status = 'open'
+`
+
+type SetCardKeyParams struct {
+	DedupeKey *string
+	ID        int64
+}
+
+func (q *Queries) SetCardKey(ctx context.Context, arg SetCardKeyParams) error {
+	_, err := q.db.Exec(ctx, setCardKey, arg.DedupeKey, arg.ID)
+	return err
+}
+
+const setCardPayload = `-- name: SetCardPayload :exec
+UPDATE proposals SET payload = $1 WHERE id = $2 AND status = 'open'
+`
+
+type SetCardPayloadParams struct {
+	Payload json.RawMessage
+	ID      int64
+}
+
+func (q *Queries) SetCardPayload(ctx context.Context, arg SetCardPayloadParams) error {
+	_, err := q.db.Exec(ctx, setCardPayload, arg.Payload, arg.ID)
+	return err
+}
+
 const setCardTarget = `-- name: SetCardTarget :exec
 UPDATE proposals SET target = $1, payload = $2 WHERE id = $3 AND status = 'open'
 `
@@ -2091,6 +2282,53 @@ func (q *Queries) StaleEvidence(ctx context.Context, claims []int64) ([]StaleEvi
 			&i.Object,
 			&i.NewHash,
 			&i.NewNorm,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const sweepCards = `-- name: SweepCards :many
+SELECT p.id, p.kind, p.target, p.payload, p.dedupe_key, p.connections, coalesce(d.subject_refs, '{}')::text[] AS subject_refs
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.kind IN ('merge', 'mention_link', 'unnamed', 'conflict', 'new_term', 'repo_system')
+ORDER BY p.id
+`
+
+type SweepCardsRow struct {
+	ID          int64
+	Kind        string
+	Target      string
+	Payload     json.RawMessage
+	DedupeKey   *string
+	Connections []int64
+	SubjectRefs []string
+}
+
+// vis:system
+func (q *Queries) SweepCards(ctx context.Context) ([]SweepCardsRow, error) {
+	rows, err := q.db.Query(ctx, sweepCards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SweepCardsRow
+	for rows.Next() {
+		var i SweepCardsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Target,
+			&i.Payload,
+			&i.DedupeKey,
+			&i.Connections,
+			&i.SubjectRefs,
 		); err != nil {
 			return nil, err
 		}

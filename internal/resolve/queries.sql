@@ -123,8 +123,11 @@ SELECT EXISTS (SELECT 1 FROM proposals p JOIN decisions d ON d.id = p.decision_i
                WHERE p.status = 'open' AND p.kind = 'merge' AND d.subject_refs @> @refs::text[])::boolean;
 
 -- name: InsertDecisionCard :one
-INSERT INTO proposals (kind, target, payload, via, connections, decision_id)
-VALUES (@kind, @target, @payload, 'system', @connections, @decision_id)
+-- A second open card for the same question inserts nothing and returns no
+-- row.
+INSERT INTO proposals (kind, target, payload, via, connections, decision_id, dedupe_key)
+VALUES (@kind, @target, @payload, 'system', @connections, @decision_id, sqlc.narg(dedupe_key))
+ON CONFLICT (kind, dedupe_key) WHERE status = 'open' AND dedupe_key IS NOT NULL DO NOTHING
 RETURNING id;
 
 -- name: VisibleCards :many
@@ -576,3 +579,44 @@ SELECT id, payload, connections FROM proposals WHERE kind = 'unnamed' AND status
 
 -- name: SetCardTarget :exec
 UPDATE proposals SET target = @target, payload = @payload WHERE id = @id AND status = 'open';
+
+-- name: CardsByKey :many
+-- The cards of a question in any status, oldest first.
+SELECT id, status, payload, decided_at FROM proposals WHERE kind = @kind AND dedupe_key = @key ORDER BY id;
+
+-- name: CardsByKeyPrefix :many
+-- The cards whose key starts with prefix, in any status, oldest first.
+SELECT id, status, dedupe_key, payload FROM proposals WHERE kind = @kind AND dedupe_key LIKE @prefix ORDER BY id;
+
+-- name: SetCardPayload :exec
+UPDATE proposals SET payload = @payload WHERE id = @id AND status = 'open';
+
+-- name: SetCardKey :exec
+UPDATE proposals SET dedupe_key = @dedupe_key WHERE id = @id AND status = 'open';
+
+-- name: CloseCard :exec
+-- A card whose question no longer applies closes without a reviewer and
+-- without a decision outcome.
+UPDATE proposals SET status = 'closed', reason = @reason, decided_at = @decided_at WHERE id = @id AND status = 'open';
+
+-- name: SweepCards :many
+-- vis:system
+SELECT p.id, p.kind, p.target, p.payload, p.dedupe_key, p.connections, coalesce(d.subject_refs, '{}')::text[] AS subject_refs
+FROM proposals p
+LEFT JOIN decisions d ON d.id = p.decision_id
+WHERE p.status = 'open' AND p.kind IN ('merge', 'mention_link', 'unnamed', 'conflict', 'new_term', 'repo_system')
+ORDER BY p.id;
+
+-- name: PassageCurrent :one
+-- vis:system
+SELECT EXISTS (SELECT 1 FROM passages WHERE item_id = @item_id AND hash = @hash)::boolean;
+
+-- name: EntityRoot :one
+-- The entity of a key, or the entity it is merged into.
+SELECT coalesce(e.merged_into, e.id)::bigint AS id FROM entities e WHERE e.key = @key;
+
+-- name: ClaimIdentity :one
+SELECT subject_id, predicate, scope_env FROM claims WHERE id = @id;
+
+-- name: CurrentClaims :one
+SELECT count(*) FROM claims WHERE id = ANY(@ids::bigint[]) AND retracted_at IS NULL;

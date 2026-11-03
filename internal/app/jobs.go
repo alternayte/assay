@@ -119,6 +119,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 			content.EmbedQueue: {MaxWorkers: 1},
 			extract.Queue:      {MaxWorkers: orDefault(s.cfg.ExtractWorkers, 4)},
 			design.Queue:       {MaxWorkers: orDefault(s.cfg.DesignWorkers, 2)},
+			resolve.Queue:      {MaxWorkers: 1},
 		}
 		cfg.PeriodicJobs = []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {

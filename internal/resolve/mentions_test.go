@@ -339,30 +339,7 @@ func TestSCN_RES_006_UnnamedRules(t *testing.T) {
 		}
 		return `{"claims":[]}`
 	})
-	rows, err := w.env.Server.Pool().Query(context.Background(),
-		"SELECT p.item_id, p.hash FROM passages p JOIN source_items i ON i.id = p.item_id WHERE i.external_id = '1100'")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var items []int64
-	var hashes []string
-	for rows.Next() {
-		var id int64
-		var h []byte
-		if err := rows.Scan(&id, &h); err != nil {
-			t.Fatal(err)
-		}
-		items, hashes = append(items, id), append(hashes, hex.EncodeToString(h))
-	}
-	if _, err := w.env.Server.Extract().Queue(context.Background(), []int64{public, w.github, w.azdo, w.jira}, extract.TriggerAnswer, items, hashes); err != nil {
-		t.Fatal(err)
-	}
-	if n := w.env.RunExtractJobs(); n == 0 {
-		t.Fatal("no extraction job ran")
-	}
-	if err := w.env.Server.Resolve().Mentions(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	w.extractPage(t, public, "1100")
 
 	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'unnamed'"); n != 1 {
 		t.Errorf("%d unnamed cards, want 1 for the export job", n)
@@ -390,5 +367,86 @@ WHERE e.key = $1`, key); n != 2 {
 	w.reviewer.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", id), map[string]any{"type": "api"})
 	if n := w.env.Count("SELECT count(*) FROM entities WHERE key = $1 AND type = 'api' AND status = 'active'", key); n != 1 {
 		t.Error("the accept did not set the type api")
+	}
+}
+
+// extractPage extracts the passages of a page of a connection with the
+// visible set of the owner, and resolves the mentions.
+func (w *world) extractPage(t *testing.T, conn int64, external string) {
+	t.Helper()
+	rows, err := w.env.Server.Pool().Query(context.Background(),
+		"SELECT p.item_id, p.hash FROM passages p JOIN source_items i ON i.id = p.item_id WHERE i.connection_id = $1 AND i.external_id = $2",
+		conn, external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []int64
+	var hashes []string
+	for rows.Next() {
+		var id int64
+		var h []byte
+		if err := rows.Scan(&id, &h); err != nil {
+			t.Fatal(err)
+		}
+		items, hashes = append(items, id), append(hashes, hex.EncodeToString(h))
+	}
+	if _, err := w.env.Server.Extract().Queue(context.Background(), []int64{conn, w.github, w.azdo, w.jira}, extract.TriggerAnswer, items, hashes); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.env.RunExtractJobs(); n == 0 {
+		t.Fatal("no extraction job ran")
+	}
+	if err := w.env.Server.Resolve().Mentions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSCN_EXT_004_SameNameJoinsOneCard pins that a card stands for one
+// question: the same name in another page of the connection joins the open
+// link card as an occurrence, with no new decision, and the accept links
+// both places.
+func TestSCN_EXT_004_SameNameJoinsOneCard(t *testing.T) {
+	w, fake := mentionWorld(t)
+	var public int64
+	if err := w.env.Server.Pool().QueryRow(context.Background(), "SELECT id FROM connections WHERE name = 'acme-public'").Scan(&public); err != nil {
+		t.Fatal(err)
+	}
+	decisions := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'mention_link'")
+	w.src.PutPage(fixtures.Page{ID: "1101", Space: "ENG", Title: "API owners", Author: "jo.acme",
+		Body: "<p>Questions about the Payments API go to Sam Acme.</p>"})
+	if r := w.env.RunNow(w.owner, public, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync: %+v", r)
+	}
+	fake.OnChat(func(body map[string]any) string {
+		user := body["messages"].([]any)[1].(map[string]any)["content"].(string)
+		if strings.Contains(user, "go to Sam Acme") {
+			return fmt.Sprintf(`{"claims":[{"subject":{"kind":"key","value":%q},"predicate":"owned_by","object":{"kind":"name","value":"Sam Acme"},`+
+				`"scope":null,"stance":"supports","quote":"Questions about the Payments API go to Sam Acme."}]}`, pay)
+		}
+		return `{"claims":[]}`
+	})
+	w.extractPage(t, public, "1101")
+
+	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'mention_link' AND payload->'mention'->>'value' = 'Sam Acme'"); n != 1 {
+		t.Fatalf("%d link cards for Sam Acme, want 1", n)
+	}
+	if n := w.env.Count("SELECT count(*) FROM decisions WHERE kind = 'mention_link'"); n != decisions {
+		t.Errorf("the second place asked the model again: %d decisions, want %d", n, decisions)
+	}
+	var id int64
+	var places int
+	if err := w.env.Server.Pool().QueryRow(context.Background(), `SELECT id, jsonb_array_length(payload->'occurrences') FROM proposals
+WHERE kind = 'mention_link' AND payload->'mention'->>'value' = 'Sam Acme'`).Scan(&id, &places); err != nil {
+		t.Fatal(err)
+	}
+	if places != 2 {
+		t.Fatalf("the card has %d places, want 2", places)
+	}
+	w.reviewer.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", id), map[string]any{})
+	gh := "github:" + strings.ToLower(w.host) + ":user:sam.acme"
+	if n := w.env.Count(`SELECT count(DISTINCT ev.item_id) FROM claims c JOIN entities s ON s.id = c.subject_id
+JOIN entities o ON o.id = c.object_entity_id JOIN claim_evidence ev ON ev.claim_id = c.id
+WHERE s.key = $1 AND c.predicate = 'owned_by' AND o.key = $2 AND ev.kind = 'passage'`, pay, gh); n != 2 {
+		t.Errorf("the owner claim has evidence from %d pages, want 2", n)
 	}
 }

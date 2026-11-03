@@ -901,6 +901,7 @@
       "accepted": "Accepted",
       "rejected": "Rejected",
       "needs_evidence": "Needs evidence",
+      "closed": "Closed",
       "auto": "Auto-applied",
       "undone": "Undone"
     },
@@ -941,6 +942,8 @@
     "claim": "Claim",
     "proposed": "Proposed value",
     "quote": "Quote",
+    "occurrences": "Places",
+    "occurrenceCount": "{count} places in the source",
     "aliases": "Aliases",
     "sources": "Sources",
     "openPage": "Open the page",

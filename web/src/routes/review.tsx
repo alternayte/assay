@@ -200,6 +200,7 @@ const detailLabel: Record<string, CopyKey> = {
   reason: "report.reason",
   note: "report.note",
   quote: "review.quote",
+  occurrences: "review.occurrences",
 };
 const problemLabel: Record<string, CopyKey> = {
   wrong_value: "report.wrong_value",
@@ -212,19 +213,28 @@ const hiddenDetails = ["draft", "visibilityKey", "entityKey"];
 
 function Details({ payload }: { payload: unknown }) {
   if (!payload || typeof payload !== "object") return null;
-  const p = payload as Record<string, unknown> & { mention?: { value?: string }; claim?: { Quote?: string } };
+  const p = payload as Record<string, unknown> & {
+    mention?: { value?: string };
+    claim?: { Quote?: string };
+    occurrences?: { quote?: string }[];
+  };
   const rows: [string, string][] = [];
   for (const [k, v] of Object.entries(p)) {
     if (typeof v !== "string" || v === "" || hiddenDetails.includes(k)) continue;
     rows.push([k, k === "problem" && problemLabel[v] ? t(problemLabel[v]) : v]);
   }
   if (p.mention?.value) rows.push(["mention", p.mention.value]);
-  if (p.claim?.Quote) rows.push(["quote", p.claim.Quote]);
+  // A card that stands for many places shows how many, and the first three quotes.
+  const occ = p.occurrences ?? [];
+  if (occ.length > 1) {
+    rows.push(["occurrences", t("review.occurrenceCount", { count: occ.length })]);
+    for (const o of occ.slice(0, 3)) if (o.quote) rows.push(["quote", o.quote]);
+  } else if (p.claim?.Quote) rows.push(["quote", p.claim.Quote]);
   if (rows.length === 0) return null;
   return (
     <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-      {rows.map(([k, v]) => (
-        <div key={k} className="contents">
+      {rows.map(([k, v], i) => (
+        <div key={`${k}-${i}`} className="contents">
           <dt className="label pt-0.5">{detailLabel[k] ? t(detailLabel[k]) : k}</dt>
           <dd className="break-words">{v}</dd>
         </div>
@@ -887,6 +897,7 @@ const statusTone = {
   accepted: "supported",
   rejected: "danger",
   needs_evidence: "stale",
+  closed: "neutral",
   open: "neutral",
 } as const;
 

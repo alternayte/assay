@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/entities"
@@ -35,6 +36,9 @@ func (s *Service) Run(ctx context.Context) error {
 		return err
 	}
 	if err := s.SweepUnnamed(ctx); err != nil {
+		return err
+	}
+	if err := s.SweepCards(ctx); err != nil {
 		return err
 	}
 	if err := s.Mentions(ctx); err != nil {
@@ -115,6 +119,17 @@ func (s *Service) samePair(ctx context.Context, a, b ProfilesOfRow, reasons []st
 	if err != nil || open {
 		return err
 	}
+	// A pair that a card asks or answered already gets no new question.
+	key := mergeKey(a.EntityID, b.EntityID)
+	cs, err := New(s.Pool).CardsByKey(ctx, CardsByKeyParams{Kind: "merge", Key: &key})
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if c.Status != "closed" {
+			return nil
+		}
+	}
 	q := Question{
 		Kind: KindSameEntity, Refs: refs, Reasons: reasons,
 		Connections: append(slices.Clone(a.Connections), b.Connections...),
@@ -140,7 +155,10 @@ func (s *Service) samePair(ctx context.Context, a, b ProfilesOfRow, reasons []st
 			return s.autoMerge(ctx, tx, d.ID, refs, q.Connections)
 		}
 		_, err := New(tx).InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: "merge", Target: "entity:" + refs[0], Payload: []byte(`{}`),
-			Connections: orEmpty(slices.Compact(sorted(q.Connections))), DecisionID: &d.ID})
+			Connections: orEmpty(slices.Compact(sorted(q.Connections))), DecisionID: &d.ID, DedupeKey: &key})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
 		return err
 	})
 }
@@ -171,6 +189,17 @@ type Args struct{}
 // Kind is the River job kind.
 func (Args) Kind() string { return "resolve" }
 
+// Queue is the River queue of resolution. It has one worker.
+const Queue = "resolve"
+
+// InsertOpts puts resolution on its own queue. The job is unique while it
+// is unfinished, so a run that takes longer than the period never overlaps
+// the next one, in any process.
+func (Args) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: Queue, UniqueOpts: river.UniqueOpts{ByState: []rivertype.JobState{rivertype.JobStateAvailable,
+		rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateRunning, rivertype.JobStateScheduled}}}
+}
+
 // Worker works the resolution job.
 type Worker struct {
 	river.WorkerDefaults[Args]
@@ -188,7 +217,7 @@ func (w *Worker) Timeout(*river.Job[Args]) time.Duration { return time.Hour }
 func (s *Service) PeriodicJobs() []*river.PeriodicJob {
 	return []*river.PeriodicJob{
 		river.NewPeriodicJob(river.PeriodicInterval(15*time.Minute), func() (river.JobArgs, *river.InsertOpts) {
-			return Args{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 15 * time.Minute}}
+			return Args{}, nil
 		}, &river.PeriodicJobOpts{ID: "resolve"}),
 		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
 			return TermArgs{}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}

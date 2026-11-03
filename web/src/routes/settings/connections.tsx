@@ -797,7 +797,9 @@ function HealthSheet({ c }: { c: Connection }) {
         {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
         {registry && <Notice>{t("connections.registryHelp")}</Notice>}
         {c.status === "paused" && (
-          <Notice tone="danger">{[c.statusReason, t("connections.pausedHelp")].filter(Boolean).join(" ")}</Notice>
+          <Notice tone="danger">
+            {[c.statusReason, t("connections.pausedHelp")].filter(Boolean).join(" ")}
+          </Notice>
         )}
         <dl className="grid gap-4 sm:grid-cols-3">
           <Term label={t("connections.colStatus")}>

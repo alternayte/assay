@@ -228,13 +228,14 @@ function Details({ payload }: { payload: unknown }) {
   const occ = p.occurrences ?? [];
   if (occ.length > 1) {
     rows.push(["occurrences", t("review.occurrenceCount", { count: occ.length })]);
-    for (const o of occ.slice(0, 3)) if (o.quote) rows.push(["quote", o.quote]);
+    for (const o of occ.slice(0, 3))
+      if (o.quote && !rows.some(([, v]) => v === o.quote)) rows.push(["quote", o.quote]);
   } else if (p.claim?.Quote) rows.push(["quote", p.claim.Quote]);
   if (rows.length === 0) return null;
   return (
     <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-      {rows.map(([k, v], i) => (
-        <div key={`${k}-${i}`} className="contents">
+      {rows.map(([k, v]) => (
+        <div key={`${k}:${v}`} className="contents">
           <dt className="label pt-0.5">{detailLabel[k] ? t(detailLabel[k]) : k}</dt>
           <dd className="break-words">{v}</dd>
         </div>

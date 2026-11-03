@@ -32,8 +32,8 @@ const (
 // The job reads only passages in that set.
 type Args struct {
 	Visible []int64  `json:"visible"`
-	Items   []int64  `json:"items"`
-	Hashes  []string `json:"hashes" doc:"Passage hashes in hex, one per item."`
+	Items   []int64  `json:"items" river:"unique"`
+	Hashes  []string `json:"hashes" river:"unique" doc:"Passage hashes in hex, one per item."`
 	Trigger string   `json:"trigger"`
 	// Connection is the connection of an admin extraction, so that the
 	// admin can stop it.
@@ -154,21 +154,32 @@ func (s *Service) Run(ctx context.Context, a Args) error {
 	return nil
 }
 
+// leaseFor is the life of a passage lease: the timeout of an extraction
+// job, after which a stopped job no longer holds the passage.
+const leaseFor = river.JobTimeoutDefault
+
 func (s *Service) passage(ctx context.Context, vis []int64, version string, p PassagesRow) error {
 	q := New(s.Pool)
-	known, err := q.KnownEntities(ctx, KnownEntitiesParams{Visible: vis, Norm: entities.NormalizeAlias(p.Norm)})
+	// Another job can have finished the passage since this job started,
+	// or can be extracting it now.
+	if done, err := q.IsCached(ctx, IsCachedParams{ItemID: p.ItemID, PassageHash: p.Hash, Version: version}); err != nil || done {
+		return err
+	}
+	n, err := q.AcquireLease(ctx, AcquireLeaseParams{ItemID: p.ItemID, PassageHash: p.Hash, Version: version, ExpiresAt: time.Now().Add(leaseFor)})
+	if err != nil || n == 0 {
+		return err
+	}
+	defer func() {
+		if err := New(s.Pool).ReleaseLease(context.WithoutCancel(ctx), ReleaseLeaseParams{ItemID: p.ItemID, PassageHash: p.Hash,
+			Version: version}); err != nil {
+			s.Log.Warn("passage lease not released", "item", p.ItemID, "error", err.Error())
+		}
+	}()
+	output, err := s.output(ctx, q, vis, version, p)
 	if err != nil {
 		return err
 	}
-	in := Passage{Title: p.Title, HeadingPath: p.HeadingPath, Text: p.Text, Norm: p.Norm}
-	for _, k := range known {
-		in.Known = append(in.Known, Known{Key: k.Key, Type: k.Type, Name: k.Name})
-	}
-	res, err := s.Models.Chat(ctx, models.Extract, Request(in))
-	if err != nil {
-		return err
-	}
-	valid, rejected := Parse(res.Content, p.Norm)
+	valid, rejected := Parse(output, p.Norm)
 	var out []content.Extracted
 	for _, v := range valid {
 		c, reason, detail := s.resolve(ctx, vis, v)
@@ -185,9 +196,9 @@ func (s *Service) passage(ctx context.Context, vis []int64, version string, p Pa
 		}
 	}
 	reasons, _ := json.Marshal(orEmpty(rejected))
-	raw := json.RawMessage(res.Content)
+	raw := json.RawMessage(output)
 	if !json.Valid(raw) {
-		raw, _ = json.Marshal(map[string]string{"text": res.Content})
+		raw, _ = json.Marshal(map[string]string{"text": output})
 	}
 	at := time.Now()
 	if p.SourceUpdatedAt != nil {
@@ -200,6 +211,32 @@ func (s *Service) passage(ctx context.Context, vis []int64, version string, p Pa
 		return New(tx).InsertExtraction(ctx, InsertExtractionParams{ItemID: p.ItemID, PassageHash: p.Hash, ExtractorVersion: version,
 			Accepted: int32(len(out)), Rejected: int32(len(rejected)), Reasons: reasons, Output: raw}) //nolint:gosec // At most 10 claims.
 	})
+}
+
+// output is the model output for a passage. The output for the same text in
+// another item of the connection is reused without a model call.
+func (s *Service) output(ctx context.Context, q *Queries, vis []int64, version string, p PassagesRow) (string, error) {
+	prev, err := q.ReusableOutput(ctx, ReusableOutputParams{PassageHash: p.Hash, Version: version, ConnectionID: p.ConnectionID,
+		ItemID: p.ItemID})
+	if err == nil {
+		return string(prev), nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	known, err := q.KnownEntities(ctx, KnownEntitiesParams{Visible: vis, Norm: entities.NormalizeAlias(p.Norm)})
+	if err != nil {
+		return "", err
+	}
+	in := Passage{Title: p.Title, HeadingPath: p.HeadingPath, Text: p.Text, Norm: p.Norm}
+	for _, k := range known {
+		in.Known = append(in.Known, Known{Key: k.Key, Type: k.Type, Name: k.Name})
+	}
+	res, err := s.Models.Chat(ctx, models.Extract, Request(in))
+	if err != nil {
+		return "", err
+	}
+	return res.Content, nil
 }
 
 // resolve turns the mentions of a claim into entities. A key resolves

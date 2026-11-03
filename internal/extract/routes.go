@@ -68,6 +68,11 @@ func (s *Service) Register(a huma.API) {
 		if !e.On {
 			return nil, api.Problem(http.StatusConflict, "extract_off", "Turn on the extract function first.")
 		}
+		if running, err := s.Running(ctx, in.ID); err != nil {
+			return nil, api.Internal(err)
+		} else if running {
+			return nil, api.Problem(http.StatusConflict, "extraction_running", "An extraction of this connection is running. Stop it or wait for it to end.")
+		}
 		if e.Passages != in.Body.Passages {
 			return nil, api.Problem(http.StatusConflict, "estimate_changed",
 				fmt.Sprintf("The estimate changed to %d passages. Check the estimate again.", e.Passages))

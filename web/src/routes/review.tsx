@@ -40,6 +40,7 @@ type EditPayload = { draft?: string; lint?: { rule: string; message: string }[] 
 type Pending = { card: Card; action: "accept" | "reject"; reason?: string; edits?: Edits; timer: number };
 
 const UNDO_MS = 5000;
+const SEARCH_MS = 300;
 const kinds: Kind[] = [
   "correction",
   "finding",
@@ -564,6 +565,8 @@ function Needs({ f }: { f: Filter }) {
   const [skipped, setSkipped] = useState<number[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [current, setCurrent] = useState<number>();
+  // The position of the last decided or skipped card: the queue shows the card there when the next card is gone.
+  const [pos, setPos] = useState(0);
   const [editing, setEditing] = useState(false);
   const [edits, setEdits] = useState<Edits>({});
   // Answers stay per card until the server accepts them, so a refused summary comes back for the next try.
@@ -580,11 +583,16 @@ function Needs({ f }: { f: Filter }) {
     ...waiting.filter((c) => !skipped.includes(c.id)),
     ...skipped.flatMap((id) => waiting.filter((c) => c.id === id)),
   ];
-  const card = visible.find((c) => c.id === current) ?? visible[0];
+  const card = visible.find((c) => c.id === current) ?? visible[Math.min(pos, visible.length - 1)];
+  /** Moves to the card after the current one, as the queue shows it now. */
+  const advance = () => {
+    const i = card ? visible.indexOf(card) : 0;
+    setCurrent(visible[i + 1]?.id);
+    setPos(i);
+  };
 
   const send = useCallback(
     async (p: Pending) => {
-      setPending((ps) => ps.filter((x) => x.card.id !== p.card.id));
       const path = { params: { path: { id: p.card.id } } };
       try {
         if (p.action === "accept") {
@@ -596,8 +604,12 @@ function Needs({ f }: { f: Filter }) {
       } catch (e) {
         setMsg({ tone: "danger", text: t("review.failed", { message: errorText(e) }) });
       }
-      qc.invalidateQueries({ queryKey: ["cards"] });
-      qc.invalidateQueries({ queryKey: ["decisions"] });
+      // The card stays out of the queue until the reload no longer has it.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["cards"] }),
+        qc.invalidateQueries({ queryKey: ["decisions"] }),
+      ]);
+      setPending((ps) => ps.filter((x) => x.card.id !== p.card.id));
     },
     [qc],
   );
@@ -622,10 +634,10 @@ function Needs({ f }: { f: Filter }) {
     const e = action === "accept" ? { ...(editing ? edits : {}), ...ready } : undefined;
     const p: Pending = { card, action, reason, edits: e, timer: 0 };
     p.timer = window.setTimeout(() => send(p), UNDO_MS);
+    advance();
     setPending((ps) => [...ps, p]);
     setEditing(false);
     setEdits({});
-    setCurrent(undefined);
     setMsg({
       tone: "info",
       text: t("review.pending", {
@@ -651,8 +663,8 @@ function Needs({ f }: { f: Filter }) {
   };
   const skip = () => {
     if (!card) return;
+    advance();
     setSkipped((s) => [...s.filter((id) => id !== card.id), card.id]);
-    setCurrent(undefined);
     setEditing(false);
   };
   const edit = () => {
@@ -924,6 +936,16 @@ const empty: Filter = { kind: "", band: "", connection: "", type: "", domain: ""
 export function ReviewPage() {
   const [tab, setTab] = useState<Tab>("needs");
   const [f, setF] = useState<Filter>(empty);
+  // The search text applies after a pause in typing, so each key does not reload the queue and send the pending decisions.
+  const [applied, setApplied] = useState<Filter>(empty);
+  useEffect(() => {
+    if (f.q === applied.q) {
+      setApplied(f);
+      return;
+    }
+    const id = window.setTimeout(() => setApplied(f), SEARCH_MS);
+    return () => clearTimeout(id);
+  }, [f, applied.q]);
   const options = useQuery({
     queryKey: ["cards", "options"],
     queryFn: async () =>
@@ -984,9 +1006,9 @@ export function ReviewPage() {
         />
       )}
       <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === "needs" && <Needs key={JSON.stringify(f)} f={f} />}
+        {tab === "needs" && <Needs key={JSON.stringify(applied)} f={applied} />}
         {tab === "auto" && <Auto />}
-        {tab === "decided" && <Decided f={f} />}
+        {tab === "decided" && <Decided f={applied} />}
       </section>
     </div>
   );

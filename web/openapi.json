@@ -2031,6 +2031,11 @@
             "maxLength": 8000,
             "type": "string"
           },
+          "type": {
+            "description": "The entity type of an unnamed card. It must be a type that the claim of the card takes.",
+            "maxLength": 40,
+            "type": "string"
+          },
           "winner": {
             "description": "The claim that wins a conflict card. The other claims of the card become Superseded.",
             "format": "int64",

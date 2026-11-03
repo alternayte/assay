@@ -388,7 +388,7 @@ func (s *Service) Accept(ctx context.Context, vis visibility.Set, id int64, edit
 				return err
 			}
 		case "unnamed":
-			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical); err != nil {
+			if err := s.acceptUnnamed(ctx, tx, c.Payload, canonical, edits.Type); err != nil {
 				return err
 			}
 		case KindRepoSystem:

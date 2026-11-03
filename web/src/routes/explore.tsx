@@ -31,7 +31,7 @@ export function ExplorePage() {
   const qc = useQueryClient();
   const [type, setType] = useState("");
   const [domain, setDomain] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("active");
   const [q, setQ] = useState("");
   const query = useDebounced(q.trim(), 250);
   const [selected, setSelected] = useState<string[]>([]);

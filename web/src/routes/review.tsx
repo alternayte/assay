@@ -30,6 +30,7 @@ type Edits = {
   diagram?: string;
   winner?: number;
   summary?: string;
+  type?: string;
 };
 /** What a reviewer gives for a card kind that cannot be accepted without it. */
 type Answer = { winner?: number; summary?: string };
@@ -66,6 +67,7 @@ type EditablePayload = {
   record?: { term?: { name?: string; definition?: string } };
   current?: TextPair;
   proposed?: TextPair;
+  types?: string[];
 };
 
 /** Whether the reviewer can change a card before accept. A repo_system card for an existing system has nothing to change. */
@@ -369,6 +371,26 @@ function Evidence({
               />
             )}
           </Field>
+          {card.kind === "unnamed" && ((card.payload ?? {}) as EditablePayload).types && (
+            <Field label={t("review.type")}>
+              {(p) => {
+                const types = ((card.payload ?? {}) as EditablePayload).types ?? [];
+                return (
+                  <Select
+                    {...p}
+                    value={edits.type ?? types[0]}
+                    onChange={(e) => setEdits({ ...edits, type: e.target.value })}
+                  >
+                    {types.map((ty) => (
+                      <option key={ty} value={ty}>
+                        {t(`entityTypes.${ty}` as CopyKey)}
+                      </option>
+                    ))}
+                  </Select>
+                );
+              }}
+            </Field>
+          )}
           {(card.kind === "new_term" || card.kind === "term_edit") && (
             <Field label={t("review.definition")}>
               {(p) => (

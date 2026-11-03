@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/entities"
@@ -46,6 +48,9 @@ type mentionPayload struct {
 	Candidate    string            `json:"candidate"`
 	Claim        content.Extracted `json:"claim"`
 	Side         string            `json:"side" doc:"subject or object: the side of the claim that the mention fills."`
+	// Types are the entity types that the side allows: the types that an
+	// accept of an unnamed card can set.
+	Types []string `json:"types,omitempty"`
 }
 
 type side struct {
@@ -171,25 +176,60 @@ func (s *Service) mentionClaim(ctx context.Context, r PendingMentionsRow, index 
 		return nil
 	}
 	target := fmt.Sprintf("mention:%d:%s:%d", r.ItemID, pl.PassageHash, index)
-	for _, kind := range []string{"mention_link", "unnamed"} {
-		t := target
-		if kind == "unnamed" {
-			t = "entity:" + unnamedKey(target)
-		}
-		done, err := New(s.Pool).OpenTargetCard(ctx, OpenTargetCardParams{Kind: kind, Target: t})
-		if err != nil || done {
-			return err
-		}
+	done, err := New(s.Pool).OpenTargetCard(ctx, OpenTargetCardParams{Kind: "mention_link", Target: target})
+	if err != nil || done {
+		return err
 	}
 	if pl.Mention.Kind == "description" {
+		if !namesOneThing(pl.Mention.Value) {
+			return nil
+		}
 		return s.describe(ctx, r, target, types, pl)
 	}
 	return s.linkName(ctx, r, target, types, pl)
 }
 
-func unnamedKey(target string) string {
-	h := sha256.Sum256([]byte(target))
+// unnamedKey is the key of the unnamed entity of a description in a
+// connection, so that the same description in many passages makes one
+// entity.
+func unnamedKey(connectionID int64, typ, description string) string {
+	h := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%s\x00%s", connectionID, typ, entities.NormalizeAlias(description))))
 	return "registry:unnamed:" + hex.EncodeToString(h[:8])
+}
+
+// maxDescriptionWords is the longest description that can name one thing.
+const maxDescriptionWords = 10
+
+// determiners are the leading words that a description drops before it
+// counts its words.
+var determiners = map[string]bool{"the": true, "a": true, "an": true, "this": true, "that": true, "these": true, "those": true,
+	"our": true, "their": true, "its": true, "his": true, "her": true, "my": true, "your": true}
+
+// namesOneThing reports whether a description can name one thing: at most
+// maxDescriptionWords words, no sentence punctuation, and at least two
+// words after the leading determiners. A sentence fragment or "the team"
+// cannot.
+func namesOneThing(description string) bool {
+	if strings.ContainsAny(description, ".!?;:") {
+		return false
+	}
+	words := strings.Fields(description)
+	if len(words) > maxDescriptionWords {
+		return false
+	}
+	for len(words) > 0 && determiners[strings.ToLower(words[0])] {
+		words = words[1:]
+	}
+	return len(words) >= 2
+}
+
+// anyType reports whether a predicate side allows every entity type. Such a
+// side, such as the subject of stated, makes no unnamed entity.
+func anyType(p claims.Predicate, side string) bool {
+	if side == "subject" {
+		return slices.Contains(p.Subjects, claims.ObjAny)
+	}
+	return slices.Contains(p.Objects, claims.ObjAny)
 }
 
 // mentionRef names the mention of a decision, so the evaluation can match
@@ -201,6 +241,24 @@ func passageRef(r PendingMentionsRow) string {
 }
 
 func (s *Service) describe(ctx context.Context, r PendingMentionsRow, target string, types []string, pl mentionPayload) error {
+	p := claims.Registry[pl.Claim.Predicate]
+	unnamed := !anyType(p, pl.Side)
+	key := unnamedKey(r.ConnectionID, types[0], pl.Mention.Value)
+	if unnamed {
+		// The description already has an unnamed entity, or a reviewer
+		// rejected it: no model call and no card.
+		e, err := New(s.Pool).EntityByKeyAny(ctx, key)
+		if err == nil {
+			return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.addMentionClaim(ctx, tx, pl, e.ID) })
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		rejected, err := New(s.Pool).RejectedTargetCard(ctx, RejectedTargetCardParams{Kind: "unnamed", Target: "entity:" + key})
+		if err != nil || rejected {
+			return err
+		}
+	}
 	cands, err := New(s.Pool).DescribeCandidates(ctx, DescribeCandidatesParams{Description: pl.Mention.Value, Types: types})
 	if err != nil {
 		return err
@@ -233,7 +291,11 @@ func (s *Service) describe(ctx context.Context, r PendingMentionsRow, target str
 	if best != nil {
 		return s.mentionCard(ctx, "mention_link", target, pl, bestConns, &best.ID)
 	}
-	return s.unnamed(ctx, r, target, types[0], pl)
+	if !unnamed {
+		return nil
+	}
+	pl.Types = types
+	return s.unnamed(ctx, r, key, types[0], pl)
 }
 
 func (s *Service) linkName(ctx context.Context, r PendingMentionsRow, target string, types []string, pl mentionPayload) error {
@@ -320,8 +382,7 @@ func (s *Service) mentionCard(ctx context.Context, kind, target string, pl menti
 
 // unnamed creates a proposed entity "<description> (unnamed)" with the
 // claim of the mention and an unnamed card.
-func (s *Service) unnamed(ctx context.Context, r PendingMentionsRow, target, typ string, pl mentionPayload) error {
-	key := unnamedKey(target)
+func (s *Service) unnamed(ctx context.Context, r PendingMentionsRow, key, typ string, pl mentionPayload) error {
 	name := pl.Mention.Value + " (unnamed)"
 	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		q := New(tx)
@@ -390,8 +451,9 @@ func (s *Service) acceptMention(ctx context.Context, tx pgx.Tx, raw []byte) erro
 	return nil
 }
 
-// acceptUnnamed makes the proposed entity active, with an optional name.
-func (s *Service) acceptUnnamed(ctx context.Context, tx pgx.Tx, raw []byte, name string) error {
+// acceptUnnamed makes the proposed entity active, with an optional name and
+// an optional type. The type must be one that the side of the claim allows.
+func (s *Service) acceptUnnamed(ctx context.Context, tx pgx.Tx, raw []byte, name, typ string) error {
 	var pl mentionPayload
 	if err := json.Unmarshal(raw, &pl); err != nil {
 		return err
@@ -403,6 +465,14 @@ func (s *Service) acceptUnnamed(ctx context.Context, tx pgx.Tx, raw []byte, name
 	if err != nil {
 		return err
 	}
+	if typ != "" && typ != e.Type {
+		if !slices.Contains(sideTypes(pl), typ) {
+			return &InvalidEdit{Code: "type", Message: "The claim of the card does not take this type."}
+		}
+		if err := New(tx).SetEntityType(ctx, SetEntityTypeParams{ID: e.ID, Type: typ}); err != nil {
+			return err
+		}
+	}
 	if _, err := New(tx).ActivateEntity(ctx, e.ID); err != nil {
 		return err
 	}
@@ -410,6 +480,19 @@ func (s *Service) acceptUnnamed(ctx context.Context, tx pgx.Tx, raw []byte, name
 		return nil
 	}
 	return New(tx).RenameEntity(ctx, RenameEntityParams{EntityID: e.ID, Alias: name, AliasNorm: entities.NormalizeAlias(name)})
+}
+
+// sideTypes are the entity types that the open side of the claim of a
+// mention allows.
+func sideTypes(pl mentionPayload) []string {
+	p, ok := claims.Registry[pl.Claim.Predicate]
+	if !ok {
+		return nil
+	}
+	if pl.Side == "subject" {
+		return entityTypes(p.Subjects)
+	}
+	return entityTypes(p.Objects)
 }
 
 // rejectUnnamed deletes the proposed entity with its claims.
@@ -426,4 +509,109 @@ func (s *Service) rejectUnnamed(ctx context.Context, tx pgx.Tx, raw []byte) erro
 		return err
 	}
 	return New(tx).DeleteProposedEntity(ctx, e.ID)
+}
+
+// Reasons of the cards that the sweep of unnamed cards closes.
+const (
+	reasonNotOneThing = "The description does not name one thing."
+	reasonSameAs      = "Same description as card %d."
+)
+
+// SweepUnnamed applies the unnamed rules to the open unnamed cards. A card
+// whose description cannot name one thing, or whose side allows any type,
+// loses its proposed entity and closes. Cards with the same description,
+// type and connection become the oldest card: its entity gets the claims of
+// the others. The kept cards get the key of their description.
+func (s *Service) SweepUnnamed(ctx context.Context) error {
+	rows, err := New(s.Pool).OpenUnnamedCards(ctx)
+	if err != nil {
+		return err
+	}
+	kept := map[string]struct{ card, entity int64 }{}
+	for _, r := range rows {
+		var pl mentionPayload
+		if json.Unmarshal(r.Payload, &pl) != nil {
+			continue
+		}
+		e, err := New(s.Pool).EntityByKeyAny(ctx, pl.Candidate)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		p, ok := claims.Registry[pl.Claim.Predicate]
+		if !ok || anyType(p, pl.Side) || !namesOneThing(pl.Mention.Value) {
+			if err := s.dropUnnamed(ctx, r, pl, e.ID, 0, reasonNotOneThing); err != nil {
+				return err
+			}
+			continue
+		}
+		key := unnamedKey(pl.ConnectionID, e.Type, pl.Mention.Value)
+		if k, ok := kept[key]; ok {
+			if err := s.dropUnnamed(ctx, r, pl, e.ID, k.entity, fmt.Sprintf(reasonSameAs, k.card)); err != nil {
+				return err
+			}
+			continue
+		}
+		if pl.Candidate != key {
+			// An entity made with the new key holds the description already.
+			other, err := New(s.Pool).EntityByKeyAny(ctx, key)
+			if err == nil {
+				card, err := New(s.Pool).TargetCard(ctx, TargetCardParams{Kind: "unnamed", Target: "entity:" + key})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return err
+				}
+				if err := s.dropUnnamed(ctx, r, pl, e.ID, other.ID, fmt.Sprintf(reasonSameAs, card)); err != nil {
+					return err
+				}
+				continue
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+		}
+		kept[key] = struct{ card, entity int64 }{r.ID, e.ID}
+		if pl.Candidate == key && len(pl.Types) > 0 {
+			continue
+		}
+		pl.Candidate, pl.Types = key, sideTypes(pl)
+		payload, err := json.Marshal(pl)
+		if err != nil {
+			return err
+		}
+		err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			if err := New(tx).SetEntityKey(ctx, SetEntityKeyParams{ID: e.ID, Key: key}); err != nil {
+				return err
+			}
+			return New(tx).SetCardTarget(ctx, SetCardTargetParams{ID: r.ID, Target: "entity:" + key, Payload: payload})
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dropUnnamed deletes the proposed entity of an unnamed card and closes the
+// card as rejected without a reviewer. With into set, the claim of the card
+// moves to that entity first. The card has no decision, so calibration
+// does not count it.
+func (s *Service) dropUnnamed(ctx context.Context, r OpenUnnamedCardsRow, pl mentionPayload, entity, into int64, reason string) error {
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if into != 0 {
+			if err := s.addMentionClaim(ctx, tx, pl, into); err != nil {
+				return err
+			}
+		}
+		if err := New(tx).DeleteProposedEntity(ctx, entity); err != nil {
+			return err
+		}
+		now := s.now()
+		if err := New(tx).DecideCard(ctx, DecideCardParams{ID: r.ID, Status: "rejected", Reason: reason, DecidedAt: &now}); err != nil {
+			return err
+		}
+		return audit.Write(ctx, tx, audit.Entry{Action: "cards.rejected", Target: fmt.Sprintf("card:%d", r.ID),
+			Details: map[string]any{"kind": "unnamed", "reason": reason, "automatic": true}, Connections: append([]int64{}, r.Connections...)})
+	})
 }

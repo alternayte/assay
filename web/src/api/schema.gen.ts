@@ -2608,6 +2608,8 @@ export interface components {
             summary?: string;
             /** @description The corrected text of a design section. */
             text?: string;
+            /** @description The entity type of an unnamed card. It must be a type that the claim of the card takes. */
+            type?: string;
             /**
              * Format: int64
              * @description The claim that wins a conflict card. The other claims of the card become Superseded.

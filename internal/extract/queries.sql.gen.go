@@ -381,6 +381,7 @@ const reusableOutput = `-- name: ReusableOutput :one
 SELECT x.output FROM passage_extractions x
 JOIN source_items i ON i.id = x.item_id
 WHERE x.passage_hash = $1 AND x.extractor_version = $2 AND i.connection_id = $3 AND x.item_id <> $4
+  AND i.connection_id = ANY($5::bigint[])
 LIMIT 1
 `
 
@@ -389,16 +390,18 @@ type ReusableOutputParams struct {
 	Version      string
 	ConnectionID int64
 	ItemID       int64
+	Visible      []int64
 }
 
 // The model output for the same passage text in another item of the
-// connection.
+// connection, in the visible set of the job.
 func (q *Queries) ReusableOutput(ctx context.Context, arg ReusableOutputParams) (json.RawMessage, error) {
 	row := q.db.QueryRow(ctx, reusableOutput,
 		arg.PassageHash,
 		arg.Version,
 		arg.ConnectionID,
 		arg.ItemID,
+		arg.Visible,
 	)
 	var output json.RawMessage
 	err := row.Scan(&output)

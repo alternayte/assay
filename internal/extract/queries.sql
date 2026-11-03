@@ -72,8 +72,9 @@ DELETE FROM passage_leases WHERE item_id = @item_id AND passage_hash = @passage_
 
 -- name: ReusableOutput :one
 -- The model output for the same passage text in another item of the
--- connection.
+-- connection, in the visible set of the job.
 SELECT x.output FROM passage_extractions x
 JOIN source_items i ON i.id = x.item_id
 WHERE x.passage_hash = @passage_hash AND x.extractor_version = @version AND i.connection_id = @connection_id AND x.item_id <> @item_id
+  AND i.connection_id = ANY(@visible::bigint[])
 LIMIT 1;

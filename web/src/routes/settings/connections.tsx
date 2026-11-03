@@ -32,7 +32,7 @@ function messageOf(e: unknown): string {
 const kindLabel = (k: string) => t(`connections.kinds.${k}` as CopyKey);
 
 function StatusBadge({ c }: { c: Pick<Connection, "status"> }) {
-  const tone = c.status === "active" ? "supported" : c.status === "paused" ? "danger" : "stale";
+  const tone = c.status === "active" ? "supported" : "danger";
   return <Badge tone={tone}>{t(`connections.status.${c.status}` as CopyKey)}</Badge>;
 }
 
@@ -796,7 +796,9 @@ function HealthSheet({ c }: { c: Connection }) {
       <div className="flex flex-col gap-4">
         {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
         {registry && <Notice>{t("connections.registryHelp")}</Notice>}
-        {c.status !== "active" && c.statusReason && <Notice tone="danger">{c.statusReason}</Notice>}
+        {c.status === "paused" && (
+          <Notice tone="danger">{[c.statusReason, t("connections.pausedHelp")].filter(Boolean).join(" ")}</Notice>
+        )}
         <dl className="grid gap-4 sm:grid-cols-3">
           <Term label={t("connections.colStatus")}>
             <StatusBadge c={c} />

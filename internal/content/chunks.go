@@ -70,21 +70,47 @@ func Chunks(title string, ps []Passage) []Chunk {
 	return out
 }
 
-// cutWords cuts s at spaces into the longest pieces that fit.
+// cutWords cuts s at spaces into the longest pieces that fit. A word that
+// alone does not fit, such as inline image data or a minified line, is cut
+// between runes.
 func cutWords(s string, fits func(string) bool) []string {
-	words := strings.Fields(s)
 	var out []string
 	var cur []string
-	for _, w := range words {
-		next := append(cur, w)
-		if len(cur) > 0 && !fits(strings.Join(next, " ")) {
-			out = append(out, strings.Join(cur, " "))
-			next = []string{w}
+	for _, w := range strings.Fields(s) {
+		for _, piece := range cutRunes(w, fits) {
+			next := append(cur, piece)
+			if len(cur) > 0 && !fits(strings.Join(next, " ")) {
+				out = append(out, strings.Join(cur, " "))
+				next = []string{piece}
+			}
+			cur = next
 		}
-		cur = next
 	}
 	if len(cur) > 0 {
 		out = append(out, strings.Join(cur, " "))
+	}
+	return out
+}
+
+// cutRunes cuts w into the longest runs of runes that fit.
+func cutRunes(w string, fits func(string) bool) []string {
+	if fits(w) {
+		return []string{w}
+	}
+	var out []string
+	r := []rune(w)
+	for len(r) > 0 {
+		lo, hi := 1, len(r)
+		for lo < hi {
+			mid := (lo + hi + 1) / 2
+			if fits(string(r[:mid])) {
+				lo = mid
+			} else {
+				hi = mid - 1
+			}
+		}
+		out = append(out, string(r[:lo]))
+		r = r[lo:]
 	}
 	return out
 }

@@ -391,8 +391,7 @@
     },
     "status": {
       "active": "Active",
-      "paused": "Paused",
-      "resuming": "Hidden until reconciled"
+      "paused": "Paused"
     },
     "ownerOnly": "Owner only",
     "never": "Never",
@@ -413,7 +412,7 @@
     "purge": "Purge",
     "queued": "The run is in the queue. The history shows its result.",
     "runActive": "A run of this kind is already in the queue or running.",
-    "pausedHelp": "The content of a paused connection is hidden. Resume it to sync again.",
+    "pausedHelp": "Assay does not sync a paused connection. Its content stays visible. Resume it to sync again.",
     "purgeTitle": "Purge {name}",
     "purgeBody": "Purge deletes the connection and all its items, passages and claims. You cannot undo this.",
     "purgeConfirm": "Type the name of the connection to confirm.",

@@ -131,7 +131,7 @@ func TestSCN_SYN_002_ReconcileTombstonesDeletedItems(t *testing.T) {
 	}
 }
 
-func TestSCN_SYN_007_UnauthorizedPausesAndHides(t *testing.T) {
+func TestSCN_SYN_007_UnauthorizedPausesAndKeepsContent(t *testing.T) {
 	env := testkit.Start(t)
 	admin := env.Setup("owner@acme.test")
 	src, base := testkit.FakeSources(t)
@@ -149,42 +149,53 @@ func TestSCN_SYN_007_UnauthorizedPausesAndHides(t *testing.T) {
 		t.Fatalf("run %+v", run)
 	}
 	var c struct {
-		Status string `json:"status"`
+		Status       string `json:"status"`
+		StatusReason string `json:"statusReason"`
 	}
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/connections/%d", conn), nil).JSON(t, &c)
-	if c.Status != "paused" {
-		t.Fatalf("status %s", c.Status)
+	if c.Status != "paused" || !strings.Contains(c.StatusReason, "401") {
+		t.Fatalf("status %s, reason %q", c.Status, c.StatusReason)
 	}
-	admin.Must(http.StatusNotFound, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
-	if got := searchItems(t, admin, "Payments API overview"); len(got) != 0 {
-		t.Fatalf("search finds %v from the paused connection", got)
+	// A pause stops the runs only. The content stays visible.
+	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
+	if !slices.Contains(searchItems(t, admin, "Payments API overview"), item) {
+		t.Fatal("search does not find the page of the paused connection")
 	}
 
-	// After resume the content stays hidden until a reconciliation succeeds.
+	// Resume makes the connection active at once and queues a sync and a
+	// reconciliation.
 	src.AllowToken()
 	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/paused", conn), map[string]any{"paused": false})
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/connections/%d", conn), nil).JSON(t, &c)
-	if c.Status != "resuming" {
-		t.Fatalf("status after resume %s", c.Status)
+	if c.Status != "active" || c.StatusReason != "" {
+		t.Fatalf("status after resume %s, reason %q", c.Status, c.StatusReason)
 	}
-	admin.Must(http.StatusNotFound, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
 	var runs struct {
 		Runs []testkit.Run `json:"runs"`
 	}
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/connections/%d/runs", conn), nil).JSON(t, &runs)
-	if runs.Runs[0].Kind != "reconcile" || runs.Runs[0].Status != "queued" {
-		t.Fatalf("resume did not queue a reconciliation: %+v", runs.Runs[0])
+	queued := map[string]bool{}
+	for _, r := range runs.Runs[:2] {
+		if r.Status == "queued" {
+			queued[r.Kind] = true
+		}
 	}
-	if got := searchItems(t, admin, "Payments API overview"); len(got) != 0 {
-		t.Fatalf("search finds %v before the reconciliation", got)
+	if !queued["sync"] || !queued["reconcile"] {
+		t.Fatalf("resume did not queue a sync and a reconciliation: %+v", runs.Runs[:2])
 	}
-	if err := env.Server.Sync().Run(t.Context(), runs.Runs[0].ID); err != nil {
-		t.Fatal(err)
+
+	// A pause stops the queued runs and cancels their jobs.
+	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/paused", conn), map[string]any{"paused": true})
+	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/connections/%d/runs", conn), nil).JSON(t, &runs)
+	for _, r := range runs.Runs[:2] {
+		if r.Status != "failed" || r.Error != "An admin paused the connection." {
+			t.Fatalf("run after pause %+v", r)
+		}
+	}
+	if n := env.Count("SELECT count(*) FROM river_job WHERE kind = 'sync_run' AND state NOT IN ('cancelled', 'completed', 'discarded')"); n != 0 {
+		t.Fatalf("%d sync jobs left after the pause", n)
 	}
 	admin.Must(http.StatusOK, http.MethodGet, fmt.Sprintf("/api/v1/items/%d", item), nil)
-	if !slices.Contains(searchItems(t, admin, "Payments API overview"), item) {
-		t.Fatal("search does not find the page after the reconciliation")
-	}
 }
 
 func TestSCN_SYN_008_NotFoundTombstones(t *testing.T) {

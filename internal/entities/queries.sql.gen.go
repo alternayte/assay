@@ -152,13 +152,12 @@ func (q *Queries) Edges(ctx context.Context, arg EdgesParams) ([]EdgesRow, error
 
 const everyoneConnections = `-- name: EveryoneConnections :many
 SELECT c.id FROM connections c
-WHERE c.status = 'active'
-  AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id AND g.builtin WHERE v.connection_id = c.id)
+WHERE EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id AND g.builtin WHERE v.connection_id = c.id)
 ORDER BY c.id
 `
 
-// The active connections that are shared with Everyone: the visible set that
-// every user has.
+// The connections that are shared with Everyone: the visible set that every
+// user has.
 func (q *Queries) EveryoneConnections(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, everyoneConnections)
 	if err != nil {

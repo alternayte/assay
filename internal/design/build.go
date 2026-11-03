@@ -115,7 +115,7 @@ func (s *Service) Build(ctx context.Context, connectionID int64, onlyRepo, trigg
 	if err != nil {
 		return err
 	}
-	if conn.Status != "active" || len(conn.CodeGlobs) == 0 {
+	if len(conn.CodeGlobs) == 0 {
 		return nil
 	}
 	vis := []int64{connectionID}

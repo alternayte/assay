@@ -50,7 +50,7 @@ RETURNING group_id;
 SELECT count(*) FROM groups WHERE id = ANY(@ids::bigint[]);
 
 -- name: SetStatus :execrows
-UPDATE connections SET status = @status, status_reason = @reason, status_epoch = status_epoch + 1, updated_at = now()
+UPDATE connections SET status = @status, status_reason = @reason, updated_at = now()
 WHERE id = @id AND kind <> 'registry';
 
 -- name: DeleteConnection :execrows
@@ -69,7 +69,7 @@ ORDER BY id DESC LIMIT 1;
 SELECT * FROM sync_runs WHERE id = @id;
 
 -- name: StartRun :execrows
-UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor, status_epoch = @status_epoch
+UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor
 WHERE id = @id AND status IN ('queued', 'running');
 
 -- name: RequeueRun :exec
@@ -84,6 +84,10 @@ WHERE id = @id;
 -- name: ListRuns :many
 SELECT * FROM sync_runs WHERE connection_id = @connection_id ORDER BY id DESC LIMIT @lim;
 
+-- name: FailQueuedRuns :exec
+UPDATE sync_runs SET status = 'failed', finished_at = @now, error = @error
+WHERE connection_id = @connection_id AND status = 'queued';
+
 -- name: FailStaleRuns :execrows
 UPDATE sync_runs SET status = 'failed', finished_at = @now, error = 'The run stopped without a result.'
 WHERE status = 'running' AND started_at < @before;
@@ -95,13 +99,7 @@ DELETE FROM sync_runs WHERE queued_at < @before AND status IN ('succeeded', 'fai
 UPDATE connections SET cursor = @cursor, last_sync_at = @now WHERE id = @id;
 
 -- name: FinishReconcile :exec
--- Only a reconciliation that started after the last status change ends a
--- resume.
-UPDATE connections
-SET last_reconcile_at = @now, permissions_checked_at = @now,
-    status = CASE WHEN status = 'resuming' AND status_epoch = @status_epoch THEN 'active' ELSE status END,
-    status_reason = CASE WHEN status = 'resuming' AND status_epoch = @status_epoch THEN '' ELSE status_reason END
-WHERE id = @id;
+UPDATE connections SET last_reconcile_at = @now, permissions_checked_at = @now WHERE id = @id;
 
 -- name: ItemIDs :many
 -- vis:system
@@ -121,14 +119,14 @@ SELECT id FROM source_items WHERE connection_id = @connection_id AND external_id
 
 -- name: DueSyncs :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming')
+WHERE c.kind <> 'registry' AND c.status = 'active'
   AND (c.last_sync_at IS NULL OR c.last_sync_at + make_interval(mins => c.sync_minutes) <= @now)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind = 'sync' AND r.status IN ('queued', 'running'));
 
 -- name: DueReconciles :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_sync_at IS NOT NULL
-  AND (c.status = 'resuming' OR c.last_reconcile_at IS NULL
+WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL
+  AND (c.last_reconcile_at IS NULL
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= @now)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
                   AND r.status IN ('queued', 'running'));

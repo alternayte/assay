@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/connectors"
@@ -114,6 +115,32 @@ func (s *Service) Schedule(ctx context.Context) error {
 // errPaused fails a run of a paused connection.
 var errPaused = errors.New("sync: the connection is paused")
 
+// errPausedByAdmin ends a run that a pause stopped.
+var errPausedByAdmin = errors.New("sync: an admin paused the connection")
+
+// pausedReason is the status reason of a pause and the error of the runs
+// that it stops.
+const pausedReason = "An admin paused the connection."
+
+// cancelRuns cancels the sync jobs of the unfinished runs of a connection.
+// A running job then ends its run as failed with pausedReason.
+func (s *Service) cancelRuns(ctx context.Context, connectionID int64) error {
+	res, err := s.River.JobList(ctx, river.NewJobListParams().Kinds(RunArgs{}.Kind()).
+		States(rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateScheduled,
+			rivertype.JobStateRunning).
+		Where("(args->>'run_id')::bigint IN (SELECT id FROM sync_runs WHERE connection_id = @connection)",
+			river.NamedArgs{"connection": connectionID}).First(100))
+	if err != nil {
+		return err
+	}
+	for _, j := range res.Jobs {
+		if _, err := s.River.JobCancel(ctx, j.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ErrRunActive means that a run of the same kind is queued or running.
 var ErrRunActive = errors.New("sync: a run of this kind is queued or running")
 
@@ -187,14 +214,21 @@ func (st *stats) fail(err error) {
 	}
 }
 
+// replace sets the error of the run, in place of the first error.
+func (st *stats) replace(err error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.failed = err
+}
+
 func (st *stats) err() error {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	return st.failed
 }
 
-// Run works one sync run to its end. A 401 or 403 pauses the connection,
-// which hides its content in the same transaction.
+// Run works one sync run to its end. A 401 or 403 pauses the connection in
+// the same transaction.
 func (s *Service) Run(ctx context.Context, runID int64) error {
 	q := New(s.Pool)
 	run, err := q.GetRun(ctx, runID)
@@ -215,7 +249,7 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 		return err
 	}
 	now := s.now()
-	if _, err := q.StartRun(ctx, StartRunParams{ID: runID, Now: &now, Cursor: conn.Cursor, StatusEpoch: conn.StatusEpoch}); err != nil {
+	if _, err := q.StartRun(ctx, StartRunParams{ID: runID, Now: &now, Cursor: conn.Cursor}); err != nil {
 		return err
 	}
 	st := &stats{}
@@ -242,6 +276,11 @@ func (s *Service) Run(ctx context.Context, runID int64) error {
 			return err
 		}
 		return river.JobSnooze(time.Second)
+	}
+	if errors.Is(context.Cause(ctx), river.ErrJobCancelledRemotely) {
+		if c, err := New(s.Pool).GetConnection(context.WithoutCancel(ctx), conn.ID); err == nil && c.Status == "paused" {
+			st.replace(errPausedByAdmin)
+		}
 	}
 	return s.finish(ctx, conn, run, cursor, st)
 }
@@ -278,7 +317,7 @@ func (s *Service) finish(ctx context.Context, conn Connection, run SyncRun, curs
 					return err
 				}
 			case "reconcile":
-				if err := q.FinishReconcile(ctx, FinishReconcileParams{ID: conn.ID, Now: &now, StatusEpoch: conn.StatusEpoch}); err != nil {
+				if err := q.FinishReconcile(ctx, FinishReconcileParams{ID: conn.ID, Now: &now}); err != nil {
 					return err
 				}
 			}

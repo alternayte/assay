@@ -30,7 +30,7 @@ func (s *Service) Conflicts(ctx context.Context) error {
 	if err != nil || len(subjects) == 0 {
 		return err
 	}
-	conns, err := q.ActiveConnections(ctx)
+	conns, err := q.AllConnections(ctx)
 	if err != nil {
 		return err
 	}

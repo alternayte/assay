@@ -67,11 +67,10 @@ SELECT DISTINCT s.entity_id FROM entity_sources s JOIN connections k ON k.id = s
 WHERE s.entity_id = ANY(@ids::bigint[]) AND k.kind = 'registry' AND s.connection_id = ANY(@visible::bigint[]);
 
 -- name: EveryoneConnections :many
--- The active connections that are shared with Everyone: the visible set that
--- every user has.
+-- The connections that are shared with Everyone: the visible set that every
+-- user has.
 SELECT c.id FROM connections c
-WHERE c.status = 'active'
-  AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id AND g.builtin WHERE v.connection_id = c.id)
+WHERE EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id AND g.builtin WHERE v.connection_id = c.id)
 ORDER BY c.id;
 
 -- name: AllVisible :one

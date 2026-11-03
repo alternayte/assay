@@ -51,7 +51,7 @@ type ConnectionRecord struct {
 	RatePerSecond        float64        `json:"ratePerSecond"`
 	OwnerID              *string        `json:"ownerId"`
 	OwnerEmail           string         `json:"ownerEmail"`
-	Status               string         `json:"status" enum:"active,paused,resuming"`
+	Status               string         `json:"status" enum:"active,paused"`
 	StatusReason         string         `json:"statusReason"`
 	DefaultDomainID      *int64         `json:"defaultDomainId"`
 	Visibility           []GroupRef     `json:"visibility"`
@@ -352,13 +352,9 @@ func (s *Service) Register(a huma.API) {
 					return err
 				}
 			}
-			// Content of the old source selection stays hidden until a
-			// reconciliation of the new one succeeds.
+			// A reconciliation of the new source selection tombstones the
+			// items that it no longer holds. The content stays visible.
 			if cur.Status != "paused" && sourceChanged(cur, b) {
-				if _, err := q.SetStatus(ctx, SetStatusParams{ID: in.ID, Status: "resuming",
-					Reason: "The source selection changed. The content shows again after the next successful reconciliation."}); err != nil {
-					return err
-				}
 				reconcile = true
 			}
 			return audit.Write(ctx, tx, audit.Entry{Action: "connections.update", Target: fmt.Sprintf("connection:%d", in.ID),
@@ -432,7 +428,7 @@ func (s *Service) Register(a huma.API) {
 	type pauseIn struct {
 		ID   int64 `path:"id"`
 		Body struct {
-			Paused bool `json:"paused" doc:"True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation."`
+			Paused bool `json:"paused" doc:"True pauses the connection: its sync and reconcile runs stop, and its content stays visible. False resumes it and queues a sync and a reconciliation."`
 		}
 	}
 	huma.Register(a, huma.Operation{
@@ -451,12 +447,14 @@ func (s *Service) Register(a huma.API) {
 			if c.Kind == "registry" {
 				return registryProblem()
 			}
-			status, reason, action := "paused", "An admin paused the connection.", "connections.pause"
+			status, reason, action := "paused", pausedReason, "connections.pause"
 			if !in.Body.Paused {
 				if c.Status != "paused" {
 					return nil
 				}
-				status, reason, action = "resuming", "The content shows again after the next successful reconciliation.", "connections.resume"
+				status, reason, action = "active", "", "connections.resume"
+			} else if err := q.FailQueuedRuns(ctx, FailQueuedRunsParams{ConnectionID: in.ID, Now: ptr(s.now()), Error: pausedReason}); err != nil {
+				return err
 			}
 			if _, err := q.SetStatus(ctx, SetStatusParams{ID: in.ID, Status: status, Reason: reason}); err != nil {
 				return err
@@ -466,8 +464,14 @@ func (s *Service) Register(a huma.API) {
 		if err != nil {
 			return nil, wrap(err)
 		}
-		if !in.Body.Paused {
-			if _, err := s.Queue(ctx, in.ID, "reconcile", "manual"); err != nil && !errors.Is(err, ErrRunActive) {
+		if in.Body.Paused {
+			if err := s.cancelRuns(ctx, in.ID); err != nil {
+				return nil, api.Internal(err)
+			}
+			return nil, nil
+		}
+		for _, kind := range []string{"sync", "reconcile"} {
+			if _, err := s.Queue(ctx, in.ID, kind, "manual"); err != nil && !errors.Is(err, ErrRunActive) {
 				return nil, api.Internal(err)
 			}
 		}

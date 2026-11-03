@@ -128,4 +128,17 @@ func TestSCN_SYN_005_ChunksStayInSectionsAndLimit(t *testing.T) {
 			t.Fatalf("cut chunk has %d tokens", c.Tokens)
 		}
 	}
+
+	// A word above the limit, such as inline image data, is cut too: the
+	// embed model refuses an input past its own limit.
+	data := []content.Passage{{Section: 1, Kind: "paragraph", Text: "img data:image/png;base64," + strings.Repeat("iVBORw0KGgo", 3000), Hash: []byte{2}}}
+	cut := content.Chunks("T", data)
+	if len(cut) < 2 {
+		t.Fatalf("want the word cut into several chunks, got %d", len(cut))
+	}
+	for _, c := range cut {
+		if c.Tokens > content.MaxChunkTokens {
+			t.Fatalf("cut word chunk has %d tokens", c.Tokens)
+		}
+	}
 }

@@ -324,11 +324,11 @@ WHERE e.id = @id AND e.state = 'stale'
 DELETE FROM claim_evidence WHERE id = @id AND state = 'stale';
 
 -- name: EveryoneConnections :many
--- The registry and the active connections shared with Everyone.
+-- The registry and the connections shared with Everyone.
 SELECT c.id FROM connections c
 WHERE c.kind = 'registry'
-   OR (c.status = 'active' AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
-                                       WHERE v.connection_id = c.id AND g.builtin))
+   OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+              WHERE v.connection_id = c.id AND g.builtin)
 ORDER BY c.id;
 
 -- name: PhrasePassages :many
@@ -537,8 +537,8 @@ SELECT DISTINCT g.subject_id FROM (
 ) g
 ORDER BY g.subject_id;
 
--- name: ActiveConnections :many
-SELECT id FROM connections WHERE status = 'active' ORDER BY id;
+-- name: AllConnections :many
+SELECT id FROM connections ORDER BY id;
 
 -- name: ConflictCardKnown :one
 -- Whether a conflict card exists for the target, or an open conflict card

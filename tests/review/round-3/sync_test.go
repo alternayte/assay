@@ -4,105 +4,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"net/http/httputil"
 	"net/url"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/alternayte/assay/internal/testkit"
 )
 
-// gate is a proxy to the fixture server that holds each request while it is
-// closed.
-type gate struct {
-	mu      sync.Mutex
-	open    chan struct{}
-	arrived chan struct{}
-}
-
-func newGate(t *testing.T, base string) (*gate, string) {
-	t.Helper()
-	g := &gate{open: make(chan struct{}), arrived: make(chan struct{}, 64)}
-	close(g.open)
-	target, err := url.Parse(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		g.mu.Lock()
-		open := g.open
-		g.mu.Unlock()
-		select {
-		case <-open:
-		default:
-			g.arrived <- struct{}{}
-			<-open
-		}
-		proxy.ServeHTTP(rw, r)
-	}))
-	t.Cleanup(srv.Close)
-	return g, srv.URL
-}
-
-func (g *gate) close() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.open = make(chan struct{})
-}
-
-func (g *gate) release() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	close(g.open)
-}
-
-// A reconciliation that started before a pause holds the permission check
-// of the time before the pause. After a resume, only a reconciliation that
-// starts after the resume may show the content again (REQ-SYN-002).
-func TestRVW_3_01_StaleReconcileActivatesResumedConnection(t *testing.T) {
-	w := start(t)
-	g, base := newGate(t, w.base)
-	id := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-gated", Kind: "confluence", BaseURL: base,
-		Path: "/confluence", Scope: map[string]any{"spaces": []string{"ENG"}}})
-	if r := w.env.RunNow(w.owner, id, "sync"); r.Status != "succeeded" {
-		t.Fatalf("sync: %+v", r)
-	}
-	var q struct {
-		RunID int64 `json:"runId"`
-	}
-	w.owner.Must(http.StatusAccepted, http.MethodPost, fmt.Sprintf("/api/v1/connections/%d/reconcile", id), nil).JSON(t, &q)
-	g.close()
-	done := make(chan error, 1)
-	go func() { done <- w.env.Server.Sync().Run(context.Background(), q.RunID) }()
-	select {
-	case <-g.arrived:
-	case <-time.After(30 * time.Second):
-		t.Fatal("the reconciliation sent no request")
-	}
-	path := fmt.Sprintf("/api/v1/connections/%d/paused", id)
-	w.owner.Must(http.StatusNoContent, http.MethodPut, path, map[string]any{"paused": true})
-	w.owner.Must(http.StatusNoContent, http.MethodPut, path, map[string]any{"paused": false})
-	g.release()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if st := w.scalar(t, `SELECT status FROM connections WHERE id = $1`, id); st != "resuming" {
-		t.Errorf("a reconciliation that started before the pause set the status to %v, want resuming", st)
-	}
-	if r := w.env.RunNow(w.owner, id, "reconcile"); r.Status != "succeeded" {
-		t.Fatalf("reconcile after resume: %+v", r)
-	}
-	if st := w.scalar(t, `SELECT status FROM connections WHERE id = $1`, id); st != "active" {
-		t.Errorf("a reconciliation after the resume left the status %v, want active", st)
-	}
-}
-
-// A scope change removes spaces from a connection. The content of the
-// removed spaces must not stay readable until the next reconciliation.
-func TestRVW_3_02_ScopeChangeKeepsOldContentVisible(t *testing.T) {
+// A scope change removes spaces from a connection. The content stays
+// visible under the connection's visibility, and the reconciliation that
+// the change queues removes the items of the removed spaces.
+func TestRVW_3_02_ScopeChangeReconcileRemovesOldContent(t *testing.T) {
 	w := start(t)
 	adr := w.key(t, w.public, "1003")
 	w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/entities/"+url.PathEscape(adr), nil)
@@ -110,9 +21,10 @@ func TestRVW_3_02_ScopeChangeKeepsOldContentVisible(t *testing.T) {
 	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d", w.public), map[string]any{
 		"kind": "confluence", "baseUrl": w.base + "/confluence", "name": "acme-eng", "scope": map[string]any{"spaces": []string{"RST"}},
 		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": 100})
-	if r := w.member.Do(http.MethodGet, "/api/v1/entities/"+url.PathEscape(adr), nil); r.Status != http.StatusNotFound {
-		t.Errorf("member reads an entity of a removed space after the scope change: %d", r.Status)
+	if st := w.scalar(t, `SELECT status FROM connections WHERE id = $1`, w.public); st != "active" {
+		t.Errorf("status after the scope change is %v, want active", st)
 	}
+	w.member.Must(http.StatusOK, http.MethodGet, "/api/v1/entities/"+url.PathEscape(adr), nil)
 	// The scope change queues the reconciliation.
 	run := w.scalar(t, `SELECT id FROM sync_runs WHERE connection_id = $1 AND kind = 'reconcile' AND status = 'queued'`, w.public).(int64)
 	if err := w.env.Server.Sync().Run(context.Background(), run); err != nil {

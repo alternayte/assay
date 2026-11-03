@@ -40,7 +40,6 @@ type EditPayload = { draft?: string; lint?: { rule: string; message: string }[] 
 type Pending = { card: Card; action: "accept" | "reject"; reason?: string; edits?: Edits; timer: number };
 
 const UNDO_MS = 5000;
-const SEARCH_MS = 300;
 const kinds: Kind[] = [
   "correction",
   "finding",
@@ -948,16 +947,6 @@ const empty: Filter = { kind: "", band: "", connection: "", type: "", domain: ""
 export function ReviewPage() {
   const [tab, setTab] = useState<Tab>("needs");
   const [f, setF] = useState<Filter>(empty);
-  // The search text applies after a pause in typing, so each key does not reload the queue and send the pending decisions.
-  const [applied, setApplied] = useState<Filter>(empty);
-  useEffect(() => {
-    if (f.q === applied.q) {
-      setApplied(f);
-      return;
-    }
-    const id = window.setTimeout(() => setApplied(f), SEARCH_MS);
-    return () => clearTimeout(id);
-  }, [f, applied.q]);
   const options = useQuery({
     queryKey: ["cards", "options"],
     queryFn: async () =>
@@ -1018,9 +1007,10 @@ export function ReviewPage() {
         />
       )}
       <section role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === "needs" && <Needs key={JSON.stringify(applied)} f={applied} />}
+        {/* The queue keeps its state when the filter changes, so typing does not send the pending decisions. */}
+        {tab === "needs" && <Needs f={f} />}
         {tab === "auto" && <Auto />}
-        {tab === "decided" && <Decided f={applied} />}
+        {tab === "decided" && <Decided f={f} />}
       </section>
     </div>
   );

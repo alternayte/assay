@@ -74,3 +74,8 @@ UPDATE pages
 SET summary_md = @summary_md, claim_set_hash = @claim_set_hash, claim_ids = @claim_ids, lint = '[]', state = 'fresh', model = @model,
     compiled_at = @compiled_at
 WHERE id = @id;
+
+-- name: InvalidatePages :exec
+-- The cached pages of an entity and its members compile again on the next
+-- open.
+DELETE FROM pages WHERE entity_id = ANY(entity_members(@entity_id));

@@ -270,6 +270,10 @@ func (s *Service) describe(ctx context.Context, r PendingMentionsRow, target str
 		if err != nil || rejected {
 			return err
 		}
+		// A person deleted the entity of this description.
+		if deleted, err := New(s.Pool).KeyDeleted(ctx, key); err != nil || deleted {
+			return err
+		}
 	}
 	cands, err := New(s.Pool).DescribeCandidates(ctx, DescribeCandidatesParams{Description: pl.Mention.Value, Types: types})
 	if err != nil {

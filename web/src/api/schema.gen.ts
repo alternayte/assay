@@ -752,7 +752,51 @@ export interface paths {
         get: operations["getEntity"];
         put?: never;
         post?: never;
+        /**
+         * Delete an entity
+         * @description Deletes an entity that no source system owns, such as an unnamed entity, with its claims. Resolution does not make it again. Any other entity returns 409. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
+         */
+        delete: operations["deleteEntity"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/aliases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add an alias to an entity
+         * @description Writes the alias in each visible source connection of the entity. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
+         */
+        post: operations["addEntityAlias"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/aliases/{aliasId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an alias from an entity
+         * @description Removes the alias from the visible connections. A sync or a mention does not add it again. The last name cannot be removed; rename the entity instead. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
+         */
+        delete: operations["removeEntityAlias"];
         options?: never;
         head?: never;
         patch?: never;
@@ -878,6 +922,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{key}/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rename an entity
+         * @description Writes the name in each visible source connection of the entity. A sync does not change it. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
+         */
+        put: operations["renameEntity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{key}/page": {
         parameters: {
             query?: never;
@@ -971,6 +1035,26 @@ export interface paths {
          */
         get: operations["traceEntity"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{key}/type": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Change the type of an entity
+         * @description A sync does not change the type again. A current claim that does not take the type refuses the change with 409, and the message names its predicates. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
+         */
+        put: operations["setEntityType"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1960,6 +2044,21 @@ export interface components {
             password: string;
             token: string;
         };
+        AliasInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AliasInBody.json
+             */
+            readonly $schema?: string;
+            alias: string;
+        };
+        AliasRef: {
+            alias: string;
+            /** Format: int64 */
+            id: number;
+            isName: boolean;
+        };
         Answer: {
             /**
              * Format: uri
@@ -2037,7 +2136,7 @@ export interface components {
             /** Format: int64 */
             domain?: number;
             /** @enum {string} */
-            kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "";
+            kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "entity_edit" | "";
             q?: string;
             type?: string;
         };
@@ -2539,9 +2638,13 @@ export interface components {
              * @example https://example.com/api/v1/schemas/Detail.json
              */
             readonly $schema?: string;
+            aliasRefs: components["schemas"]["AliasRef"][];
             aliases: string[];
+            allowedTypes: string[];
             /** @description Claims with the entity as subject, with their status for you. */
             claims: components["schemas"]["Claim"][];
+            /** @description No source system owns the entity, so it can be deleted. */
+            deletable: boolean;
             domain: string;
             /** Format: int64 */
             domainId: number | null;
@@ -2553,6 +2656,8 @@ export interface components {
             name: string;
             /** Format: date-time */
             newest: string | null;
+            /** @description A registry record holds the entity: the registry form edits it. */
+            record: boolean;
             sources: components["schemas"]["EntitySource"][];
             /** @enum {string} */
             status: "active" | "proposed";
@@ -2591,6 +2696,19 @@ export interface components {
             predicate: string;
             /** @description The object key. */
             to: string;
+        };
+        EditOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditOutBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The entity_edit card of a member.
+             */
+            proposal?: number;
         };
         Edits: {
             /**
@@ -3241,6 +3359,15 @@ export interface components {
              * Format: uri
              * @description A URL to the JSON Schema for this object.
              * @example https://example.com/api/v1/schemas/NameBody.json
+             */
+            readonly $schema?: string;
+            name: string;
+        };
+        NameInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/NameInBody.json
              */
             readonly $schema?: string;
             name: string;
@@ -4160,6 +4287,16 @@ export interface components {
             root: string;
             truncated: boolean;
         };
+        TypeInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/TypeInBody.json
+             */
+            readonly $schema?: string;
+            /** @description An entity type. term and repository cannot be set or changed. */
+            type: string;
+        };
         UpdateCard: {
             /** Format: date-time */
             decidedAt: string;
@@ -4778,7 +4915,7 @@ export interface operations {
     listCards: {
         parameters: {
             query?: {
-                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "";
+                kind?: "correction" | "finding" | "merge" | "mention_link" | "unnamed" | "new_term" | "term_edit" | "conflict" | "needs_edit" | "repo_system" | "design_problem" | "design_edit" | "design_update" | "entity_edit" | "";
                 band?: "high" | "medium" | "low" | "";
                 /** @description A connection of the card inputs. */
                 connection?: number;
@@ -5896,6 +6033,101 @@ export interface operations {
             };
         };
     };
+    deleteEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment, such as jira:jira.acme.test:PAY-1. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An entity_edit card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditOutBody"];
+                };
+            };
+        };
+    };
+    addEntityAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AliasInBody"];
+            };
+        };
+        responses: {
+            /** @description An entity_edit card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditOutBody"];
+                };
+            };
+        };
+    };
+    removeEntityAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+                aliasId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An entity_edit card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditOutBody"];
+                };
+            };
+        };
+    };
     getDesignPage: {
         parameters: {
             query?: never;
@@ -6095,6 +6327,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    renameEntity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NameInBody"];
+            };
+        };
+        responses: {
+            /** @description An entity_edit card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditOutBody"];
                 };
             };
         };
@@ -6306,6 +6572,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setEntityType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The entity key, escaped as one path segment. */
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TypeInBody"];
+            };
+        };
+        responses: {
+            /** @description An entity_edit card for review. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditOutBody"];
                 };
             };
         };

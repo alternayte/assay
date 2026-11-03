@@ -64,8 +64,10 @@ SET state = CASE WHEN EXISTS (SELECT 1 FROM passages p WHERE p.item_id = e.item_
 WHERE e.item_id = @item_id AND e.kind <> 'human';
 
 -- name: UpsertEntity :one
+-- A type that a person set stays.
 INSERT INTO entities (type, key, domain_id) VALUES (@type, @key, @domain_id)
-ON CONFLICT (key) DO UPDATE SET type = EXCLUDED.type, domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
 RETURNING id;
 
 -- name: AddEntitySource :exec
@@ -74,9 +76,11 @@ INSERT INTO entity_sources (entity_id, connection_id) VALUES (@entity_id, @conne
 ON CONFLICT DO NOTHING;
 
 -- name: AddAlias :exec
+-- An alias that a person removed is not added again.
 -- vis:system
 INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
-VALUES (@entity_id, @connection_id, @alias, @alias_norm, @is_name)
+SELECT @entity_id, @connection_id, @alias, @alias_norm, @is_name
+WHERE NOT EXISTS (SELECT 1 FROM alias_suppressions s WHERE s.entity_id = @entity_id AND s.alias_norm = @alias_norm)
 ON CONFLICT (entity_id, connection_id, alias_norm)
 DO UPDATE SET is_name = entity_aliases.is_name OR EXCLUDED.is_name,
               alias = CASE WHEN EXCLUDED.is_name THEN EXCLUDED.alias ELSE entity_aliases.alias END;
@@ -84,7 +88,7 @@ DO UPDATE SET is_name = entity_aliases.is_name OR EXCLUDED.is_name,
 -- name: ClearOtherNames :exec
 -- vis:system
 UPDATE entity_aliases SET is_name = false
-WHERE entity_id = @entity_id AND connection_id = @connection_id AND alias_norm <> @alias_norm AND is_name;
+WHERE entity_id = @entity_id AND connection_id = @connection_id AND alias_norm <> @alias_norm AND is_name AND NOT edited;
 
 -- name: LatestClaim :one
 SELECT id, coalesce(object_entity_id, 0)::bigint AS object_entity_id, object_norm, retracted_at

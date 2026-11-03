@@ -63,6 +63,50 @@
         ],
         "type": "object"
       },
+      "AliasInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AliasInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "alias": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias"
+        ],
+        "type": "object"
+      },
+      "AliasRef": {
+        "additionalProperties": false,
+        "properties": {
+          "alias": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "isName": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "alias",
+          "isName"
+        ],
+        "type": "object"
+      },
       "Answer": {
         "additionalProperties": false,
         "properties": {
@@ -309,6 +353,7 @@
               "design_problem",
               "design_edit",
               "design_update",
+              "entity_edit",
               ""
             ],
             "type": "string"
@@ -1795,7 +1840,19 @@
             "readOnly": true,
             "type": "string"
           },
+          "aliasRefs": {
+            "items": {
+              "$ref": "#/components/schemas/AliasRef"
+            },
+            "type": "array"
+          },
           "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowedTypes": {
             "items": {
               "type": "string"
             },
@@ -1807,6 +1864,10 @@
               "$ref": "#/components/schemas/Claim"
             },
             "type": "array"
+          },
+          "deletable": {
+            "description": "No source system owns the entity, so it can be deleted.",
+            "type": "boolean"
           },
           "domain": {
             "type": "string"
@@ -1845,6 +1906,10 @@
               "null"
             ]
           },
+          "record": {
+            "description": "A registry record holds the entity: the registry form edits it.",
+            "type": "boolean"
+          },
           "sources": {
             "items": {
               "$ref": "#/components/schemas/EntitySource"
@@ -1877,6 +1942,10 @@
           "domain",
           "domainId",
           "aliases",
+          "aliasRefs",
+          "allowedTypes",
+          "deletable",
+          "record",
           "claims",
           "incoming",
           "timeline",
@@ -1986,6 +2055,26 @@
           "to",
           "depth"
         ],
+        "type": "object"
+      },
+      "EditOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/EditOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "proposal": {
+            "description": "The entity_edit card of a member.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "Edits": {
@@ -3791,6 +3880,29 @@
           },
           "name": {
             "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "NameInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/NameInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
             "minLength": 1,
             "type": "string"
           }
@@ -6524,6 +6636,28 @@
         ],
         "type": "object"
       },
+      "TypeInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/TypeInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "type": {
+            "description": "An entity type. term and repository cannot be set or changed.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
       "UpdateCard": {
         "additionalProperties": false,
         "properties": {
@@ -7629,6 +7763,7 @@
                 "design_problem",
                 "design_edit",
                 "design_update",
+                "entity_edit",
                 ""
               ],
               "type": "string"
@@ -9155,6 +9290,41 @@
       }
     },
     "/api/v1/entities/{key}": {
+      "delete": {
+        "description": "Deletes an entity that no source system owns, such as an unnamed entity, with its claims. Resolution does not make it again. Any other entity returns 409. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).",
+        "operationId": "deleteEntity",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment, such as jira:jira.acme.test:PAY-1.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment, such as jira:jira.acme.test:PAY-1.",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "An entity_edit card for review."
+          },
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutBody"
+                }
+              }
+            },
+            "description": "No Content"
+          }
+        },
+        "summary": "Delete an entity",
+        "tags": [
+          "entities"
+        ]
+      },
       "get": {
         "description": "Claims carry their status for you. A merged key gives the winner. A hidden entity and a missing key give the same 404.",
         "operationId": "getEntity",
@@ -9193,6 +9363,99 @@
           }
         },
         "summary": "Get an entity with its claims",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/aliases": {
+      "post": {
+        "description": "Writes the alias in each visible source connection of the entity. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).",
+        "operationId": "addEntityAlias",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AliasInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "An entity_edit card for review."
+          },
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutBody"
+                }
+              }
+            },
+            "description": "No Content"
+          }
+        },
+        "summary": "Add an alias to an entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/aliases/{aliasId}": {
+      "delete": {
+        "description": "Removes the alias from the visible connections. A sync or a mention does not add it again. The last name cannot be removed; rename the entity instead. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).",
+        "operationId": "removeEntityAlias",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "aliasId",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "An entity_edit card for review."
+          },
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutBody"
+                }
+              }
+            },
+            "description": "No Content"
+          }
+        },
+        "summary": "Remove an alias from an entity",
         "tags": [
           "entities"
         ]
@@ -9499,6 +9762,53 @@
         "summary": "Report a problem with a section of a design page",
         "tags": [
           "design"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/name": {
+      "put": {
+        "description": "Writes the name in each visible source connection of the entity. A sync does not change it. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).",
+        "operationId": "renameEntity",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "An entity_edit card for review."
+          },
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutBody"
+                }
+              }
+            },
+            "description": "No Content"
+          }
+        },
+        "summary": "Rename an entity",
+        "tags": [
+          "entities"
         ]
       }
     },
@@ -9898,6 +10208,53 @@
           }
         },
         "summary": "Trace the relationships of an entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{key}/type": {
+      "put": {
+        "description": "A sync does not change the type again. A current claim that does not take the type refuses the change with 409, and the message names its predicates. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).",
+        "operationId": "setEntityType",
+        "parameters": [
+          {
+            "description": "The entity key, escaped as one path segment.",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "The entity key, escaped as one path segment.",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "An entity_edit card for review."
+          },
+          "204": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutBody"
+                }
+              }
+            },
+            "description": "No Content"
+          }
+        },
+        "summary": "Change the type of an entity",
         "tags": [
           "entities"
         ]

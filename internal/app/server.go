@@ -39,6 +39,7 @@ import (
 	syncer "github.com/alternayte/assay/internal/sync"
 	"github.com/alternayte/assay/internal/tokens"
 	"github.com/alternayte/assay/internal/users"
+	"github.com/alternayte/assay/internal/visibility"
 	"github.com/alternayte/assay/internal/vocab"
 	"github.com/alternayte/assay/web"
 )
@@ -166,6 +167,10 @@ func (s *Server) services() error {
 	s.resolve.Apply["design_update"] = s.design.ApplyUpdate
 	s.sync.AfterRun = s.design.QueueBuild
 	s.resolve.Apply["needs_edit"] = s.pages.ApplyEdit
+	s.resolve.Apply["entity_edit"] = func(ctx context.Context, tx pgx.Tx, vis visibility.Set, payload []byte, _, reviewer string, _ resolve.Edits) error {
+		return s.entities.ApplyEdit(ctx, tx, vis, payload, reviewer)
+	}
+	s.entities.Edited = s.pages.Invalidate
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}
 	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Design: s.design, Vocab: s.vocab, Review: s.review,

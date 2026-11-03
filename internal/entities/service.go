@@ -33,6 +33,8 @@ type Service struct {
 	// Rename gives a registry record a new name in tx. A merge with a
 	// canonical name and a registry winner calls it.
 	Rename func(ctx context.Context, tx pgx.Tx, vis visibility.Set, key, name, userID string) error
+	// Edited marks the cached pages of an entity stale in tx after an edit.
+	Edited func(ctx context.Context, tx pgx.Tx, entityID int64) error
 }
 
 func (s *Service) now() time.Time {
@@ -96,23 +98,37 @@ type EntitySource struct {
 
 // Detail is an entity with its visible aliases, claims and sources.
 type Detail struct {
-	Key      string         `json:"key"`
-	Type     string         `json:"type"`
-	Name     string         `json:"name"`
-	Status   string         `json:"status" enum:"active,proposed"`
-	Domain   string         `json:"domain"`
-	DomainID *int64         `json:"domainId"`
-	Aliases  []string       `json:"aliases"`
-	Claims   []claims.Claim `json:"claims" doc:"Claims with the entity as subject, with their status for you."`
-	Incoming []claims.Claim `json:"incoming" doc:"Claims with the entity as object."`
-	Timeline []claims.Claim `json:"timeline" doc:"Dated values of time-scoped claims, newest first."`
-	Sources  []EntitySource `json:"sources"`
-	Merges   []MergeView    `json:"merges" doc:"Active merges into this entity, with the losers that you can see. Split undoes one."`
+	Key      string   `json:"key"`
+	Type     string   `json:"type"`
+	Name     string   `json:"name"`
+	Status   string   `json:"status" enum:"active,proposed"`
+	Domain   string   `json:"domain"`
+	DomainID *int64   `json:"domainId"`
+	Aliases  []string `json:"aliases"`
+	// AliasRefs are the visible names and aliases with the id that a
+	// remove takes.
+	AliasRefs []AliasRef `json:"aliasRefs"`
+	// AllowedTypes are the types that a type edit can set.
+	AllowedTypes []string       `json:"allowedTypes"`
+	Deletable    bool           `json:"deletable" doc:"No source system owns the entity, so it can be deleted."`
+	Record       bool           `json:"record" doc:"A registry record holds the entity: the registry form edits it."`
+	Claims       []claims.Claim `json:"claims" doc:"Claims with the entity as subject, with their status for you."`
+	Incoming     []claims.Claim `json:"incoming" doc:"Claims with the entity as object."`
+	Timeline     []claims.Claim `json:"timeline" doc:"Dated values of time-scoped claims, newest first."`
+	Sources      []EntitySource `json:"sources"`
+	Merges       []MergeView    `json:"merges" doc:"Active merges into this entity, with the losers that you can see. Split undoes one."`
 	// Newest is the newest update time of a source.
 	Newest *time.Time `json:"newest"`
 
 	ID      int64   `json:"-"`
 	Members []int64 `json:"-"`
+}
+
+// AliasRef is a visible name or alias of an entity.
+type AliasRef struct {
+	ID     int64  `json:"id"`
+	Alias  string `json:"alias"`
+	IsName bool   `json:"isName"`
 }
 
 // MergeView is an active merge into an entity.
@@ -170,6 +186,23 @@ func (s *Service) Get(ctx context.Context, vis visibility.Set, key string) (*Det
 		if a.Alias != d.Name {
 			d.Aliases = append(d.Aliases, a.Alias)
 		}
+	}
+	refs, err := q.EditableAliases(ctx, EditableAliasesParams{Members: members, Visible: vis})
+	if err != nil {
+		return nil, err
+	}
+	d.AliasRefs = []AliasRef{}
+	for _, a := range refs {
+		d.AliasRefs = append(d.AliasRefs, AliasRef{ID: a.ID, Alias: a.Alias, IsName: a.IsName})
+	}
+	keys, err := q.MemberKeys(ctx, members)
+	if err != nil {
+		return nil, err
+	}
+	d.Record = slices.ContainsFunc(keys, isRecord)
+	d.Deletable = !slices.ContainsFunc(keys, func(k string) bool { return !strings.HasPrefix(k, unnamedPrefix) })
+	if d.AllowedTypes, err = s.AllowedTypes(ctx, members, d.Type); err != nil {
+		return nil, err
 	}
 	cs, err := claims.Load(ctx, s.Pool, vis, claims.Query{Subjects: members, Objects: members})
 	if err != nil {

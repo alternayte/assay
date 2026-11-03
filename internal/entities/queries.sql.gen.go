@@ -76,6 +76,38 @@ func (q *Queries) ActiveMerges(ctx context.Context, arg ActiveMergesParams) ([]A
 	return items, nil
 }
 
+const addEditedAlias = `-- name: AddEditedAlias :exec
+INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name, edited)
+SELECT DISTINCT $1::bigint, s.connection_id, $2::text, $3::text, $4::boolean, true
+FROM entity_sources s
+WHERE s.entity_id = ANY($5::bigint[]) AND s.connection_id = ANY($6::bigint[])
+ON CONFLICT (entity_id, connection_id, alias_norm)
+DO UPDATE SET alias = EXCLUDED.alias, is_name = entity_aliases.is_name OR EXCLUDED.is_name, edited = true
+WHERE entity_aliases.connection_id = ANY($6::bigint[])
+`
+
+type AddEditedAliasParams struct {
+	EntityID  int64
+	Alias     string
+	AliasNorm string
+	IsName    bool
+	Members   []int64
+	Visible   []int64
+}
+
+// Writes the alias in each visible source connection of the entities.
+func (q *Queries) AddEditedAlias(ctx context.Context, arg AddEditedAliasParams) error {
+	_, err := q.db.Exec(ctx, addEditedAlias,
+		arg.EntityID,
+		arg.Alias,
+		arg.AliasNorm,
+		arg.IsName,
+		arg.Members,
+		arg.Visible,
+	)
+	return err
+}
+
 const allVisible = `-- name: AllVisible :one
 SELECT (NOT EXISTS (SELECT 1 FROM unnest($1::bigint[]) x(id)
                     WHERE NOT EXISTS (SELECT 1 FROM entity_sources es
@@ -93,6 +125,99 @@ func (q *Queries) AllVisible(ctx context.Context, arg AllVisibleParams) (bool, e
 	var visible bool
 	err := row.Scan(&visible)
 	return visible, err
+}
+
+const closeEntityCards = `-- name: CloseEntityCards :exec
+UPDATE proposals p SET status = 'closed', reason = $1, decided_at = now()
+WHERE p.status = 'open'
+  AND (p.target = ANY($2::text[]) OR p.payload->>'candidate' = ANY($3::text[])
+       OR (p.payload ? 'keys' AND p.payload->'keys' ?| $3::text[])
+       OR p.decision_id IN (SELECT d.id FROM decisions d WHERE d.subject_refs && $3::text[]))
+`
+
+type CloseEntityCardsParams struct {
+	Reason  string
+	Targets []string
+	Keys    []string
+}
+
+// Closes the open cards that name the entities.
+func (q *Queries) CloseEntityCards(ctx context.Context, arg CloseEntityCardsParams) error {
+	_, err := q.db.Exec(ctx, closeEntityCards, arg.Reason, arg.Targets, arg.Keys)
+	return err
+}
+
+const currentRoles = `-- name: CurrentRoles :many
+SELECT DISTINCT c.predicate, (c.subject_id = ANY($1::bigint[]))::boolean AS subject
+FROM claims c
+WHERE (c.subject_id = ANY($1::bigint[]) OR c.object_entity_id = ANY($1::bigint[])) AND c.retracted_at IS NULL
+ORDER BY 1, 2
+`
+
+type CurrentRolesRow struct {
+	Predicate string
+	Subject   bool
+}
+
+// The predicates of the current claims of the entities, with the side that
+// the entities fill. It reads only predicate names.
+func (q *Queries) CurrentRoles(ctx context.Context, members []int64) ([]CurrentRolesRow, error) {
+	rows, err := q.db.Query(ctx, currentRoles, members)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurrentRolesRow
+	for rows.Next() {
+		var i CurrentRolesRow
+		if err := rows.Scan(&i.Predicate, &i.Subject); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteEntities = `-- name: DeleteEntities :exec
+DELETE FROM entities WHERE id = ANY($1::bigint[])
+`
+
+// The claims, aliases, sources and pages of the entities go with them.
+func (q *Queries) DeleteEntities(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, deleteEntities, ids)
+	return err
+}
+
+const dropAlias = `-- name: DropAlias :exec
+DELETE FROM entity_aliases WHERE entity_id = $1 AND alias_norm = $2 AND connection_id = ANY($3::bigint[])
+`
+
+type DropAliasParams struct {
+	EntityID  int64
+	AliasNorm string
+	Visible   []int64
+}
+
+func (q *Queries) DropAlias(ctx context.Context, arg DropAliasParams) error {
+	_, err := q.db.Exec(ctx, dropAlias, arg.EntityID, arg.AliasNorm, arg.Visible)
+	return err
+}
+
+const dropEditedNames = `-- name: DropEditedNames :exec
+DELETE FROM entity_aliases WHERE entity_id = $1 AND edited AND is_name AND connection_id = ANY($2::bigint[])
+`
+
+type DropEditedNamesParams struct {
+	EntityID int64
+	Visible  []int64
+}
+
+func (q *Queries) DropEditedNames(ctx context.Context, arg DropEditedNamesParams) error {
+	_, err := q.db.Exec(ctx, dropEditedNames, arg.EntityID, arg.Visible)
+	return err
 }
 
 const edges = `-- name: Edges :many
@@ -139,6 +264,51 @@ func (q *Queries) Edges(ctx context.Context, arg EdgesParams) ([]EdgesRow, error
 			&i.Predicate,
 			&i.SubjectID,
 			&i.ObjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const editableAliases = `-- name: EditableAliases :many
+SELECT DISTINCT ON (a.alias_norm) a.id, a.alias, a.alias_norm, a.is_name
+FROM entity_aliases a
+WHERE a.entity_id = ANY($1::bigint[]) AND a.connection_id = ANY($2::bigint[])
+ORDER BY a.alias_norm, a.is_name DESC, a.id
+`
+
+type EditableAliasesParams struct {
+	Members []int64
+	Visible []int64
+}
+
+type EditableAliasesRow struct {
+	ID        int64
+	Alias     string
+	AliasNorm string
+	IsName    bool
+}
+
+// The visible aliases of the entities with an id that a person can remove.
+func (q *Queries) EditableAliases(ctx context.Context, arg EditableAliasesParams) ([]EditableAliasesRow, error) {
+	rows, err := q.db.Query(ctx, editableAliases, arg.Members, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EditableAliasesRow
+	for rows.Next() {
+		var i EditableAliasesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Alias,
+			&i.AliasNorm,
+			&i.IsName,
 		); err != nil {
 			return nil, err
 		}
@@ -350,6 +520,45 @@ func (q *Queries) HasRegistrySource(ctx context.Context, arg HasRegistrySourcePa
 	return items, nil
 }
 
+const insertDeletion = `-- name: InsertDeletion :exec
+INSERT INTO entity_deletions (key, by) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING
+`
+
+type InsertDeletionParams struct {
+	Key string
+	By  *string
+}
+
+func (q *Queries) InsertDeletion(ctx context.Context, arg InsertDeletionParams) error {
+	_, err := q.db.Exec(ctx, insertDeletion, arg.Key, arg.By)
+	return err
+}
+
+const insertEditCard = `-- name: InsertEditCard :one
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
+VALUES ('entity_edit', $1, $2, $3, 'ui', $4)
+RETURNING id
+`
+
+type InsertEditCardParams struct {
+	Target      string
+	Payload     json.RawMessage
+	ProposerID  *string
+	Connections []int64
+}
+
+func (q *Queries) InsertEditCard(ctx context.Context, arg InsertEditCardParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertEditCard,
+		arg.Target,
+		arg.Payload,
+		arg.ProposerID,
+		arg.Connections,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertMerge = `-- name: InsertMerge :one
 INSERT INTO merges (winner_id, loser_ids, canonical_name, by, auto)
 VALUES ($1, $2, $3, $4, $5)
@@ -418,6 +627,30 @@ type MarkMergedParams struct {
 func (q *Queries) MarkMerged(ctx context.Context, arg MarkMergedParams) error {
 	_, err := q.db.Exec(ctx, markMerged, arg.Winner, arg.Ids)
 	return err
+}
+
+const memberKeys = `-- name: MemberKeys :many
+SELECT key FROM entities WHERE id = ANY($1::bigint[]) ORDER BY id
+`
+
+func (q *Queries) MemberKeys(ctx context.Context, members []int64) ([]string, error) {
+	rows, err := q.db.Query(ctx, memberKeys, members)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const members = `-- name: Members :many
@@ -566,6 +799,20 @@ func (q *Queries) RepointMerged(ctx context.Context, arg RepointMergedParams) er
 	return err
 }
 
+const setEditedType = `-- name: SetEditedType :exec
+UPDATE entities SET type = $1, type_edited_at = now(), updated_at = now() WHERE id = $2
+`
+
+type SetEditedTypeParams struct {
+	Type string
+	ID   int64
+}
+
+func (q *Queries) SetEditedType(ctx context.Context, arg SetEditedTypeParams) error {
+	_, err := q.db.Exec(ctx, setEditedType, arg.Type, arg.ID)
+	return err
+}
+
 const setMergedInto = `-- name: SetMergedInto :exec
 UPDATE entities SET merged_into = $1, updated_at = now() WHERE id = $2
 `
@@ -610,6 +857,21 @@ func (q *Queries) SourceConnections(ctx context.Context, arg SourceConnectionsPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const suppress = `-- name: Suppress :exec
+INSERT INTO alias_suppressions (entity_id, alias_norm, by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
+`
+
+type SuppressParams struct {
+	EntityID  int64
+	AliasNorm string
+	By        *string
+}
+
+func (q *Queries) Suppress(ctx context.Context, arg SuppressParams) error {
+	_, err := q.db.Exec(ctx, suppress, arg.EntityID, arg.AliasNorm, arg.By)
+	return err
 }
 
 const topWinner = `-- name: TopWinner :one
@@ -660,6 +922,52 @@ func (q *Queries) Unmerge(ctx context.Context, arg UnmergeParams) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const unsuppress = `-- name: Unsuppress :exec
+DELETE FROM alias_suppressions WHERE entity_id = ANY($1::bigint[]) AND alias_norm = $2
+`
+
+type UnsuppressParams struct {
+	Members   []int64
+	AliasNorm string
+}
+
+func (q *Queries) Unsuppress(ctx context.Context, arg UnsuppressParams) error {
+	_, err := q.db.Exec(ctx, unsuppress, arg.Members, arg.AliasNorm)
+	return err
+}
+
+const visibleAlias = `-- name: VisibleAlias :one
+SELECT a.id, a.entity_id, a.alias, a.alias_norm, a.is_name FROM entity_aliases a
+WHERE a.id = $1 AND a.entity_id = ANY($2::bigint[]) AND a.connection_id = ANY($3::bigint[])
+`
+
+type VisibleAliasParams struct {
+	ID      int64
+	Members []int64
+	Visible []int64
+}
+
+type VisibleAliasRow struct {
+	ID        int64
+	EntityID  int64
+	Alias     string
+	AliasNorm string
+	IsName    bool
+}
+
+func (q *Queries) VisibleAlias(ctx context.Context, arg VisibleAliasParams) (VisibleAliasRow, error) {
+	row := q.db.QueryRow(ctx, visibleAlias, arg.ID, arg.Members, arg.Visible)
+	var i VisibleAliasRow
+	err := row.Scan(
+		&i.ID,
+		&i.EntityID,
+		&i.Alias,
+		&i.AliasNorm,
+		&i.IsName,
+	)
+	return i, err
 }
 
 const visibleAliases = `-- name: VisibleAliases :many
@@ -762,6 +1070,55 @@ func (q *Queries) VisibleKey(ctx context.Context, arg VisibleKeyParams) (string,
 	var key string
 	err := row.Scan(&key)
 	return key, err
+}
+
+const visibleNames = `-- name: VisibleNames :one
+SELECT count(*) FROM entity_aliases
+WHERE entity_id = ANY($1::bigint[]) AND is_name AND connection_id = ANY($2::bigint[])
+`
+
+type VisibleNamesParams struct {
+	Members []int64
+	Visible []int64
+}
+
+func (q *Queries) VisibleNames(ctx context.Context, arg VisibleNamesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, visibleNames, arg.Members, arg.Visible)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const visibleSourceConnections = `-- name: VisibleSourceConnections :many
+SELECT DISTINCT connection_id FROM entity_sources
+WHERE entity_id = ANY($1::bigint[]) AND connection_id = ANY($2::bigint[])
+ORDER BY connection_id
+`
+
+type VisibleSourceConnectionsParams struct {
+	Members []int64
+	Visible []int64
+}
+
+// The visible source connections of the entities: where an edit writes.
+func (q *Queries) VisibleSourceConnections(ctx context.Context, arg VisibleSourceConnectionsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, visibleSourceConnections, arg.Members, arg.Visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var connection_id int64
+		if err := rows.Scan(&connection_id); err != nil {
+			return nil, err
+		}
+		items = append(items, connection_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const visibleSources = `-- name: VisibleSources :many

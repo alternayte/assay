@@ -97,7 +97,8 @@ func (q *Queries) AddDecisionEvidence(ctx context.Context, arg AddDecisionEviden
 
 const addMentionAlias = `-- name: AddMentionAlias :exec
 INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
-VALUES ($1, $2, $3, $4, $5)
+SELECT $1, $2, $3, $4, $5
+WHERE NOT EXISTS (SELECT 1 FROM alias_suppressions s WHERE s.entity_id = $1 AND s.alias_norm = $4)
 ON CONFLICT (entity_id, connection_id, alias_norm) DO NOTHING
 `
 
@@ -109,6 +110,7 @@ type AddMentionAliasParams struct {
 	IsName       bool
 }
 
+// An alias that a person removed is not added again.
 // vis:system
 func (q *Queries) AddMentionAlias(ctx context.Context, arg AddMentionAliasParams) error {
 	_, err := q.db.Exec(ctx, addMentionAlias,
@@ -1242,6 +1244,17 @@ func (q *Queries) ItemExternalIDs(ctx context.Context, ids []int64) ([]ItemExter
 		return nil, err
 	}
 	return items, nil
+}
+
+const keyDeleted = `-- name: KeyDeleted :one
+SELECT EXISTS (SELECT 1 FROM entity_deletions WHERE key = $1)::boolean
+`
+
+func (q *Queries) KeyDeleted(ctx context.Context, key string) (bool, error) {
+	row := q.db.QueryRow(ctx, keyDeleted, key)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const knownAliases = `-- name: KnownAliases :many

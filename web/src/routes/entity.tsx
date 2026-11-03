@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import { EditActions } from "@/components/entity-edit";
 import { MergeActions, Merges } from "@/components/merge";
 import { type Linked, linkMarkdown, TermLink, termOf } from "@/components/terms";
 import { Badge } from "@/components/ui/badge";
@@ -474,6 +475,7 @@ export function EntityPage({ tab = "knowledge" }: { tab?: "knowledge" | "design"
           </Meta>
         </dl>
         <MergeActions entity={{ key: p.key, name: p.name }} onChange={refresh} />
+        {detail.data && <EditActions entity={detail.data} onChange={refresh} />}
         {detail.data && <Merges merges={detail.data.merges} onSplit={refresh} />}
         {p.type === "term" && (
           <Link

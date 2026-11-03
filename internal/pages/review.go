@@ -72,3 +72,9 @@ func (s *Service) ApplyEdit(ctx context.Context, tx pgx.Tx, vis visibility.Set, 
 	return q.SaveEditedSummary(ctx, SaveEditedSummaryParams{ID: row.ID, SummaryMd: summary, ClaimSetHash: p.hash, ClaimIds: ids,
 		Model: "reviewer", CompiledAt: s.now()})
 }
+
+// Invalidate drops the cached pages of an entity in tx after an edit, so
+// the next open compiles the page again.
+func (s *Service) Invalidate(ctx context.Context, tx pgx.Tx, entityID int64) error {
+	return New(tx).InvalidatePages(ctx, entityID)
+}

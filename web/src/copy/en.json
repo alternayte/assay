@@ -888,7 +888,8 @@
       "repo_system": "Repository system",
       "design_problem": "Design problem",
       "design_edit": "Design edit",
-      "design_update": "Design update"
+      "design_update": "Design update",
+      "entity_edit": "Entity edit"
     },
     "bands": {
       "high": "High",
@@ -1101,5 +1102,30 @@
     "projects": "Jira projects",
     "readme": "README",
     "systemName": "Name of the new system"
+  },
+  "edit": {
+    "open": "Edit",
+    "title": "Edit {name}",
+    "reviewerBody": "Your change applies at once. A sync does not change it.",
+    "memberBody": "A reviewer gets your change as a card.",
+    "close": "Close",
+    "name": "Name",
+    "saveName": "Save the name",
+    "aliases": "Names and aliases",
+    "removeAlias": "Remove {alias}",
+    "addAlias": "New alias",
+    "add": "Add",
+    "type": "Type",
+    "saveType": "Save the type",
+    "saved": "The change is saved.",
+    "proposed": "A reviewer gets your change as a card.",
+    "record": "Edit the registry record",
+    "delete": "Delete",
+    "deleteTitle": "Delete {name}",
+    "deleteBody": "Delete removes the entity and its claims. You cannot undo this. Resolution does not make the entity again.",
+    "deleteMemberBody": "A reviewer gets the delete as a card.",
+    "deleteConfirm": "Delete the entity",
+    "propose": "Send to a reviewer",
+    "cancel": "Cancel"
   }
 }

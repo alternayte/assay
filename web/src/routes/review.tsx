@@ -54,6 +54,7 @@ const kinds: Kind[] = [
   "design_problem",
   "design_edit",
   "design_update",
+  "entity_edit",
 ];
 const bandTone = { high: "supported", medium: "stale", low: "conflict" } as const;
 const editable: string[] = ["merge", "unnamed", "new_term", "term_edit", "repo_system", ...designKinds];

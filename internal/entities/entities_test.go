@@ -497,3 +497,76 @@ func TestSCN_CLM_007_TimelineOfStatus(t *testing.T) {
 		t.Fatalf("current status %+v", c)
 	}
 }
+
+// TestSCN_ENT_007_EditsSurviveSync pins that a rename, a removed alias and
+// a type change stay after the connector writes the entity again, that a
+// type change against a current claim is refused, that a member's edit
+// becomes a card, and that an entity a source owns cannot be deleted.
+func TestSCN_ENT_007_EditsSurviveSync(t *testing.T) {
+	w := start(t)
+	key := "jira:" + w.host + ":PAY-1"
+	type refs struct {
+		Name      string   `json:"name"`
+		Type      string   `json:"type"`
+		Aliases   []string `json:"aliases"`
+		AliasRefs []struct {
+			ID     int64  `json:"id"`
+			Alias  string `json:"alias"`
+			IsName bool   `json:"isName"`
+		} `json:"aliasRefs"`
+	}
+	read := func() refs {
+		var r refs
+		w.owner.Must(http.StatusOK, http.MethodGet, path(key), nil).JSON(t, &r)
+		return r
+	}
+	resync := func(status string) {
+		is, _ := w.src.Issue("PAY-1")
+		is.Status = status
+		is.Updated = time.Time{}
+		time.Sleep(1100 * time.Millisecond)
+		w.src.PutIssue(is)
+		if r := w.env.RunNow(w.owner, w.jira, "sync"); r.Status != "succeeded" {
+			t.Fatalf("sync %+v", r)
+		}
+	}
+	before := read()
+	w.owner.Must(http.StatusNoContent, http.MethodPut, path(key)+"/name", map[string]any{"name": "Payments retry epic"})
+	for _, a := range read().AliasRefs {
+		if a.Alias == before.Name {
+			w.owner.Must(http.StatusNoContent, http.MethodDelete, fmt.Sprintf("%s/aliases/%d", path(key), a.ID), nil)
+		}
+	}
+	w.owner.Must(http.StatusNoContent, http.MethodPut, path(key)+"/type", map[string]any{"type": "initiative"})
+	resync("Review")
+	after := read()
+	if after.Name != "Payments retry epic" || after.Type != "initiative" {
+		t.Fatalf("after a sync the entity is %q of type %s", after.Name, after.Type)
+	}
+	if slices.Contains(after.Aliases, before.Name) {
+		t.Fatalf("the removed alias %q came back with the sync: %v", before.Name, after.Aliases)
+	}
+
+	// The status claim does not take a person.
+	r := w.owner.Do(http.MethodPut, path(key)+"/type", map[string]any{"type": "person"})
+	if r.Status != http.StatusConflict || !bytes.Contains(r.Body, []byte("status")) {
+		t.Fatalf("type person gives %d: %s", r.Status, r.Body)
+	}
+	// A source system owns the issue.
+	if r := w.owner.Do(http.MethodDelete, path(key), nil); r.Status != http.StatusConflict {
+		t.Fatalf("delete of a Jira issue gives %d", r.Status)
+	}
+
+	// A member's rename waits for a reviewer.
+	var out struct {
+		Proposal int64 `json:"proposal"`
+	}
+	w.member.Must(http.StatusAccepted, http.MethodPut, path(key)+"/name", map[string]any{"name": "Member name"}).JSON(t, &out)
+	if out.Proposal == 0 || read().Name != "Payments retry epic" {
+		t.Fatalf("the member rename applied at once or made no card: %+v", out)
+	}
+	w.owner.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", out.Proposal), map[string]any{})
+	if n := read().Name; n != "Member name" {
+		t.Fatalf("after the accept the name is %q", n)
+	}
+}

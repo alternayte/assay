@@ -186,3 +186,80 @@ RETURNING id;
 
 -- name: OpenMergeCard :one
 SELECT id FROM proposals WHERE kind = 'merge' AND dedupe_key = @dedupe_key AND status = 'open';
+
+-- name: EditableAliases :many
+-- The visible aliases of the entities with an id that a person can remove.
+SELECT DISTINCT ON (a.alias_norm) a.id, a.alias, a.alias_norm, a.is_name
+FROM entity_aliases a
+WHERE a.entity_id = ANY(@members::bigint[]) AND a.connection_id = ANY(@visible::bigint[])
+ORDER BY a.alias_norm, a.is_name DESC, a.id;
+
+-- name: VisibleSourceConnections :many
+-- The visible source connections of the entities: where an edit writes.
+SELECT DISTINCT connection_id FROM entity_sources
+WHERE entity_id = ANY(@members::bigint[]) AND connection_id = ANY(@visible::bigint[])
+ORDER BY connection_id;
+
+-- name: DropEditedNames :exec
+DELETE FROM entity_aliases WHERE entity_id = @entity_id AND edited AND is_name AND connection_id = ANY(@visible::bigint[]);
+
+-- name: AddEditedAlias :exec
+-- Writes the alias in each visible source connection of the entities.
+INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name, edited)
+SELECT DISTINCT @entity_id::bigint, s.connection_id, @alias::text, @alias_norm::text, @is_name::boolean, true
+FROM entity_sources s
+WHERE s.entity_id = ANY(@members::bigint[]) AND s.connection_id = ANY(@visible::bigint[])
+ON CONFLICT (entity_id, connection_id, alias_norm)
+DO UPDATE SET alias = EXCLUDED.alias, is_name = entity_aliases.is_name OR EXCLUDED.is_name, edited = true
+WHERE entity_aliases.connection_id = ANY(@visible::bigint[]);
+
+-- name: Unsuppress :exec
+DELETE FROM alias_suppressions WHERE entity_id = ANY(@members::bigint[]) AND alias_norm = @alias_norm;
+
+-- name: VisibleAlias :one
+SELECT a.id, a.entity_id, a.alias, a.alias_norm, a.is_name FROM entity_aliases a
+WHERE a.id = @id AND a.entity_id = ANY(@members::bigint[]) AND a.connection_id = ANY(@visible::bigint[]);
+
+-- name: DropAlias :exec
+DELETE FROM entity_aliases WHERE entity_id = @entity_id AND alias_norm = @alias_norm AND connection_id = ANY(@visible::bigint[]);
+
+-- name: Suppress :exec
+INSERT INTO alias_suppressions (entity_id, alias_norm, by) VALUES (@entity_id, @alias_norm, @by) ON CONFLICT DO NOTHING;
+
+-- name: VisibleNames :one
+SELECT count(*) FROM entity_aliases
+WHERE entity_id = ANY(@members::bigint[]) AND is_name AND connection_id = ANY(@visible::bigint[]);
+
+-- name: SetEditedType :exec
+UPDATE entities SET type = @type, type_edited_at = now(), updated_at = now() WHERE id = @id;
+
+-- name: CurrentRoles :many
+-- The predicates of the current claims of the entities, with the side that
+-- the entities fill. It reads only predicate names.
+SELECT DISTINCT c.predicate, (c.subject_id = ANY(@members::bigint[]))::boolean AS subject
+FROM claims c
+WHERE (c.subject_id = ANY(@members::bigint[]) OR c.object_entity_id = ANY(@members::bigint[])) AND c.retracted_at IS NULL
+ORDER BY 1, 2;
+
+-- name: MemberKeys :many
+SELECT key FROM entities WHERE id = ANY(@members::bigint[]) ORDER BY id;
+
+-- name: DeleteEntities :exec
+-- The claims, aliases, sources and pages of the entities go with them.
+DELETE FROM entities WHERE id = ANY(@ids::bigint[]);
+
+-- name: InsertDeletion :exec
+INSERT INTO entity_deletions (key, by) VALUES (@key, @by) ON CONFLICT (key) DO NOTHING;
+
+-- name: CloseEntityCards :exec
+-- Closes the open cards that name the entities.
+UPDATE proposals p SET status = 'closed', reason = @reason, decided_at = now()
+WHERE p.status = 'open'
+  AND (p.target = ANY(@targets::text[]) OR p.payload->>'candidate' = ANY(@keys::text[])
+       OR (p.payload ? 'keys' AND p.payload->'keys' ?| @keys::text[])
+       OR p.decision_id IN (SELECT d.id FROM decisions d WHERE d.subject_refs && @keys::text[]));
+
+-- name: InsertEditCard :one
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
+VALUES ('entity_edit', @target, @payload, @proposer_id, 'ui', @connections)
+RETURNING id;

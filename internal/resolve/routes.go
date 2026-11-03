@@ -741,7 +741,7 @@ func (s *Service) Register(a huma.API) {
 	tags := []string{"review"}
 
 	type cardsIn struct {
-		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,"`
+		Kind       string `query:"kind" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,entity_edit,"`
 		Band       string `query:"band" enum:"high,medium,low,"`
 		Connection int64  `query:"connection" doc:"A connection of the card inputs."`
 		Type       string `query:"type" doc:"An entity type of a subject."`
@@ -847,7 +847,7 @@ func (s *Service) Register(a huma.API) {
 	type bandIn struct {
 		Body struct {
 			Band       string `json:"band" enum:"high,medium,low"`
-			Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,"`
+			Kind       string `json:"kind,omitempty" enum:"correction,finding,merge,mention_link,unnamed,new_term,term_edit,conflict,needs_edit,repo_system,design_problem,design_edit,design_update,entity_edit,"`
 			Connection int64  `json:"connection,omitempty"`
 			Type       string `json:"type,omitempty"`
 			Domain     int64  `json:"domain,omitempty"`

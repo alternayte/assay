@@ -266,4 +266,111 @@ func (s *Service) Register(a huma.API) {
 		}
 		return out, nil
 	})
+
+	s.registerEdits(a, tags, members)
+}
+
+// editOut is the answer of an edit: 204 for a reviewer, who applies it,
+// and 202 with the card for a member.
+type editOut struct {
+	Status int
+	Body   struct {
+		Proposal int64 `json:"proposal,omitempty" doc:"The entity_edit card of a member."`
+	}
+}
+
+// registerEdits adds the routes that edit an entity from its page.
+func (s *Service) registerEdits(a huma.API, tags []string, members huma.Middlewares) {
+	edit := func(ctx context.Context, e Edit) (*editOut, error) {
+		vis, err := visibility.OfCaller(ctx, s.Pool)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		reviewer := api.AtLeast(ctx, auth.RoleReviewer)
+		id, err := s.EditEntity(ctx, vis, e, api.Caller(ctx).User.ID, reviewer)
+		if status, code, msg := editError(err); status != 0 {
+			return nil, api.Problem(status, code, msg)
+		}
+		if err != nil {
+			return nil, notFound(err)
+		}
+		out := &editOut{Status: http.StatusNoContent}
+		if !reviewer {
+			out.Status = http.StatusAccepted
+			out.Body.Proposal = id
+		}
+		return out, nil
+	}
+	responses := map[string]*huma.Response{"202": {Description: "An entity_edit card for review."}}
+	desc := " A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202)."
+
+	type nameIn struct {
+		Key  string `path:"key" doc:"The entity key, escaped as one path segment."`
+		Body struct {
+			Name string `json:"name" minLength:"1" maxLength:"200"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "renameEntity", Method: http.MethodPut, Path: "/api/v1/entities/{key}/name", Tags: tags,
+		Summary:     "Rename an entity",
+		Description: "Writes the name in each visible source connection of the entity. A sync does not change it." + desc,
+		Middlewares: members, DefaultStatus: http.StatusNoContent, Responses: responses,
+	}, func(ctx context.Context, in *nameIn) (*editOut, error) {
+		return edit(ctx, Edit{Key: keyIn{Key: in.Key}.key(), Op: EditRename, Name: in.Body.Name})
+	})
+
+	type aliasIn struct {
+		Key  string `path:"key" doc:"The entity key, escaped as one path segment."`
+		Body struct {
+			Alias string `json:"alias" minLength:"1" maxLength:"200"`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "addEntityAlias", Method: http.MethodPost, Path: "/api/v1/entities/{key}/aliases", Tags: tags,
+		Summary:     "Add an alias to an entity",
+		Description: "Writes the alias in each visible source connection of the entity." + desc,
+		Middlewares: members, DefaultStatus: http.StatusNoContent, Responses: responses,
+	}, func(ctx context.Context, in *aliasIn) (*editOut, error) {
+		return edit(ctx, Edit{Key: keyIn{Key: in.Key}.key(), Op: EditAddAlias, Alias: in.Body.Alias})
+	})
+
+	type removeIn struct {
+		Key     string `path:"key" doc:"The entity key, escaped as one path segment."`
+		AliasID int64  `path:"aliasId"`
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "removeEntityAlias", Method: http.MethodDelete, Path: "/api/v1/entities/{key}/aliases/{aliasId}", Tags: tags,
+		Summary: "Remove an alias from an entity",
+		Description: "Removes the alias from the visible connections. A sync or a mention does not add it again. " +
+			"The last name cannot be removed; rename the entity instead." + desc,
+		Middlewares: members, DefaultStatus: http.StatusNoContent, Responses: responses,
+	}, func(ctx context.Context, in *removeIn) (*editOut, error) {
+		return edit(ctx, Edit{Key: keyIn{Key: in.Key}.key(), Op: EditRemoveAlias, AliasID: in.AliasID})
+	})
+
+	type typeIn struct {
+		Key  string `path:"key" doc:"The entity key, escaped as one path segment."`
+		Body struct {
+			Type string `json:"type" doc:"An entity type. term and repository cannot be set or changed."`
+		}
+	}
+	huma.Register(a, huma.Operation{
+		OperationID: "setEntityType", Method: http.MethodPut, Path: "/api/v1/entities/{key}/type", Tags: tags,
+		Summary: "Change the type of an entity",
+		Description: "A sync does not change the type again. A current claim that does not take the type refuses the change with 409, " +
+			"and the message names its predicates." + desc,
+		Middlewares: members, DefaultStatus: http.StatusNoContent, Responses: responses,
+	}, func(ctx context.Context, in *typeIn) (*editOut, error) {
+		return edit(ctx, Edit{Key: keyIn{Key: in.Key}.key(), Op: EditType, Type: in.Body.Type})
+	})
+
+	huma.Register(a, huma.Operation{
+		OperationID: "deleteEntity", Method: http.MethodDelete, Path: "/api/v1/entities/{key}", Tags: tags,
+		Summary: "Delete an entity",
+		Description: "Deletes an entity that no source system owns, such as an unnamed entity, with its claims. " +
+			"Resolution does not make it again. Any other entity returns 409." + desc,
+		Middlewares: members, DefaultStatus: http.StatusNoContent, Responses: responses,
+	}, func(ctx context.Context, in *keyIn) (*editOut, error) {
+		return edit(ctx, Edit{Key: in.key(), Op: EditDelete})
+	})
 }

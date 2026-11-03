@@ -13,7 +13,8 @@ import (
 
 const addAlias = `-- name: AddAlias :exec
 INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
-VALUES ($1, $2, $3, $4, $5)
+SELECT $1, $2, $3, $4, $5
+WHERE NOT EXISTS (SELECT 1 FROM alias_suppressions s WHERE s.entity_id = $1 AND s.alias_norm = $4)
 ON CONFLICT (entity_id, connection_id, alias_norm)
 DO UPDATE SET is_name = entity_aliases.is_name OR EXCLUDED.is_name,
               alias = CASE WHEN EXCLUDED.is_name THEN EXCLUDED.alias ELSE entity_aliases.alias END
@@ -27,6 +28,7 @@ type AddAliasParams struct {
 	IsName       bool
 }
 
+// An alias that a person removed is not added again.
 // vis:system
 func (q *Queries) AddAlias(ctx context.Context, arg AddAliasParams) error {
 	_, err := q.db.Exec(ctx, addAlias,
@@ -250,7 +252,7 @@ func (q *Queries) ClaimGroupConnections(ctx context.Context, claimID int64) ([]i
 
 const clearOtherNames = `-- name: ClearOtherNames :exec
 UPDATE entity_aliases SET is_name = false
-WHERE entity_id = $1 AND connection_id = $2 AND alias_norm <> $3 AND is_name
+WHERE entity_id = $1 AND connection_id = $2 AND alias_norm <> $3 AND is_name AND NOT edited
 `
 
 type ClearOtherNamesParams struct {
@@ -850,7 +852,8 @@ func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64
 
 const upsertEntity = `-- name: UpsertEntity :one
 INSERT INTO entities (type, key, domain_id) VALUES ($1, $2, $3)
-ON CONFLICT (key) DO UPDATE SET type = EXCLUDED.type, domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
 RETURNING id
 `
 
@@ -860,6 +863,7 @@ type UpsertEntityParams struct {
 	DomainID *int64
 }
 
+// A type that a person set stays.
 func (q *Queries) UpsertEntity(ctx context.Context, arg UpsertEntityParams) (int64, error) {
 	row := q.db.QueryRow(ctx, upsertEntity, arg.Type, arg.Key, arg.DomainID)
 	var id int64

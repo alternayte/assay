@@ -253,9 +253,11 @@ RETURNING id;
 INSERT INTO entity_sources (entity_id, connection_id) VALUES (@entity_id, @connection_id) ON CONFLICT DO NOTHING;
 
 -- name: AddMentionAlias :exec
+-- An alias that a person removed is not added again.
 -- vis:system
 INSERT INTO entity_aliases (entity_id, connection_id, alias, alias_norm, is_name)
-VALUES (@entity_id, @connection_id, @alias, @alias_norm, @is_name)
+SELECT @entity_id, @connection_id, @alias, @alias_norm, @is_name
+WHERE NOT EXISTS (SELECT 1 FROM alias_suppressions s WHERE s.entity_id = @entity_id AND s.alias_norm = @alias_norm)
 ON CONFLICT (entity_id, connection_id, alias_norm) DO NOTHING;
 
 -- name: OpenTargetCard :one
@@ -620,3 +622,6 @@ SELECT subject_id, predicate, scope_env FROM claims WHERE id = @id;
 
 -- name: CurrentClaims :one
 SELECT count(*) FROM claims WHERE id = ANY(@ids::bigint[]) AND retracted_at IS NULL;
+
+-- name: KeyDeleted :one
+SELECT EXISTS (SELECT 1 FROM entity_deletions WHERE key = @key)::boolean;

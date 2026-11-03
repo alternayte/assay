@@ -148,6 +148,17 @@ func (q *Queries) InsertPageCard(ctx context.Context, arg InsertPageCardParams) 
 	return err
 }
 
+const invalidatePages = `-- name: InvalidatePages :exec
+DELETE FROM pages WHERE entity_id = ANY(entity_members($1))
+`
+
+// The cached pages of an entity and its members compile again on the next
+// open.
+func (q *Queries) InvalidatePages(ctx context.Context, entityID int64) error {
+	_, err := q.db.Exec(ctx, invalidatePages, entityID)
+	return err
+}
+
 const mentioningPassages = `-- name: MentioningPassages :many
 SELECT p.item_id, p.hash
 FROM passages p

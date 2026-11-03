@@ -52,6 +52,7 @@ type Edits struct {
 	Diagram    string   `json:"diagram,omitempty" maxLength:"8000" doc:"The corrected Mermaid diagram of a design section."`
 	Winner     int64    `json:"winner,omitempty" doc:"The claim that wins a conflict card. The other claims of the card become Superseded."`
 	Summary    string   `json:"summary,omitempty" maxLength:"4000" doc:"The corrected summary of a needs_edit card, with claim markers such as [C1]."`
+	Type       string   `json:"type,omitempty" maxLength:"40" doc:"The entity type of an unnamed card. It must be a type that the claim of the card takes."`
 }
 
 // InvalidEdit is an edit that an accept refuses, such as a missing winner

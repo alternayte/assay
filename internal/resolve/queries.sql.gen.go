@@ -1404,6 +1404,37 @@ func (q *Queries) OpenTargetCard(ctx context.Context, arg OpenTargetCardParams) 
 	return column_1, err
 }
 
+const openUnnamedCards = `-- name: OpenUnnamedCards :many
+SELECT id, payload, connections FROM proposals WHERE kind = 'unnamed' AND status = 'open' ORDER BY id
+`
+
+type OpenUnnamedCardsRow struct {
+	ID          int64
+	Payload     json.RawMessage
+	Connections []int64
+}
+
+// vis:system
+func (q *Queries) OpenUnnamedCards(ctx context.Context) ([]OpenUnnamedCardsRow, error) {
+	rows, err := q.db.Query(ctx, openUnnamedCards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []OpenUnnamedCardsRow
+	for rows.Next() {
+		var i OpenUnnamedCardsRow
+		if err := rows.Scan(&i.ID, &i.Payload, &i.Connections); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const ownedGroups = `-- name: OwnedGroups :many
 SELECT DISTINCT e.id, e.key, e.type FROM claims c JOIN entities e ON e.id = c.subject_id JOIN entities o ON o.id = c.object_entity_id
 WHERE c.predicate = 'owned_by' AND c.retracted_at IS NULL AND o.key = ANY($1::text[]) AND e.type IN ('system', 'service') AND e.status = 'active'
@@ -1679,6 +1710,22 @@ func (q *Queries) ProfilesOf(ctx context.Context, ids []int64) ([]ProfilesOfRow,
 	return items, nil
 }
 
+const rejectedTargetCard = `-- name: RejectedTargetCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = $1 AND target = $2 AND status = 'rejected')::boolean
+`
+
+type RejectedTargetCardParams struct {
+	Kind   string
+	Target string
+}
+
+func (q *Queries) RejectedTargetCard(ctx context.Context, arg RejectedTargetCardParams) (bool, error) {
+	row := q.db.QueryRow(ctx, rejectedTargetCard, arg.Kind, arg.Target)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const renameEntity = `-- name: RenameEntity :exec
 UPDATE entity_aliases SET alias = $1, alias_norm = $2 WHERE entity_id = $3 AND is_name
 `
@@ -1899,6 +1946,21 @@ func (q *Queries) SetAutoApply(ctx context.Context, arg SetAutoApplyParams) erro
 	return err
 }
 
+const setCardTarget = `-- name: SetCardTarget :exec
+UPDATE proposals SET target = $1, payload = $2 WHERE id = $3 AND status = 'open'
+`
+
+type SetCardTargetParams struct {
+	Target  string
+	Payload json.RawMessage
+	ID      int64
+}
+
+func (q *Queries) SetCardTarget(ctx context.Context, arg SetCardTargetParams) error {
+	_, err := q.db.Exec(ctx, setCardTarget, arg.Target, arg.Payload, arg.ID)
+	return err
+}
+
 const setDecisionMerge = `-- name: SetDecisionMerge :exec
 UPDATE decisions SET merge_id = $1 WHERE id = $2
 `
@@ -1910,6 +1972,34 @@ type SetDecisionMergeParams struct {
 
 func (q *Queries) SetDecisionMerge(ctx context.Context, arg SetDecisionMergeParams) error {
 	_, err := q.db.Exec(ctx, setDecisionMerge, arg.MergeID, arg.ID)
+	return err
+}
+
+const setEntityKey = `-- name: SetEntityKey :exec
+UPDATE entities SET key = $1, updated_at = now() WHERE id = $2 AND status = 'proposed'
+`
+
+type SetEntityKeyParams struct {
+	Key string
+	ID  int64
+}
+
+func (q *Queries) SetEntityKey(ctx context.Context, arg SetEntityKeyParams) error {
+	_, err := q.db.Exec(ctx, setEntityKey, arg.Key, arg.ID)
+	return err
+}
+
+const setEntityType = `-- name: SetEntityType :exec
+UPDATE entities SET type = $1, updated_at = now() WHERE id = $2
+`
+
+type SetEntityTypeParams struct {
+	Type string
+	ID   int64
+}
+
+func (q *Queries) SetEntityType(ctx context.Context, arg SetEntityTypeParams) error {
+	_, err := q.db.Exec(ctx, setEntityType, arg.Type, arg.ID)
 	return err
 }
 
@@ -2010,6 +2100,22 @@ func (q *Queries) StaleEvidence(ctx context.Context, claims []int64) ([]StaleEvi
 		return nil, err
 	}
 	return items, nil
+}
+
+const targetCard = `-- name: TargetCard :one
+SELECT id FROM proposals WHERE kind = $1 AND target = $2 ORDER BY id LIMIT 1
+`
+
+type TargetCardParams struct {
+	Kind   string
+	Target string
+}
+
+func (q *Queries) TargetCard(ctx context.Context, arg TargetCardParams) (int64, error) {
+	row := q.db.QueryRow(ctx, targetCard, arg.Kind, arg.Target)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const textPairs = `-- name: TextPairs :many

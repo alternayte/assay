@@ -302,3 +302,93 @@ WHERE e.key = 'registry:term:open-access-week' AND NOT EXISTS (
 		t.Errorf("%d evidence rows of the drafted term come from a connection that is not shared with Everyone", n)
 	}
 }
+
+// TestSCN_RES_006_UnnamedRules pins the rules of unnamed entities: a
+// description of a side that allows any type, a sentence or a description
+// with one word after its determiners makes no entity, and the same
+// description in another passage of the connection joins the existing
+// entity without a new card. An accept sets the type.
+func TestSCN_RES_006_UnnamedRules(t *testing.T) {
+	w, fake := mentionWorld(t)
+	var public int64
+	if err := w.env.Server.Pool().QueryRow(context.Background(), "SELECT id FROM connections WHERE name = 'acme-public'").Scan(&public); err != nil {
+		t.Fatal(err)
+	}
+	w.src.PutPage(fixtures.Page{ID: "1100", Space: "ENG", Title: "Export notes", Author: "jo.acme",
+		Body: "<p>The nightly export job also reads due dates from the Peer Review Service.</p>" +
+			"<p>The billing reminder job retries each failed send three times.</p>" +
+			"<p>The Payments API belongs to the team.</p>"})
+	if r := w.env.RunNow(w.owner, public, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync: %+v", r)
+	}
+	claim := func(subject, predicate, object, quote string) string {
+		return fmt.Sprintf(`{"subject":%s,"predicate":%q,"object":%s,"scope":null,"stance":"supports","quote":%q}`, subject, predicate, object, quote)
+	}
+	fake.OnChat(func(body map[string]any) string {
+		user := body["messages"].([]any)[1].(map[string]any)["content"].(string)
+		switch {
+		case strings.Contains(user, "The nightly export job also"):
+			return `{"claims":[` + claim(`{"kind":"description","value":"the nightly export job"}`, "depends_on",
+				`{"kind":"key","value":"`+peer+`"}`, "The nightly export job also reads due dates from the Peer Review Service.") + `]}`
+		case strings.Contains(user, "The billing reminder job"):
+			return `{"claims":[` + claim(`{"kind":"description","value":"the billing reminder job"}`, "stated",
+				`{"kind":"text","value":"retries each failed send three times"}`, "The billing reminder job retries each failed send three times.") + `]}`
+		case strings.Contains(user, "belongs to the team"):
+			return `{"claims":[` + claim(`{"kind":"key","value":"`+pay+`"}`, "owned_by",
+				`{"kind":"description","value":"the team"}`, "The Payments API belongs to the team.") + `]}`
+		}
+		return `{"claims":[]}`
+	})
+	rows, err := w.env.Server.Pool().Query(context.Background(),
+		"SELECT p.item_id, p.hash FROM passages p JOIN source_items i ON i.id = p.item_id WHERE i.external_id = '1100'")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []int64
+	var hashes []string
+	for rows.Next() {
+		var id int64
+		var h []byte
+		if err := rows.Scan(&id, &h); err != nil {
+			t.Fatal(err)
+		}
+		items, hashes = append(items, id), append(hashes, hex.EncodeToString(h))
+	}
+	if _, err := w.env.Server.Extract().Queue(context.Background(), []int64{public, w.github, w.azdo, w.jira}, extract.TriggerAnswer, items, hashes); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.env.RunExtractJobs(); n == 0 {
+		t.Fatal("no extraction job ran")
+	}
+	if err := w.env.Server.Resolve().Mentions(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := w.env.Count("SELECT count(*) FROM proposals WHERE kind = 'unnamed'"); n != 1 {
+		t.Errorf("%d unnamed cards, want 1 for the export job", n)
+	}
+	if n := w.env.Count(`SELECT count(*) FROM entity_aliases WHERE alias IN ('the billing reminder job (unnamed)', 'the team (unnamed)')`); n != 0 {
+		t.Error("a stated subject or a one-word description made an unnamed entity")
+	}
+	var key string
+	if err := w.env.Server.Pool().QueryRow(context.Background(),
+		"SELECT e.key FROM entities e JOIN entity_aliases a ON a.entity_id = e.id WHERE a.alias = 'the nightly export job (unnamed)'").Scan(&key); err != nil {
+		t.Fatal(err)
+	}
+	if n := w.env.Count(`SELECT count(*) FROM claims c JOIN entities e ON e.id = c.subject_id WHERE e.key = $1 AND c.predicate = 'depends_on'`, key); n != 1 {
+		t.Errorf("%d depends_on claims on the export job, want 1 with evidence from both passages", n)
+	}
+	if n := w.env.Count(`SELECT count(*) FROM claim_evidence ev JOIN claims c ON c.id = ev.claim_id JOIN entities e ON e.id = c.subject_id
+WHERE e.key = $1`, key); n != 2 {
+		t.Errorf("%d evidence rows on the export job, want 2", n)
+	}
+
+	var id int64
+	if err := w.env.Server.Pool().QueryRow(context.Background(), "SELECT id FROM proposals WHERE kind = 'unnamed'").Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	w.reviewer.Must(http.StatusNoContent, http.MethodPost, fmt.Sprintf("/api/v1/cards/%d/accept", id), map[string]any{"type": "api"})
+	if n := w.env.Count("SELECT count(*) FROM entities WHERE key = $1 AND type = 'api' AND status = 'active'", key); n != 1 {
+		t.Error("the accept did not set the type api")
+	}
+}

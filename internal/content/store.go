@@ -64,6 +64,9 @@ func timePtr(t time.Time) *time.Time {
 // passages and chunks, updates the evidence state and ingests the facts.
 func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, it *Item, log *slog.Logger) (Outcome, error) {
 	q := New(tx)
+	if strings.TrimSpace(it.Title) == "" {
+		it.Title = fallbackTitle(it)
+	}
 	hash := it.Hash()
 	existing, err := q.GetItemByExternalID(ctx, GetItemByExternalIDParams{ConnectionID: connectionID, ExternalID: it.ExternalID})
 	outcome := Updated
@@ -462,4 +465,34 @@ func orEmptyStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// maxFallbackTitle is the length limit of a title made from the body.
+const maxFallbackTitle = 80
+
+// fallbackTitle is the title of an item that has none: the first heading of
+// the body, else its first line, cut to maxFallbackTitle runes. An item with
+// an empty body gets its kind and external ID.
+func fallbackTitle(it *Item) string {
+	first := ""
+	for _, line := range strings.Split(it.Body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "```") {
+			continue
+		}
+		if h := strings.TrimSpace(strings.TrimLeft(line, "#")); strings.HasPrefix(line, "#") && h != "" {
+			first = h
+			break
+		}
+		if first == "" {
+			first = line
+		}
+	}
+	if first == "" {
+		return it.Kind + " " + it.ExternalID
+	}
+	if r := []rune(first); len(r) > maxFallbackTitle {
+		return string(r[:maxFallbackTitle])
+	}
+	return first
 }

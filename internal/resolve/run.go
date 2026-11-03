@@ -34,6 +34,9 @@ func (s *Service) Run(ctx context.Context) error {
 	if _, err := s.Profiles(ctx); err != nil {
 		return err
 	}
+	if err := s.SweepUnnamed(ctx); err != nil {
+		return err
+	}
 	if err := s.Mentions(ctx); err != nil {
 		return err
 	}

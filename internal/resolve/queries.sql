@@ -557,3 +557,22 @@ SELECT s.connection_id FROM entity_sources s
 JOIN claims c ON s.entity_id = c.subject_id OR s.entity_id = c.object_entity_id
 WHERE c.id = ANY(@ids::bigint[])
 ORDER BY 1;
+
+-- name: RejectedTargetCard :one
+SELECT EXISTS (SELECT 1 FROM proposals WHERE kind = @kind AND target = @target AND status = 'rejected')::boolean;
+
+-- name: TargetCard :one
+SELECT id FROM proposals WHERE kind = @kind AND target = @target ORDER BY id LIMIT 1;
+
+-- name: SetEntityType :exec
+UPDATE entities SET type = @type, updated_at = now() WHERE id = @id;
+
+-- name: SetEntityKey :exec
+UPDATE entities SET key = @key, updated_at = now() WHERE id = @id AND status = 'proposed';
+
+-- name: OpenUnnamedCards :many
+-- vis:system
+SELECT id, payload, connections FROM proposals WHERE kind = 'unnamed' AND status = 'open' ORDER BY id;
+
+-- name: SetCardTarget :exec
+UPDATE proposals SET target = @target, payload = @payload WHERE id = @id AND status = 'open';

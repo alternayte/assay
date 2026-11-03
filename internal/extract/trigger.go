@@ -1,10 +1,12 @@
 package extract
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -44,7 +46,23 @@ func (s *Service) Queue(ctx context.Context, vis []int64, trigger string, items 
 	if len(a.Items) == 0 {
 		return false, nil
 	}
-	// The same passages queued twice, such as by two opens of a page, run once.
+	// The same passages queued twice, such as by two opens of a page by
+	// two users, run once: the job is unique by its sorted passages only.
+	order := make([]int, len(a.Items))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortFunc(order, func(x, y int) int {
+		if a.Items[x] != a.Items[y] {
+			return cmp.Compare(a.Items[x], a.Items[y])
+		}
+		return strings.Compare(a.Hashes[x], a.Hashes[y])
+	})
+	items, hs := make([]int64, len(order)), make([]string, len(order))
+	for i, o := range order {
+		items[i], hs[i] = a.Items[o], a.Hashes[o]
+	}
+	a.Items, a.Hashes = items, hs
 	_, err = s.River.Insert(ctx, a, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}})
 	return err == nil, err
 }

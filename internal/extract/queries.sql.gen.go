@@ -11,6 +11,34 @@ import (
 	"time"
 )
 
+const acquireLease = `-- name: AcquireLease :execrows
+INSERT INTO passage_leases (item_id, passage_hash, extractor_version, expires_at)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (item_id, passage_hash, extractor_version) DO UPDATE SET expires_at = EXCLUDED.expires_at
+WHERE passage_leases.expires_at <= now()
+`
+
+type AcquireLeaseParams struct {
+	ItemID      int64
+	PassageHash []byte
+	Version     string
+	ExpiresAt   time.Time
+}
+
+// A lease that has expired goes to the new job.
+func (q *Queries) AcquireLease(ctx context.Context, arg AcquireLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, acquireLease,
+		arg.ItemID,
+		arg.PassageHash,
+		arg.Version,
+		arg.ExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cached = `-- name: Cached :many
 SELECT item_id, passage_hash FROM passage_extractions
 WHERE item_id = ANY($1::bigint[]) AND passage_hash = ANY($2::bytea[]) AND extractor_version = $3
@@ -133,6 +161,24 @@ func (q *Queries) InsertExtraction(ctx context.Context, arg InsertExtractionPara
 		arg.Output,
 	)
 	return err
+}
+
+const isCached = `-- name: IsCached :one
+SELECT EXISTS (SELECT 1 FROM passage_extractions
+               WHERE item_id = $1 AND passage_hash = $2 AND extractor_version = $3)::boolean
+`
+
+type IsCachedParams struct {
+	ItemID      int64
+	PassageHash []byte
+	Version     string
+}
+
+func (q *Queries) IsCached(ctx context.Context, arg IsCachedParams) (bool, error) {
+	row := q.db.QueryRow(ctx, isCached, arg.ItemID, arg.PassageHash, arg.Version)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const knownEntities = `-- name: KnownEntities :many
@@ -271,6 +317,8 @@ FROM passages p
 WHERE p.connection_id = ANY($1::bigint[]) AND p.id > $2
   AND NOT EXISTS (SELECT 1 FROM passage_extractions x
                   WHERE x.item_id = p.item_id AND x.passage_hash = p.hash AND x.extractor_version = $3)
+  AND NOT EXISTS (SELECT 1 FROM passage_leases l
+                  WHERE l.item_id = p.item_id AND l.passage_hash = p.hash AND l.extractor_version = $3 AND l.expires_at > now())
 ORDER BY p.id
 LIMIT $4
 `
@@ -288,6 +336,7 @@ type PendingBatchRow struct {
 	Hash   []byte
 }
 
+// Passages with no cached result that no job is extracting now.
 func (q *Queries) PendingBatch(ctx context.Context, arg PendingBatchParams) ([]PendingBatchRow, error) {
 	rows, err := q.db.Query(ctx, pendingBatch,
 		arg.Visible,
@@ -311,4 +360,47 @@ func (q *Queries) PendingBatch(ctx context.Context, arg PendingBatchParams) ([]P
 		return nil, err
 	}
 	return items, nil
+}
+
+const releaseLease = `-- name: ReleaseLease :exec
+DELETE FROM passage_leases WHERE item_id = $1 AND passage_hash = $2 AND extractor_version = $3
+`
+
+type ReleaseLeaseParams struct {
+	ItemID      int64
+	PassageHash []byte
+	Version     string
+}
+
+func (q *Queries) ReleaseLease(ctx context.Context, arg ReleaseLeaseParams) error {
+	_, err := q.db.Exec(ctx, releaseLease, arg.ItemID, arg.PassageHash, arg.Version)
+	return err
+}
+
+const reusableOutput = `-- name: ReusableOutput :one
+SELECT x.output FROM passage_extractions x
+JOIN source_items i ON i.id = x.item_id
+WHERE x.passage_hash = $1 AND x.extractor_version = $2 AND i.connection_id = $3 AND x.item_id <> $4
+LIMIT 1
+`
+
+type ReusableOutputParams struct {
+	PassageHash  []byte
+	Version      string
+	ConnectionID int64
+	ItemID       int64
+}
+
+// The model output for the same passage text in another item of the
+// connection.
+func (q *Queries) ReusableOutput(ctx context.Context, arg ReusableOutputParams) (json.RawMessage, error) {
+	row := q.db.QueryRow(ctx, reusableOutput,
+		arg.PassageHash,
+		arg.Version,
+		arg.ConnectionID,
+		arg.ItemID,
+	)
+	var output json.RawMessage
+	err := row.Scan(&output)
+	return output, err
 }

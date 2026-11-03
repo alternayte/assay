@@ -116,6 +116,24 @@ func TestSCN_EXT_002_SameHashMakesNoCall(t *testing.T) {
 	if got := extractCalls(w.fake); got != 1 {
 		t.Fatalf("%d calls after a one-paragraph change, want 1", got)
 	}
+
+	// A copy of the page in the same connection has the same passage
+	// texts. Its extraction reuses the results and calls the model for
+	// nothing.
+	c := p
+	c.ID, c.Title = "1098", "Copy of "+p.Title
+	w.src.PutPage(c)
+	w.sync(t, w.public)
+	w.fake.Reset()
+	w.queue(t, w.public, "1098")
+	w.env.RunExtractJobs()
+	if got := extractCalls(w.fake); got != 0 {
+		t.Fatalf("%d calls for a copy of the page, want 0", got)
+	}
+	copyItem, copyHashes := w.passages(t, w.public, "1098")
+	if n := w.env.Count("SELECT count(*) FROM passage_extractions WHERE item_id = $1", copyItem); n != len(copyHashes) {
+		t.Fatalf("%d cached results for the copy, want %d", n, len(copyHashes))
+	}
 }
 
 func TestSCN_EXT_001_AdminTriggerShowsEstimateFirst(t *testing.T) {

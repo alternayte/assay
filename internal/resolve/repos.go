@@ -431,8 +431,12 @@ func (s *Service) RepoSystem(ctx context.Context, repoKey string) error {
 	if err != nil {
 		return err
 	}
-	cardID, err := q.InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: KindRepoSystem, Target: "entity:" + repoKey, Payload: payload,
-		Connections: slices.Compact(sorted(conns)), DecisionID: &d.ID})
+	target := "entity:" + repoKey
+	cardID, err := q.InsertDecisionCard(ctx, InsertDecisionCardParams{Kind: KindRepoSystem, Target: target, Payload: payload,
+		Connections: slices.Compact(sorted(conns)), DecisionID: &d.ID, DedupeKey: &target})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
 	if err != nil || !d.Auto || pl.Option != "candidate" {
 		return err
 	}

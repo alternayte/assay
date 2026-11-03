@@ -2121,8 +2121,11 @@ export interface components {
              * @description Impact multiplied by uncertainty. The queue shows the highest score first.
              */
             score: number;
-            /** @enum {string} */
-            status: "open" | "accepted" | "rejected" | "needs_evidence";
+            /**
+             * @description closed is a card whose question no longer applies. It has no reviewer.
+             * @enum {string}
+             */
+            status: "open" | "accepted" | "rejected" | "needs_evidence" | "closed";
             subjects: components["schemas"]["Subject"][];
             target: string;
         };

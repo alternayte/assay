@@ -344,10 +344,25 @@ func (s *Service) ProposeMerge(ctx context.Context, vis visibility.Set, keys []s
 	if len(keys) < 2 {
 		return 0, errors.New("entities: a merge needs two entities or more")
 	}
+	var ids []int64
 	for _, k := range keys {
-		if _, err := q.VisibleEntityByKey(ctx, VisibleEntityByKeyParams{Key: k, Visible: vis}); errors.Is(err, pgx.ErrNoRows) {
+		e, err := q.VisibleEntityByKey(ctx, VisibleEntityByKeyParams{Key: k, Visible: vis})
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, ErrNotFound
 		} else if err != nil {
+			return 0, err
+		}
+		ids = append(ids, e.ID)
+	}
+	// A pair has one open merge card: the proposal of a pair with one
+	// returns that card. The key is the one that resolution gives a pair.
+	var key *string
+	if len(ids) == 2 {
+		k := fmt.Sprintf("merge:%d:%d", min(ids[0], ids[1]), max(ids[0], ids[1]))
+		key = &k
+		if open, err := q.OpenMergeCard(ctx, key); err == nil {
+			return open, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return 0, err
 		}
 	}
@@ -359,7 +374,10 @@ func (s *Service) ProposeMerge(ctx context.Context, vis visibility.Set, keys []s
 	var id int64
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		if id, err = New(tx).InsertMergeProposal(ctx, InsertMergeProposalParams{Target: "entity:" + keys[0], Payload: payload, ProposerID: &by,
-			Connections: conns}); err != nil {
+			Connections: conns, DedupeKey: key}); errors.Is(err, pgx.ErrNoRows) {
+			id, err = New(tx).OpenMergeCard(ctx, key)
+			return err
+		} else if err != nil {
 			return err
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "entities.merge_proposal", Target: "entity:" + keys[0],

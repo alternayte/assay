@@ -178,6 +178,11 @@ WHERE e.key = ANY(@keys::text[]) AND es.connection_id = ANY(@visible::bigint[])
 ORDER BY es.connection_id;
 
 -- name: InsertMergeProposal :one
-INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
-VALUES ('merge', @target, @payload, @proposer_id, 'ui', @connections)
+-- A pair with an open merge card inserts nothing and returns no row.
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections, dedupe_key)
+VALUES ('merge', @target, @payload, @proposer_id, 'ui', @connections, sqlc.narg(dedupe_key))
+ON CONFLICT (kind, dedupe_key) WHERE status = 'open' AND dedupe_key IS NOT NULL DO NOTHING
 RETURNING id;
+
+-- name: OpenMergeCard :one
+SELECT id FROM proposals WHERE kind = 'merge' AND dedupe_key = @dedupe_key AND status = 'open';

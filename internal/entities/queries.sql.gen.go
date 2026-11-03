@@ -378,8 +378,9 @@ func (q *Queries) InsertMerge(ctx context.Context, arg InsertMergeParams) (int64
 }
 
 const insertMergeProposal = `-- name: InsertMergeProposal :one
-INSERT INTO proposals (kind, target, payload, proposer_id, via, connections)
-VALUES ('merge', $1, $2, $3, 'ui', $4)
+INSERT INTO proposals (kind, target, payload, proposer_id, via, connections, dedupe_key)
+VALUES ('merge', $1, $2, $3, 'ui', $4, $5)
+ON CONFLICT (kind, dedupe_key) WHERE status = 'open' AND dedupe_key IS NOT NULL DO NOTHING
 RETURNING id
 `
 
@@ -388,14 +389,17 @@ type InsertMergeProposalParams struct {
 	Payload     json.RawMessage
 	ProposerID  *string
 	Connections []int64
+	DedupeKey   *string
 }
 
+// A pair with an open merge card inserts nothing and returns no row.
 func (q *Queries) InsertMergeProposal(ctx context.Context, arg InsertMergeProposalParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertMergeProposal,
 		arg.Target,
 		arg.Payload,
 		arg.ProposerID,
 		arg.Connections,
+		arg.DedupeKey,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -534,6 +538,17 @@ func (q *Queries) Nodes(ctx context.Context, arg NodesParams) ([]NodesRow, error
 		return nil, err
 	}
 	return items, nil
+}
+
+const openMergeCard = `-- name: OpenMergeCard :one
+SELECT id FROM proposals WHERE kind = 'merge' AND dedupe_key = $1 AND status = 'open'
+`
+
+func (q *Queries) OpenMergeCard(ctx context.Context, dedupeKey *string) (int64, error) {
+	row := q.db.QueryRow(ctx, openMergeCard, dedupeKey)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const repointMerged = `-- name: RepointMerged :exec

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +18,19 @@ import (
 
 // EmbedBatch is the number of chunks in one embed call.
 const EmbedBatch = 64
+
+// maxEmbedRunes bounds one embed input. A chunk of MaxChunkTokens has fewer
+// runes. A chunk stored before Chunks cut long words can have many more,
+// and the embed model refuses an input past its own limit; its vector then
+// covers the start of the chunk.
+const maxEmbedRunes = 4 * MaxChunkTokens
+
+func embedText(s string) string {
+	if utf8.RuneCountInString(s) <= maxEmbedRunes {
+		return s
+	}
+	return string([]rune(s)[:maxEmbedRunes])
+}
 
 // Embedder fills the target embedding space with chunk and profile vectors
 // and activates it when it is complete.
@@ -62,7 +76,7 @@ ORDER BY c.id LIMIT %d`, tbl, EmbedBatch)
 		if len(batch) > 0 {
 			texts := make([]string, len(batch))
 			for i, c := range batch {
-				texts[i] = c.text
+				texts[i] = embedText(c.text)
 			}
 			res, err := e.Models.Embed(ctx, texts, "chunks")
 			if err != nil {

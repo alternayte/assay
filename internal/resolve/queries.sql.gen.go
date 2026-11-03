@@ -67,30 +67,6 @@ func (q *Queries) ActivateEntity(ctx context.Context, id int64) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
-const activeConnections = `-- name: ActiveConnections :many
-SELECT id FROM connections WHERE status = 'active' ORDER BY id
-`
-
-func (q *Queries) ActiveConnections(ctx context.Context) ([]int64, error) {
-	rows, err := q.db.Query(ctx, activeConnections)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const addDecisionEvidence = `-- name: AddDecisionEvidence :exec
 INSERT INTO claim_evidence (claim_id, connection_id, item_id, passage_hash, kind, stance, quote, state, source_type)
 VALUES ($1, $2, $3, $4, 'passage', 'supports', $5, 'current', 'decision')
@@ -183,6 +159,30 @@ func (q *Queries) AddVerdict(ctx context.Context, arg AddVerdictParams) error {
 		arg.By,
 	)
 	return err
+}
+
+const allConnections = `-- name: AllConnections :many
+SELECT id FROM connections ORDER BY id
+`
+
+func (q *Queries) AllConnections(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, allConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const cardForUpdate = `-- name: CardForUpdate :one
@@ -796,12 +796,12 @@ func (q *Queries) EvalDecisions(ctx context.Context, kinds []string) ([]EvalDeci
 const everyoneConnections = `-- name: EveryoneConnections :many
 SELECT c.id FROM connections c
 WHERE c.kind = 'registry'
-   OR (c.status = 'active' AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
-                                       WHERE v.connection_id = c.id AND g.builtin))
+   OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+              WHERE v.connection_id = c.id AND g.builtin)
 ORDER BY c.id
 `
 
-// The registry and the active connections shared with Everyone.
+// The registry and the connections shared with Everyone.
 func (q *Queries) EveryoneConnections(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, everyoneConnections)
 	if err != nil {

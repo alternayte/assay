@@ -1,10 +1,10 @@
 -- name: VisibleSet :many
--- The active connections that the user owns or that are shared with a
--- group of the user. Everyone holds every active user.
+-- The connections that the user owns or that are shared with a group of
+-- the user. Everyone holds every active user. A paused connection stays
+-- visible: a pause stops only its sync and reconcile runs.
 SELECT c.id
 FROM connections c
-WHERE c.status = 'active'
-  AND EXISTS (SELECT 1 FROM auth_users u WHERE u.id = @user_id AND u.disabled_at IS NULL)
+WHERE EXISTS (SELECT 1 FROM auth_users u WHERE u.id = @user_id AND u.disabled_at IS NULL)
   AND (c.owner_id = @user_id
        OR EXISTS (SELECT 1
                   FROM connection_visibility v

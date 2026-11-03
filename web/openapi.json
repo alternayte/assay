@@ -1085,8 +1085,7 @@
           "status": {
             "enum": [
               "active",
-              "paused",
-              "resuming"
+              "paused"
             ],
             "type": "string"
           },
@@ -4354,7 +4353,7 @@
             "type": "string"
           },
           "paused": {
-            "description": "True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation.",
+            "description": "True pauses the connection: its sync and reconcile runs stop, and its content stays visible. False resumes it and queues a sync and a reconciliation.",
             "type": "boolean"
           }
         },

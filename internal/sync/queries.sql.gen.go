@@ -141,8 +141,8 @@ func (q *Queries) DemoConnections(ctx context.Context, base string) ([]DemoConne
 
 const dueReconciles = `-- name: DueReconciles :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming') AND c.last_sync_at IS NOT NULL
-  AND (c.status = 'resuming' OR c.last_reconcile_at IS NULL
+WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL
+  AND (c.last_reconcile_at IS NULL
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= $1)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
                   AND r.status IN ('queued', 'running'))
@@ -170,7 +170,7 @@ func (q *Queries) DueReconciles(ctx context.Context, now *time.Time) ([]int64, e
 
 const dueSyncs = `-- name: DueSyncs :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status IN ('active', 'resuming')
+WHERE c.kind <> 'registry' AND c.status = 'active'
   AND (c.last_sync_at IS NULL OR c.last_sync_at + make_interval(mins => c.sync_minutes) <= $1)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind = 'sync' AND r.status IN ('queued', 'running'))
 `
@@ -206,6 +206,22 @@ func (q *Queries) EveryoneGroup(ctx context.Context) (int64, error) {
 	return id, err
 }
 
+const failQueuedRuns = `-- name: FailQueuedRuns :exec
+UPDATE sync_runs SET status = 'failed', finished_at = $1, error = $2
+WHERE connection_id = $3 AND status = 'queued'
+`
+
+type FailQueuedRunsParams struct {
+	Now          *time.Time
+	Error        string
+	ConnectionID int64
+}
+
+func (q *Queries) FailQueuedRuns(ctx context.Context, arg FailQueuedRunsParams) error {
+	_, err := q.db.Exec(ctx, failQueuedRuns, arg.Now, arg.Error, arg.ConnectionID)
+	return err
+}
+
 const failStaleRuns = `-- name: FailStaleRuns :execrows
 UPDATE sync_runs SET status = 'failed', finished_at = $1, error = 'The run stopped without a result.'
 WHERE status = 'running' AND started_at < $2
@@ -225,23 +241,16 @@ func (q *Queries) FailStaleRuns(ctx context.Context, arg FailStaleRunsParams) (i
 }
 
 const finishReconcile = `-- name: FinishReconcile :exec
-UPDATE connections
-SET last_reconcile_at = $1, permissions_checked_at = $1,
-    status = CASE WHEN status = 'resuming' AND status_epoch = $2 THEN 'active' ELSE status END,
-    status_reason = CASE WHEN status = 'resuming' AND status_epoch = $2 THEN '' ELSE status_reason END
-WHERE id = $3
+UPDATE connections SET last_reconcile_at = $1, permissions_checked_at = $1 WHERE id = $2
 `
 
 type FinishReconcileParams struct {
-	Now         *time.Time
-	StatusEpoch int64
-	ID          int64
+	Now *time.Time
+	ID  int64
 }
 
-// Only a reconciliation that started after the last status change ends a
-// resume.
 func (q *Queries) FinishReconcile(ctx context.Context, arg FinishReconcileParams) error {
-	_, err := q.db.Exec(ctx, finishReconcile, arg.Now, arg.StatusEpoch, arg.ID)
+	_, err := q.db.Exec(ctx, finishReconcile, arg.Now, arg.ID)
 	return err
 }
 
@@ -284,7 +293,7 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, cursor, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, status_epoch, code_globs FROM connections WHERE id = $1
+SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, cursor, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, error) {
@@ -314,14 +323,13 @@ func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, erro
 		&i.PermissionsCheckedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
-		&i.StatusEpoch,
 		&i.CodeGlobs,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, status_epoch FROM sync_runs WHERE id = $1
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
@@ -345,7 +353,6 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
 		&i.QueuedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.StatusEpoch,
 	)
 	return i, err
 }
@@ -540,7 +547,7 @@ func (q *Queries) ItemUpdates(ctx context.Context, connectionID int64) ([]ItemUp
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.status_epoch, c.code_globs, coalesce(u.email, '')::text AS owner_email,
+SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
        coalesce((SELECT r.error FROM sync_runs r WHERE r.connection_id = c.id ORDER BY r.id DESC LIMIT 1), '')::text AS last_error
 FROM connections c
@@ -572,7 +579,6 @@ type ListConnectionsRow struct {
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
-	StatusEpoch          int64
 	CodeGlobs            []string
 	OwnerEmail           string
 	Items                int64
@@ -615,7 +621,6 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 			&i.PermissionsCheckedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.StatusEpoch,
 			&i.CodeGlobs,
 			&i.OwnerEmail,
 			&i.Items,
@@ -632,7 +637,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, status_epoch FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
 `
 
 type ListRunsParams struct {
@@ -667,7 +672,6 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]SyncRun, 
 			&i.QueuedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
-			&i.StatusEpoch,
 		); err != nil {
 			return nil, err
 		}
@@ -844,7 +848,7 @@ func (q *Queries) SetCursor(ctx context.Context, arg SetCursorParams) error {
 }
 
 const setStatus = `-- name: SetStatus :execrows
-UPDATE connections SET status = $1, status_reason = $2, status_epoch = status_epoch + 1, updated_at = now()
+UPDATE connections SET status = $1, status_reason = $2, updated_at = now()
 WHERE id = $3 AND kind <> 'registry'
 `
 
@@ -863,24 +867,18 @@ func (q *Queries) SetStatus(ctx context.Context, arg SetStatusParams) (int64, er
 }
 
 const startRun = `-- name: StartRun :execrows
-UPDATE sync_runs SET status = 'running', started_at = $1, cursor_from = $2, status_epoch = $3
-WHERE id = $4 AND status IN ('queued', 'running')
+UPDATE sync_runs SET status = 'running', started_at = $1, cursor_from = $2
+WHERE id = $3 AND status IN ('queued', 'running')
 `
 
 type StartRunParams struct {
-	Now         *time.Time
-	Cursor      string
-	StatusEpoch int64
-	ID          int64
+	Now    *time.Time
+	Cursor string
+	ID     int64
 }
 
 func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (int64, error) {
-	result, err := q.db.Exec(ctx, startRun,
-		arg.Now,
-		arg.Cursor,
-		arg.StatusEpoch,
-		arg.ID,
-	)
+	result, err := q.db.Exec(ctx, startRun, arg.Now, arg.Cursor, arg.ID)
 	if err != nil {
 		return 0, err
 	}

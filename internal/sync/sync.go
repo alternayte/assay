@@ -198,6 +198,8 @@ func sourceError(err error) string {
 		return fmt.Sprintf("The source rate limit is used up (%s). The next sync continues from the files that changed.", se.Path)
 	case errors.As(err, &se):
 		return fmt.Sprintf("The source answered %d (%s) for %s.", se.Status, http.StatusText(se.Status), se.Path)
+	case errors.Is(err, errPausedByAdmin):
+		return pausedReason
 	case errors.Is(err, errPaused):
 		return "The connection is paused. Resume it to sync."
 	case errors.As(err, &skip):

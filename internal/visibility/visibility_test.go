@@ -12,7 +12,7 @@ import (
 
 // TestVisibleSetRule checks the rule of SDD section 9 on each path: owner,
 // a shared group, Everyone, a paused connection, a deactivated user and an
-// admin without a share.
+// admin without a share. A paused connection stays in the set.
 func TestVisibleSetRule(t *testing.T) {
 	env := testkit.Start(t)
 	owner := env.Setup("owner@acme.test")
@@ -64,10 +64,10 @@ func TestVisibleSetRule(t *testing.T) {
 		user string
 		want []int64
 	}{
-		{"owner", me.ID, []int64{registry, restricted, team, public}},
-		{"group member", memberID, []int64{registry, team, public}},
-		{"other member", otherID, []int64{registry, public}},
-		{"admin without a share", admin2ID, []int64{registry, public}},
+		{"owner", me.ID, []int64{registry, restricted, team, public, paused}},
+		{"group member", memberID, []int64{registry, team, public, paused}},
+		{"other member", otherID, []int64{registry, public, paused}},
+		{"admin without a share", admin2ID, []int64{registry, public, paused}},
 		{"unknown user", "00000000-0000-0000-0000-000000000000", []int64{}},
 	} {
 		got := set(c.user)

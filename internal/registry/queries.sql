@@ -5,8 +5,8 @@ SELECT id FROM connections WHERE kind = 'registry';
 -- The registry and the connections shared with Everyone.
 SELECT c.id FROM connections c
 WHERE c.kind = 'registry'
-   OR (c.status = 'active' AND EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
-                                       WHERE v.connection_id = c.id AND g.builtin))
+   OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
+              WHERE v.connection_id = c.id AND g.builtin)
 ORDER BY c.id;
 
 -- name: VisibleRefs :many

@@ -2304,7 +2304,7 @@ export interface components {
                 [key: string]: unknown;
             };
             /** @enum {string} */
-            status: "active" | "paused" | "resuming";
+            status: "active" | "paused";
             statusReason: string;
             /** Format: int32 */
             syncMinutes: number;
@@ -3403,7 +3403,7 @@ export interface components {
              * @example https://example.com/api/v1/schemas/PauseInBody.json
              */
             readonly $schema?: string;
-            /** @description True pauses the connection and hides its content. False resumes it: the content shows again after the next successful reconciliation. */
+            /** @description True pauses the connection: its sync and reconcile runs stop, and its content stays visible. False resumes it and queues a sync and a reconciliation. */
             paused: boolean;
         };
         Precision: {

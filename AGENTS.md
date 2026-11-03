@@ -38,6 +38,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 
 ## Domain words
 - connection: one configured source system with a token, a scope and a visibility.
+- pause: stops the sync and reconcile runs of a connection. Its content stays visible. Avoid: hide, disable.
 - visible set: the connections a user owns or that are shared with one of the user's groups. Every content query filters by it.
 - Everyone: the built-in group that holds all active users. It has no member rows.
 - registry: the built-in connection where members write records for things and terms.
@@ -45,6 +46,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - passage: one block of an item. Its identity is the hash of its normalized text.
 - chunk: a run of passages inside one top-level section, used for search.
 - entity: a thing with a provider-qualified key and aliases.
+- unnamed entity: a proposed entity that resolve makes from a description that matches no entity, keyed by connection, type and description. Avoid: unnamed thing.
 - term: an entity of type term. Synonyms and acronyms are its aliases.
 - claim: a subject, a predicate and an object, backed by evidence rows.
 - evidence: a link from a claim to a passage quote. It is current or stale.
@@ -53,7 +55,10 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - band: the confidence level of a decision, calibrated from reviewer outcomes.
 - auto-apply: acting on High decisions without review, enabled per decision kind once precision is earned.
 - card: one item in the review queue.
+- occurrence: one place where the question of a card was found: an item, a passage hash, a claim index and a quote. Avoid: instance, hit.
 - page: a knowledge page for one entity, cached per visibility key.
+- contract: an api, operation, event or data model that Assay parses from a spec file or infers from code. Avoid: interface, spec.
+- data model: an entity of type data_model, which is one schema, message, type or table with its fields. Avoid: schema entity, model.
 - design page: the generated page of a repository, system or multi-repository service that says what the code does, how and why, with diagrams. Avoid: design doc.
 - component: one section unit of a design page, found from the code structure. It is not an entity. Avoid: module, subsystem.
 - digest: the internal summary of a component that later generation steps read in place of the code. Avoid: component summary.

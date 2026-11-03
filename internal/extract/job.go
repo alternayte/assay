@@ -217,7 +217,7 @@ func (s *Service) passage(ctx context.Context, vis []int64, version string, p Pa
 // another item of the connection is reused without a model call.
 func (s *Service) output(ctx context.Context, q *Queries, vis []int64, version string, p PassagesRow) (string, error) {
 	prev, err := q.ReusableOutput(ctx, ReusableOutputParams{PassageHash: p.Hash, Version: version, ConnectionID: p.ConnectionID,
-		ItemID: p.ItemID})
+		ItemID: p.ItemID, Visible: vis})
 	if err == nil {
 		return string(prev), nil
 	}

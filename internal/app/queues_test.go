@@ -14,7 +14,8 @@ func TestSCN_OPS_010_JobsRunOnTheirQueues(t *testing.T) {
 	rc := env.Server.Extract().River
 	ctx := t.Context()
 
-	// A second embed job while one waits would embed the same chunks twice.
+	// A second job of the same shard while one waits would embed the same
+	// chunks twice.
 	for range 2 {
 		if _, err := rc.Insert(ctx, content.EmbedArgs{}, nil); err != nil {
 			t.Fatal(err)

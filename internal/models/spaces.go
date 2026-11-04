@@ -144,9 +144,21 @@ func (g *Gateway) ActivateSpace(ctx context.Context, id int64) error {
 	})
 }
 
-// SetSpaceProgress records the progress of a space.
-func (g *Gateway) SetSpaceProgress(ctx context.Context, id int64, done, total int, msg string) error {
-	return New(g.Pool).SetSpaceProgress(ctx, SetSpaceProgressParams{ID: id, Done: clamp(done), Total: clamp(total), Error: msg})
+// SetSpaceCount records exact counts of the chunk vectors of a space and of
+// all chunks.
+func (g *Gateway) SetSpaceCount(ctx context.Context, id int64, done, total int) error {
+	return New(g.Pool).SetSpaceCount(ctx, SetSpaceCountParams{ID: id, Done: clamp(done), Total: clamp(total), Now: ptr(g.now())})
+}
+
+// AddSpaceDone adds n new chunk vectors to the done count of a space and
+// clears its error.
+func (g *Gateway) AddSpaceDone(ctx context.Context, id int64, n int) error {
+	return New(g.Pool).AddSpaceDone(ctx, AddSpaceDoneParams{ID: id, N: clamp(n)})
+}
+
+// SetSpaceError records the error of the last embed call of a space.
+func (g *Gateway) SetSpaceError(ctx context.Context, id int64, msg string) error {
+	return New(g.Pool).SetSpaceError(ctx, SetSpaceErrorParams{ID: id, Error: msg})
 }
 
 // Vector formats a vector as a pgvector literal.

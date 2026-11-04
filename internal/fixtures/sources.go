@@ -72,6 +72,9 @@ type Fault struct {
 	Status     int
 	RetryAfter string
 	Count      int
+	// After is the number of requests under the prefix that pass before
+	// the fault starts.
+	After int
 }
 
 // Hit is one request that a fake source received.
@@ -226,6 +229,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.hits = append(s.hits, Hit{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: scheme, At: time.Now()})
 	var fault *Fault
 	for prefix, f := range s.faults {
+		if strings.HasPrefix(r.URL.Path, prefix) && f.After > 0 {
+			f.After--
+			break
+		}
 		if strings.HasPrefix(r.URL.Path, prefix) && f.Count > 0 {
 			f.Count--
 			fault = &Fault{Status: f.Status, RetryAfter: f.RetryAfter}
@@ -276,6 +283,14 @@ func (s *Sources) Fail(prefix string, status, count int, retryAfter string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.faults[prefix] = &Fault{Status: status, RetryAfter: retryAfter, Count: count}
+}
+
+// FailAfter makes count requests under prefix fail with status after the
+// next after requests pass.
+func (s *Sources) FailAfter(prefix string, after, status, count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.faults[prefix] = &Fault{Status: status, Count: count, After: after}
 }
 
 // RevokeToken makes the source refuse the token, as when its user loses

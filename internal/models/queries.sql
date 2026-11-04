@@ -86,5 +86,11 @@ UPDATE embedding_spaces SET status = 'retired' WHERE id = @id;
 -- name: ActivateSpace :exec
 UPDATE embedding_spaces SET status = 'active', activated_at = @now WHERE id = @id;
 
--- name: SetSpaceProgress :exec
-UPDATE embedding_spaces SET done = @done, total = @total, error = @error WHERE id = @id;
+-- name: SetSpaceCount :exec
+UPDATE embedding_spaces SET done = @done, total = @total, counted_at = @now WHERE id = @id;
+
+-- name: AddSpaceDone :exec
+UPDATE embedding_spaces SET done = done + @n, error = '' WHERE id = @id;
+
+-- name: SetSpaceError :exec
+UPDATE embedding_spaces SET error = @error WHERE id = @id;

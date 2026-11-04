@@ -58,6 +58,12 @@ type Ref struct {
 	// Version is the source revision of a repository file, its blob ID.
 	// Sync fetches the file only when the stored revision differs.
 	Version string
+	// Item is the whole item when the listing carries it. Sync then stores
+	// it without Fetch.
+	Item *content.Item
+	// Skip is the reason to skip a listed item without Fetch, such as
+	// too_large.
+	Skip string
 }
 
 // Validation is the result of a connection test.
@@ -80,7 +86,8 @@ type Connector interface {
 	Scopes(ctx context.Context) ([]Scope, error)
 	// Changed calls fn for each item in scope updated at or after since,
 	// oldest first. A repository connector calls fn for every file with
-	// its blob ID as the version.
+	// its blob ID as the version. Sync stores items inside fn, so a
+	// connector that lists page by page holds one page at a time.
 	Changed(ctx context.Context, since time.Time, fn func(Ref) error) error
 	// ListIDs calls fn for each item ID in scope.
 	ListIDs(ctx context.Context, fn func(id string) error) error

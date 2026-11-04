@@ -94,6 +94,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
+	river.AddWorker(workers, &content.ChunkHashWorker{Pool: s.pool})
 	river.AddWorker(workers, &extract.Worker{S: s.extract})
 	river.AddWorker(workers, &extract.ConnectionWorker{S: s.extract})
 	river.AddWorker(workers, &resolve.Worker{S: s.resolve})
@@ -116,7 +117,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		cfg.Queues = map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: orDefault(s.cfg.JobWorkers, 10)},
 			syncer.Queue:       {MaxWorkers: orDefault(s.cfg.SyncWorkers, 4)},
-			content.EmbedQueue: {MaxWorkers: 1},
+			content.EmbedQueue: {MaxWorkers: s.embedder.Shards},
 			extract.Queue:      {MaxWorkers: orDefault(s.cfg.ExtractWorkers, 4)},
 			design.Queue:       {MaxWorkers: orDefault(s.cfg.DesignWorkers, 2)},
 			resolve.Queue:      {MaxWorkers: 1},
@@ -128,6 +129,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		}
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sync.PeriodicJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.embedder.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, content.ChunkHashJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.resolve.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)

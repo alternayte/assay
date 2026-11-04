@@ -305,6 +305,7 @@ type SpaceRecord struct {
 	Done        int32      `json:"done" doc:"Chunks with a vector."`
 	Total       int32      `json:"total" doc:"All chunks."`
 	Error       string     `json:"error"`
+	CountedAt   *time.Time `json:"countedAt" doc:"The time of the last exact count of done and total. Between counts, done grows by the vectors that the embed job adds."`
 	CreatedAt   time.Time  `json:"createdAt"`
 	ActivatedAt *time.Time `json:"activatedAt"`
 }
@@ -329,7 +330,7 @@ func (g *Gateway) registerSpaces(a huma.API) {
 		o.Body.Spaces = []SpaceRecord{}
 		for _, r := range rows {
 			o.Body.Spaces = append(o.Body.Spaces, SpaceRecord{ID: r.ID, Model: r.Model, Dim: r.Dim, Status: r.Status, Done: r.Done,
-				Total: r.Total, Error: r.Error, CreatedAt: r.CreatedAt, ActivatedAt: r.ActivatedAt})
+				Total: r.Total, Error: r.Error, CountedAt: r.CountedAt, CreatedAt: r.CreatedAt, ActivatedAt: r.ActivatedAt})
 		}
 		return o, nil
 	})

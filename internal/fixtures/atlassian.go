@@ -153,12 +153,30 @@ func (s *Sources) confluence(w http.ResponseWriter, r *http.Request) {
 			return all[i].ID < all[j].ID
 		})
 		start, limit := page(r, 25)
+		expand := r.URL.Query().Get("expand")
+		whole := strings.Contains(expand, "body.storage")
+		if whole {
+			// The server caps the page size of a search that expands the body.
+			limit = min(limit, 25)
+		}
 		res := []map[string]any{}
 		for _, pg := range window(all, start, limit) {
+			if whole {
+				res = append(res, s.pageJSON(pg))
+				continue
+			}
 			res = append(res, map[string]any{"id": pg.ID, "type": "page", "status": "current", "title": pg.Title,
 				"version": map[string]any{"number": pg.Version, "when": pg.Updated.Format(confluenceTime)}})
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"results": res, "start": start, "limit": limit, "size": len(res), "totalSize": len(all)})
+		links := map[string]any{"base": "http://ignored.acme.test/confluence", "context": "/confluence"}
+		if start+len(res) < len(all) && len(res) > 0 {
+			q := r.URL.Query()
+			q.Set("start", strconv.Itoa(start+len(res)))
+			q.Set("limit", strconv.Itoa(limit))
+			links["next"] = "/rest/api/content/search?" + q.Encode()
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"results": res, "start": start, "limit": limit, "size": len(res), "totalSize": len(all),
+			"_links": links})
 	case strings.HasPrefix(p, "/rest/api/content/"):
 		id := strings.TrimPrefix(p, "/rest/api/content/")
 		pg, ok := s.pages[id]
@@ -168,32 +186,38 @@ func (s *Sources) confluence(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(`{"statusCode":404,"message":"No content found with id"}`))
 			return
 		}
-		anc := []map[string]any{}
-		for _, a := range s.ancestors(pg) {
-			anc = append(anc, map[string]any{"id": a.ID, "type": "page", "title": a.Title})
-		}
-		labels := []map[string]any{}
-		for _, l := range pg.Labels {
-			labels = append(labels, map[string]any{"prefix": "global", "name": l})
-		}
-		spaceName := ""
-		for _, sp := range s.spaces {
-			if sp[0] == pg.Space {
-				spaceName = sp[1]
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id": pg.ID, "type": "page", "status": "current", "title": pg.Title,
-			"space":     map[string]any{"key": pg.Space, "name": spaceName},
-			"history":   map[string]any{"createdBy": s.person(pg.Author), "createdDate": pg.Created.Format(confluenceTime)},
-			"version":   map[string]any{"number": pg.Version, "when": pg.Updated.Format(confluenceTime), "by": s.person(pg.Author)},
-			"ancestors": anc,
-			"body":      map[string]any{"storage": map[string]any{"value": pg.Body, "representation": "storage"}},
-			"metadata":  map[string]any{"labels": map[string]any{"results": labels, "size": len(labels)}},
-			"_links":    map[string]any{"webui": "/pages/viewpage.action?pageId=" + pg.ID, "base": "http://ignored.acme.test/confluence"},
-		})
+		writeJSON(w, http.StatusOK, s.pageJSON(pg))
 	default:
 		http.NotFound(w, r)
+	}
+}
+
+// pageJSON is a page with all the expansions that the connector asks
+// for. The lock is held.
+func (s *Sources) pageJSON(pg *Page) map[string]any {
+	anc := []map[string]any{}
+	for _, a := range s.ancestors(pg) {
+		anc = append(anc, map[string]any{"id": a.ID, "type": "page", "title": a.Title})
+	}
+	labels := []map[string]any{}
+	for _, l := range pg.Labels {
+		labels = append(labels, map[string]any{"prefix": "global", "name": l})
+	}
+	spaceName := ""
+	for _, sp := range s.spaces {
+		if sp[0] == pg.Space {
+			spaceName = sp[1]
+		}
+	}
+	return map[string]any{
+		"id": pg.ID, "type": "page", "status": "current", "title": pg.Title,
+		"space":     map[string]any{"key": pg.Space, "name": spaceName},
+		"history":   map[string]any{"createdBy": s.person(pg.Author), "createdDate": pg.Created.Format(confluenceTime)},
+		"version":   map[string]any{"number": pg.Version, "when": pg.Updated.Format(confluenceTime), "by": s.person(pg.Author)},
+		"ancestors": anc,
+		"body":      map[string]any{"storage": map[string]any{"value": pg.Body, "representation": "storage"}},
+		"metadata":  map[string]any{"labels": map[string]any{"results": labels, "size": len(labels)}},
+		"_links":    map[string]any{"webui": "/pages/viewpage.action?pageId=" + pg.ID, "base": "http://ignored.acme.test/confluence"},
 	}
 }
 

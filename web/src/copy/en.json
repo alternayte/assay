@@ -352,6 +352,7 @@
     "colProgress": "Progress",
     "dimensions": "{dim} dimensions",
     "spaceProgress": "{done} of {total} chunks",
+    "spaceCounted": "Exact count at {time}. The done count grows between counts.",
     "spaceActive": "Active",
     "spaceBuilding": "Building",
     "fnDesign": "Design pages from source code."

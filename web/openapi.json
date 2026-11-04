@@ -5965,6 +5965,14 @@
               "null"
             ]
           },
+          "countedAt": {
+            "description": "The time of the last exact count of done and total. Between counts, done grows by the vectors that the embed job adds.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -6009,6 +6017,7 @@
           "done",
           "total",
           "error",
+          "countedAt",
           "createdAt",
           "activatedAt"
         ],

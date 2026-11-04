@@ -278,6 +278,16 @@ func (q *Queries) ConnectionKind(ctx context.Context, id int64) (string, error) 
 	return kind, err
 }
 
+const deleteChunks = `-- name: DeleteChunks :exec
+DELETE FROM chunks WHERE id = ANY($1::bigint[])
+`
+
+// vis:system
+func (q *Queries) DeleteChunks(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, deleteChunks, ids)
+	return err
+}
+
 const deleteItem = `-- name: DeleteItem :execrows
 DELETE FROM source_items WHERE id = $1
 `
@@ -290,16 +300,6 @@ func (q *Queries) DeleteItem(ctx context.Context, id int64) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const deleteItemChunks = `-- name: DeleteItemChunks :exec
-DELETE FROM chunks WHERE item_id = $1
-`
-
-// vis:system
-func (q *Queries) DeleteItemChunks(ctx context.Context, itemID int64) error {
-	_, err := q.db.Exec(ctx, deleteItemChunks, itemID)
-	return err
 }
 
 const deleteItemPassages = `-- name: DeleteItemPassages :exec
@@ -378,8 +378,22 @@ func (q *Queries) DropEntitySource(ctx context.Context, arg DropEntitySourcePara
 	return result.RowsAffected(), nil
 }
 
+const fillChunkHashes = `-- name: FillChunkHashes :execrows
+WITH b AS (SELECT id FROM chunks WHERE text_hash IS NULL ORDER BY id LIMIT 10000)
+UPDATE chunks c SET text_hash = sha256(convert_to(c.text, 'UTF8')) FROM b WHERE c.id = b.id
+`
+
+// vis:system
+func (q *Queries) FillChunkHashes(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, fillChunkHashes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getItemByExternalID = `-- name: GetItemByExternalID :one
-SELECT id, content_hash, revision FROM source_items
+SELECT id, content_hash, revision, index_hash FROM source_items
 WHERE connection_id = $1 AND external_id = $2
 `
 
@@ -392,13 +406,19 @@ type GetItemByExternalIDRow struct {
 	ID          int64
 	ContentHash []byte
 	Revision    string
+	IndexHash   []byte
 }
 
 // vis:system
 func (q *Queries) GetItemByExternalID(ctx context.Context, arg GetItemByExternalIDParams) (GetItemByExternalIDRow, error) {
 	row := q.db.QueryRow(ctx, getItemByExternalID, arg.ConnectionID, arg.ExternalID)
 	var i GetItemByExternalIDRow
-	err := row.Scan(&i.ID, &i.ContentHash, &i.Revision)
+	err := row.Scan(
+		&i.ID,
+		&i.ContentHash,
+		&i.Revision,
+		&i.IndexHash,
+	)
 	return i, err
 }
 
@@ -444,51 +464,43 @@ func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) 
 	return i, err
 }
 
-const insertChunk = `-- name: InsertChunk :exec
-INSERT INTO chunks (item_id, version_id, connection_id, ordinal, heading_path, text, passage_hashes, tokens, tsv)
-VALUES ($1, $2, $3, $4, $5, $6, $7::bytea[], $8,
-        setweight(to_tsvector('simple', unaccent($9::text)), 'A') ||
-        setweight(to_tsvector('simple', unaccent($10::text)), 'B') ||
-        setweight(to_tsvector('simple', unaccent($11::text)), 'C'))
+const insertChunks = `-- name: InsertChunks :exec
+INSERT INTO chunks (item_id, version_id, connection_id, ordinal, heading_path, text, passage_hashes, tokens, tsv, text_hash)
+SELECT $1, $2, $3, r.ordinal, r.heading_path, r.text,
+       ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n), r.tokens,
+       setweight(to_tsvector('simple', unaccent($4::text)), 'A') ||
+       setweight(to_tsvector('simple', unaccent(r.heading)), 'B') ||
+       setweight(to_tsvector('simple', unaccent(r.body)), 'C'),
+       decode(r.text_hash, 'base64')
+FROM jsonb_to_recordset($5::jsonb) AS r (ordinal integer, heading_path text[], text text, hashes text[], tokens integer, heading text,
+                                             body text, text_hash text)
 `
 
-type InsertChunkParams struct {
-	ItemID        int64
-	VersionID     int64
-	ConnectionID  int64
-	Ordinal       int32
-	HeadingPath   []string
-	Text          string
-	PassageHashes [][]byte
-	Tokens        int32
-	Title         string
-	Heading       string
-	Body          string
+type InsertChunksParams struct {
+	ItemID       int64
+	VersionID    int64
+	ConnectionID int64
+	Title        string
+	Rows         json.RawMessage
 }
 
 // vis:system
-func (q *Queries) InsertChunk(ctx context.Context, arg InsertChunkParams) error {
-	_, err := q.db.Exec(ctx, insertChunk,
+func (q *Queries) InsertChunks(ctx context.Context, arg InsertChunksParams) error {
+	_, err := q.db.Exec(ctx, insertChunks,
 		arg.ItemID,
 		arg.VersionID,
 		arg.ConnectionID,
-		arg.Ordinal,
-		arg.HeadingPath,
-		arg.Text,
-		arg.PassageHashes,
-		arg.Tokens,
 		arg.Title,
-		arg.Heading,
-		arg.Body,
+		arg.Rows,
 	)
 	return err
 }
 
 const insertItem = `-- name: InsertItem :one
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision)
+                          revision, index_hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10)
+        $10, $11)
 RETURNING id
 `
 
@@ -503,6 +515,7 @@ type InsertItemParams struct {
 	SourceUpdatedAt *time.Time
 	ContentHash     []byte
 	Revision        string
+	IndexHash       []byte
 }
 
 // vis:system
@@ -518,6 +531,7 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (int64, 
 		arg.SourceUpdatedAt,
 		arg.ContentHash,
 		arg.Revision,
+		arg.IndexHash,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -571,6 +585,36 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (i
 	return id, err
 }
 
+const itemChunkHashes = `-- name: ItemChunkHashes :many
+SELECT id, text_hash FROM chunks WHERE item_id = $1 ORDER BY ordinal
+`
+
+type ItemChunkHashesRow struct {
+	ID       int64
+	TextHash []byte
+}
+
+// vis:system
+func (q *Queries) ItemChunkHashes(ctx context.Context, itemID int64) ([]ItemChunkHashesRow, error) {
+	rows, err := q.db.Query(ctx, itemChunkHashes, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ItemChunkHashesRow
+	for rows.Next() {
+		var i ItemChunkHashesRow
+		if err := rows.Scan(&i.ID, &i.TextHash); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const itemClaims = `-- name: ItemClaims :many
 SELECT DISTINCT claim_id FROM claim_evidence WHERE item_id = $1
 `
@@ -612,6 +656,27 @@ func (q *Queries) ItemEntity(ctx context.Context, id int64) (ItemEntityRow, erro
 	var i ItemEntityRow
 	err := row.Scan(&i.EntityID, &i.ConnectionID)
 	return i, err
+}
+
+const keepChunks = `-- name: KeepChunks :exec
+UPDATE chunks c
+SET version_id = $1, ordinal = r.ordinal, heading_path = r.heading_path,
+    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n)
+FROM jsonb_to_recordset($2::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[])
+WHERE c.id = r.id
+`
+
+type KeepChunksParams struct {
+	VersionID int64
+	Rows      json.RawMessage
+}
+
+// A kept chunk has the same text, so its full-text vector and its
+// embedding vectors stay.
+// vis:system
+func (q *Queries) KeepChunks(ctx context.Context, arg KeepChunksParams) error {
+	_, err := q.db.Exec(ctx, keepChunks, arg.VersionID, arg.Rows)
+	return err
 }
 
 const latestClaim = `-- name: LatestClaim :one
@@ -737,6 +802,21 @@ func (q *Queries) RetractUnsupported(ctx context.Context, arg RetractUnsupported
 	return result.RowsAffected(), nil
 }
 
+const setChunksVersion = `-- name: SetChunksVersion :exec
+UPDATE chunks SET version_id = $1 WHERE item_id = $2
+`
+
+type SetChunksVersionParams struct {
+	VersionID int64
+	ItemID    int64
+}
+
+// vis:system
+func (q *Queries) SetChunksVersion(ctx context.Context, arg SetChunksVersionParams) error {
+	_, err := q.db.Exec(ctx, setChunksVersion, arg.VersionID, arg.ItemID)
+	return err
+}
+
 const setItemEntity = `-- name: SetItemEntity :exec
 UPDATE source_items SET entity_id = $1 WHERE id = $2
 `
@@ -749,6 +829,22 @@ type SetItemEntityParams struct {
 // vis:system
 func (q *Queries) SetItemEntity(ctx context.Context, arg SetItemEntityParams) error {
 	_, err := q.db.Exec(ctx, setItemEntity, arg.EntityID, arg.ID)
+	return err
+}
+
+const setPassagesVersion = `-- name: SetPassagesVersion :exec
+UPDATE passages SET version_id = $1 WHERE item_id = $2
+`
+
+type SetPassagesVersionParams struct {
+	VersionID int64
+	ItemID    int64
+}
+
+// The passages and chunks of an unchanged index belong to the new version.
+// vis:system
+func (q *Queries) SetPassagesVersion(ctx context.Context, arg SetPassagesVersionParams) error {
+	_, err := q.db.Exec(ctx, setPassagesVersion, arg.VersionID, arg.ItemID)
 	return err
 }
 
@@ -780,8 +876,8 @@ const updateItem = `-- name: UpdateItem :exec
 UPDATE source_items
 SET kind = $1, title = $2, url = $3, author = $4, source_created_at = $5,
     source_updated_at = $6, content_hash = $7, version_id = $8, revision = $9,
-    updated_at = now()
-WHERE id = $10
+    index_hash = $10, updated_at = now()
+WHERE id = $11
 `
 
 type UpdateItemParams struct {
@@ -794,6 +890,7 @@ type UpdateItemParams struct {
 	ContentHash     []byte
 	VersionID       *int64
 	Revision        string
+	IndexHash       []byte
 	ID              int64
 }
 
@@ -809,6 +906,7 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) error {
 		arg.ContentHash,
 		arg.VersionID,
 		arg.Revision,
+		arg.IndexHash,
 		arg.ID,
 	)
 	return err

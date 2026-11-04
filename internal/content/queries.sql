@@ -1,14 +1,14 @@
 -- name: GetItemByExternalID :one
 -- vis:system
-SELECT id, content_hash, revision FROM source_items
+SELECT id, content_hash, revision, index_hash FROM source_items
 WHERE connection_id = @connection_id AND external_id = @external_id;
 
 -- name: InsertItem :one
 -- vis:system
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision)
+                          revision, index_hash)
 VALUES (@connection_id, @external_id, @kind, @title, @url, @author, @source_created_at, @source_updated_at, @content_hash,
-        @revision)
+        @revision, @index_hash)
 RETURNING id;
 
 -- name: UpdateItem :exec
@@ -16,7 +16,7 @@ RETURNING id;
 UPDATE source_items
 SET kind = @kind, title = @title, url = @url, author = @author, source_created_at = @source_created_at,
     source_updated_at = @source_updated_at, content_hash = @content_hash, version_id = @version_id, revision = @revision,
-    updated_at = now()
+    index_hash = @index_hash, updated_at = now()
 WHERE id = @id;
 
 -- name: SetItemEntity :exec
@@ -36,22 +36,54 @@ RETURNING id;
 -- vis:system
 DELETE FROM passages WHERE item_id = @item_id;
 
--- name: DeleteItemChunks :exec
+-- name: ItemChunkHashes :many
 -- vis:system
-DELETE FROM chunks WHERE item_id = @item_id;
+SELECT id, text_hash FROM chunks WHERE item_id = @item_id ORDER BY ordinal;
+
+-- name: DeleteChunks :exec
+-- vis:system
+DELETE FROM chunks WHERE id = ANY(@ids::bigint[]);
+
+-- name: KeepChunks :exec
+-- A kept chunk has the same text, so its full-text vector and its
+-- embedding vectors stay.
+-- vis:system
+UPDATE chunks c
+SET version_id = @version_id, ordinal = r.ordinal, heading_path = r.heading_path,
+    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n)
+FROM jsonb_to_recordset(@rows::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[])
+WHERE c.id = r.id;
+
+-- name: SetPassagesVersion :exec
+-- The passages and chunks of an unchanged index belong to the new version.
+-- vis:system
+UPDATE passages SET version_id = @version_id WHERE item_id = @item_id;
+
+-- name: SetChunksVersion :exec
+-- vis:system
+UPDATE chunks SET version_id = @version_id WHERE item_id = @item_id;
+
+-- name: FillChunkHashes :execrows
+-- vis:system
+WITH b AS (SELECT id FROM chunks WHERE text_hash IS NULL ORDER BY id LIMIT 10000)
+UPDATE chunks c SET text_hash = sha256(convert_to(c.text, 'UTF8')) FROM b WHERE c.id = b.id;
 
 -- name: InsertPassages :copyfrom
 -- vis:system
 INSERT INTO passages (item_id, version_id, connection_id, hash, ordinal, kind, heading_path, text, norm, start_line, end_line)
 VALUES (@item_id, @version_id, @connection_id, @hash, @ordinal, @kind, @heading_path, @text, @norm, @start_line, @end_line);
 
--- name: InsertChunk :exec
+-- name: InsertChunks :exec
 -- vis:system
-INSERT INTO chunks (item_id, version_id, connection_id, ordinal, heading_path, text, passage_hashes, tokens, tsv)
-VALUES (@item_id, @version_id, @connection_id, @ordinal, @heading_path, @text, @passage_hashes::bytea[], @tokens,
-        setweight(to_tsvector('simple', unaccent(@title::text)), 'A') ||
-        setweight(to_tsvector('simple', unaccent(@heading::text)), 'B') ||
-        setweight(to_tsvector('simple', unaccent(@body::text)), 'C'));
+INSERT INTO chunks (item_id, version_id, connection_id, ordinal, heading_path, text, passage_hashes, tokens, tsv, text_hash)
+SELECT @item_id, @version_id, @connection_id, r.ordinal, r.heading_path, r.text,
+       ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n), r.tokens,
+       setweight(to_tsvector('simple', unaccent(@title::text)), 'A') ||
+       setweight(to_tsvector('simple', unaccent(r.heading)), 'B') ||
+       setweight(to_tsvector('simple', unaccent(r.body)), 'C'),
+       decode(r.text_hash, 'base64')
+FROM jsonb_to_recordset(@rows::jsonb) AS r (ordinal integer, heading_path text[], text text, hashes text[], tokens integer, heading text,
+                                             body text, text_hash text);
 
 -- name: RefreshEvidence :exec
 -- Evidence whose passage hash survives in the new version stays current.

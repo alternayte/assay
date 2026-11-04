@@ -19,4 +19,5 @@ type EmbeddingSpace struct {
 	Error       string
 	CreatedAt   time.Time
 	ActivatedAt *time.Time
+	CountedAt   *time.Time
 }

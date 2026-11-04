@@ -147,7 +147,7 @@ func (s *Server) services() error {
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
 		DemoURL: s.cfg.DemoURL}
-	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log}
+	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log, Shards: orDefault(s.cfg.EmbedWorkers, 4)}
 	s.vocab = &vocab.Service{Pool: s.pool}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}

@@ -26,7 +26,7 @@ func (q *Queries) ActivateSpace(ctx context.Context, arg ActivateSpaceParams) er
 }
 
 const activeSpace = `-- name: ActiveSpace :one
-SELECT id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at FROM embedding_spaces WHERE status = 'active'
+SELECT id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at, counted_at FROM embedding_spaces WHERE status = 'active'
 `
 
 func (q *Queries) ActiveSpace(ctx context.Context) (EmbeddingSpace, error) {
@@ -43,8 +43,23 @@ func (q *Queries) ActiveSpace(ctx context.Context) (EmbeddingSpace, error) {
 		&i.Error,
 		&i.CreatedAt,
 		&i.ActivatedAt,
+		&i.CountedAt,
 	)
 	return i, err
+}
+
+const addSpaceDone = `-- name: AddSpaceDone :exec
+UPDATE embedding_spaces SET done = done + $1, error = '' WHERE id = $2
+`
+
+type AddSpaceDoneParams struct {
+	N  int32
+	ID int64
+}
+
+func (q *Queries) AddSpaceDone(ctx context.Context, arg AddSpaceDoneParams) error {
+	_, err := q.db.Exec(ctx, addSpaceDone, arg.N, arg.ID)
+	return err
 }
 
 const deleteEndpoint = `-- name: DeleteEndpoint :execrows
@@ -195,7 +210,7 @@ func (q *Queries) InsertRefusal(ctx context.Context, arg InsertRefusalParams) er
 
 const insertSpace = `-- name: InsertSpace :one
 INSERT INTO embedding_spaces (endpoint_id, model, dim) VALUES ($1, $2, $3)
-RETURNING id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at
+RETURNING id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at, counted_at
 `
 
 type InsertSpaceParams struct {
@@ -218,6 +233,7 @@ func (q *Queries) InsertSpace(ctx context.Context, arg InsertSpaceParams) (Embed
 		&i.Error,
 		&i.CreatedAt,
 		&i.ActivatedAt,
+		&i.CountedAt,
 	)
 	return i, err
 }
@@ -351,7 +367,7 @@ func (q *Queries) ListFunctions(ctx context.Context) ([]ListFunctionsRow, error)
 }
 
 const listSpaces = `-- name: ListSpaces :many
-SELECT id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at FROM embedding_spaces WHERE status <> 'retired' ORDER BY id
+SELECT id, endpoint_id, model, dim, status, done, total, error, created_at, activated_at, counted_at FROM embedding_spaces WHERE status <> 'retired' ORDER BY id
 `
 
 func (q *Queries) ListSpaces(ctx context.Context) ([]EmbeddingSpace, error) {
@@ -374,6 +390,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]EmbeddingSpace, error) {
 			&i.Error,
 			&i.CreatedAt,
 			&i.ActivatedAt,
+			&i.CountedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -425,24 +442,38 @@ func (q *Queries) SetEndpointSecret(ctx context.Context, arg SetEndpointSecretPa
 	return err
 }
 
-const setSpaceProgress = `-- name: SetSpaceProgress :exec
-UPDATE embedding_spaces SET done = $1, total = $2, error = $3 WHERE id = $4
+const setSpaceCount = `-- name: SetSpaceCount :exec
+UPDATE embedding_spaces SET done = $1, total = $2, counted_at = $3 WHERE id = $4
 `
 
-type SetSpaceProgressParams struct {
+type SetSpaceCountParams struct {
 	Done  int32
 	Total int32
+	Now   *time.Time
+	ID    int64
+}
+
+func (q *Queries) SetSpaceCount(ctx context.Context, arg SetSpaceCountParams) error {
+	_, err := q.db.Exec(ctx, setSpaceCount,
+		arg.Done,
+		arg.Total,
+		arg.Now,
+		arg.ID,
+	)
+	return err
+}
+
+const setSpaceError = `-- name: SetSpaceError :exec
+UPDATE embedding_spaces SET error = $1 WHERE id = $2
+`
+
+type SetSpaceErrorParams struct {
 	Error string
 	ID    int64
 }
 
-func (q *Queries) SetSpaceProgress(ctx context.Context, arg SetSpaceProgressParams) error {
-	_, err := q.db.Exec(ctx, setSpaceProgress,
-		arg.Done,
-		arg.Total,
-		arg.Error,
-		arg.ID,
-	)
+func (q *Queries) SetSpaceError(ctx context.Context, arg SetSpaceErrorParams) error {
+	_, err := q.db.Exec(ctx, setSpaceError, arg.Error, arg.ID)
 	return err
 }
 

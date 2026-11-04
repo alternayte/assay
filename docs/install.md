@@ -109,15 +109,16 @@ For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (
 
 `ASSAY_ROLE` selects the parts of the process: `web` serves the UI, REST and MCP; `worker` runs the sync and model jobs; `all` runs both. Several replicas of each role are safe.
 
-Jobs run on five queues. Each queue has its own workers, so that the bulk of one queue never holds the others back.
+Jobs run on six queues. Each queue has its own workers, so that the bulk of one queue never holds the others back.
 
 | Queue | Jobs | Workers |
 |---|---|---|
 | `sync` | Sync and reconcile runs. Each connection runs one sync at a time. | `ASSAY_SYNC_WORKERS`, 4 by default |
-| `embed` | Embedding of new chunks. | Always 1. Two runs would embed the same chunks twice. |
+| `embed` | Embedding of new chunks. Each worker embeds one shard of the chunks. | `ASSAY_EMBED_WORKERS`, 4 by default |
 | `extract` | Extraction. Extraction for an answer or a page runs before the jobs of an admin extraction. | `ASSAY_EXTRACT_WORKERS`, 4 by default |
 | `design` | Design page builds and section regeneration. | `ASSAY_DESIGN_WORKERS`, 2 by default |
-| `default` | Resolution, term drafts and retention. | `ASSAY_JOB_WORKERS`, 10 by default |
+| `resolve` | Resolution of mentions, merges and conflicts. | Always 1. Two runs would make the same card twice. |
+| `default` | Term drafts, the chunk hash fill and retention. | `ASSAY_JOB_WORKERS`, 10 by default |
 
 Each value is a number from 1 to 100. To change one, add the line to `.env` and run the install script again. The speed of one sync comes from the rate settings of its connection, not from the worker count. More extract workers make an admin extraction faster only up to the rate limit of the model provider.
 

@@ -65,16 +65,17 @@ func (k *Connector) cql() string {
 }
 
 type searchPage struct {
-	Results []struct {
-		ID      string `json:"id"`
-		Version struct {
-			Number int    `json:"number"`
-			When   string `json:"when"`
-		} `json:"version"`
-	} `json:"results"`
-	Size      int `json:"size"`
-	TotalSize int `json:"totalSize"`
+	Results   []pageJSON `json:"results"`
+	Size      int        `json:"size"`
+	TotalSize int        `json:"totalSize"`
+	Links     struct {
+		Context string `json:"context"`
+		Next    string `json:"next"`
+	} `json:"_links"`
 }
+
+// pageExpand is the expansion of a whole page.
+const pageExpand = "body.storage,version,ancestors,metadata.labels,space,history"
 
 // Validate checks the token and counts the pages in scope.
 func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error) {
@@ -118,45 +119,68 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	}
 }
 
-func (k *Connector) search(ctx context.Context, cql, expand string, fn func(id, when string, version int) error) error {
-	const limit = 100
-	for start := 0; ; start += limit {
-		q := url.Values{"cql": {cql}, "start": {strconv.Itoa(start)}, "limit": {strconv.Itoa(limit)}}
-		if expand != "" {
-			q.Set("expand", expand)
-		}
+// search calls fn for each page of a CQL query. It follows the next link
+// of each answer: the server can cap the page size below the limit.
+func (k *Connector) search(ctx context.Context, cql, expand string, limit int, fn func(*pageJSON) error) error {
+	path := "/rest/api/content/search"
+	q := url.Values{"cql": {cql}, "limit": {strconv.Itoa(limit)}}
+	if expand != "" {
+		q.Set("expand", expand)
+	}
+	for {
 		var p searchPage
-		if err := k.c.GetJSON(ctx, "/rest/api/content/search", q, &p); err != nil {
+		if err := k.c.GetJSON(ctx, path, q, &p); err != nil {
 			return err
 		}
-		for _, r := range p.Results {
-			if err := fn(r.ID, r.Version.When, r.Version.Number); err != nil {
+		for i := range p.Results {
+			if err := fn(&p.Results[i]); err != nil {
 				return err
 			}
 		}
-		if len(p.Results) < limit {
+		if p.Links.Next == "" || len(p.Results) == 0 {
 			return nil
+		}
+		next, err := url.Parse(p.Links.Next)
+		if err != nil {
+			return fmt.Errorf("confluence: the next link %q is not valid: %w", p.Links.Next, err)
+		}
+		path, q = next.Path, next.Query()
+		// The next link is relative to the base URL, which holds the
+		// context path. Some servers repeat the context path.
+		if p.Links.Context != "" {
+			path = strings.TrimPrefix(path, p.Links.Context)
 		}
 	}
 }
 
-// Changed lists the pages modified at or after since. CQL dates use the
-// time zone of the token user, so the query starts Overlap earlier.
+// Changed lists the pages modified at or after since, each with its body.
+// CQL dates use the time zone of the token user, so the query starts
+// Overlap earlier.
 func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connectors.Ref) error) error {
 	cql := k.cql()
 	if !since.IsZero() {
 		cql += fmt.Sprintf(` AND lastmodified >= "%s"`, since.Add(-connectors.Overlap).UTC().Format("2006/01/02 15:04"))
 	}
 	cql += " order by lastmodified asc"
-	return k.search(ctx, cql, "version", func(id, when string, version int) error {
-		t, _ := time.Parse(time.RFC3339, when)
-		return fn(connectors.Ref{ID: id, Updated: t, Version: revision(version)})
+	return k.search(ctx, cql, pageExpand, 50, func(p *pageJSON) error {
+		t, _ := time.Parse(time.RFC3339, p.Version.When)
+		r := connectors.Ref{ID: p.ID, Updated: t, Version: revision(p.Version.Number)}
+		if k.limits.MaxItemBytes > 0 && len(p.Body.Storage.Value) > k.limits.MaxItemBytes {
+			r.Skip = "too_large"
+			return fn(r)
+		}
+		it, err := k.item(p)
+		if err != nil {
+			return err
+		}
+		r.Item = it
+		return fn(r)
 	})
 }
 
 // ListIDs lists all page IDs in scope.
 func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.search(ctx, k.cql(), "", func(id, _ string, _ int) error { return fn(id) })
+	return k.search(ctx, k.cql(), "", 100, func(p *pageJSON) error { return fn(p.ID) })
 }
 
 type person struct {
@@ -211,7 +235,7 @@ type pageJSON struct {
 // Fetch reads one page.
 func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error) {
 	var p pageJSON
-	q := url.Values{"expand": {"body.storage,version,ancestors,metadata.labels,space,history"}}
+	q := url.Values{"expand": {pageExpand}}
 	if err := k.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id), q, &p); err != nil {
 		return nil, err
 	}

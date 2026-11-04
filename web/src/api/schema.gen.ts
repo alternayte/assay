@@ -4058,6 +4058,11 @@ export interface components {
         SpaceRecord: {
             /** Format: date-time */
             activatedAt: string | null;
+            /**
+             * Format: date-time
+             * @description The time of the last exact count of done and total. Between counts, done grows by the vectors that the embed job adds.
+             */
+            countedAt: string | null;
             /** Format: date-time */
             createdAt: string;
             /** Format: int32 */

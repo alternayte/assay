@@ -19,9 +19,9 @@ type Reindexed struct {
 }
 
 // Reindex splits the current version of every item again and replaces its
-// passages, chunks and full-text vectors, one transaction per item. The
-// embedding vectors of the old chunks go with them; the embed job builds
-// them again. Evidence whose passage is gone becomes stale. It is the
+// passages, chunks and full-text vectors, one transaction per item. A chunk
+// whose text is unchanged keeps its embedding vectors; the embed job builds
+// the vectors of the new chunks. Evidence whose passage is gone becomes stale. It is the
 // operator command assay reindex, for a change of the splitter or the
 // chunker, or for a damaged index.
 func Reindex(ctx context.Context, pool *pgxpool.Pool) (Reindexed, error) {

@@ -11,6 +11,7 @@ import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
 import { Table, Td, Th } from "@/components/ui/table";
 import { type CopyKey, t } from "@/copy";
+import { formatTime } from "@/lib/format";
 
 type Endpoint = Schemas["EndpointRecord"];
 type Fn = Schemas["FunctionRecord"];
@@ -599,6 +600,11 @@ function SpacesSheet() {
                   <div className="font-mono text-sm">
                     {t("models.spaceProgress", { done: s.done, total: s.total })}
                   </div>
+                  {s.countedAt && (
+                    <div className="text-sm text-ink-muted">
+                      {t("models.spaceCounted", { time: formatTime(s.countedAt) })}
+                    </div>
+                  )}
                   {s.error && <div className="text-sm text-danger">{s.error}</div>}
                 </Td>
                 <Td>

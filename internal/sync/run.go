@@ -347,54 +347,89 @@ func (s *Service) finish(ctx context.Context, conn Connection, run SyncRun, curs
 	return nil
 }
 
-// sync fetches the items changed since the cursor minus the overlap. It
-// returns the new cursor: the newest update time it handled.
+// listBatch is the number of listed refs that sync stores before it saves
+// the cursor and lets the connector read on. It is the page size of a
+// Confluence listing with bodies.
+const listBatch = 50
+
+// sync stores the items changed since the cursor minus the overlap. It
+// streams the listing: each batch of refs is stored before the connector
+// reads on, and the cursor then moves to the newest update time of the
+// batch, so that a run that stops continues from there. It returns the new
+// cursor: the newest update time it handled.
 func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connector, st *stats) string {
 	var since time.Time
-	if conn.Cursor != "" {
-		if t, err := time.Parse(time.RFC3339Nano, conn.Cursor); err == nil {
+	cursor := conn.Cursor
+	if cursor != "" {
+		if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
 			since = t.Add(-CursorOverlap)
 		}
 	}
-	var refs []connectors.Ref
-	if err := k.Changed(ctx, since, func(r connectors.Ref) error { refs = append(refs, r); return nil }); err != nil {
-		st.fail(err)
-		return conn.Cursor
+	newest := time.Time{}
+	if cursor != "" {
+		newest, _ = time.Parse(time.RFC3339Nano, cursor)
 	}
-	stored, err := s.stored(ctx, conn.ID, refs)
+	stored := &storedItems{}
+	var batch []connectors.Ref
+	flush := func() error {
+		defer func() { batch = batch[:0] }()
+		if err := s.stored(ctx, conn.ID, batch, stored); err != nil {
+			return err
+		}
+		var work []connectors.Ref
+		for _, r := range batch {
+			if stored.has(r) {
+				st.add(content.Unchanged)
+				continue
+			}
+			work = append(work, r)
+		}
+		s.fetchAll(ctx, conn, k, work, st)
+		if err := st.err(); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			// A stop can end the batch before each ref is stored.
+			return err
+		}
+		at := newest
+		for _, r := range batch {
+			if r.Updated.After(at) {
+				at = r.Updated
+			}
+		}
+		if !at.After(newest) {
+			return nil
+		}
+		newest = at
+		cursor = newest.UTC().Format(time.RFC3339Nano)
+		now := s.now()
+		return New(s.Pool).SetCursor(ctx, SetCursorParams{ID: conn.ID, Cursor: cursor, Now: &now})
+	}
+	err := k.Changed(ctx, since, func(r connectors.Ref) error {
+		batch = append(batch, r)
+		if len(batch) < listBatch {
+			return nil
+		}
+		return flush()
+	})
+	if err == nil && len(batch) > 0 {
+		err = flush()
+	}
 	if err != nil {
 		st.fail(err)
-		return conn.Cursor
+		return cursor
 	}
-	ids := make([]string, 0, len(refs))
-	newest := time.Time{}
-	if conn.Cursor != "" {
-		newest, _ = time.Parse(time.RFC3339Nano, conn.Cursor)
-	}
-	for _, r := range refs {
-		if r.Updated.After(newest) {
-			newest = r.Updated
-		}
-		if stored.has(r) {
-			st.add(content.Unchanged)
-			continue
-		}
-		ids = append(ids, r.ID)
-	}
-	s.fetchAll(ctx, conn, k, ids, st)
 	if sl, ok := k.(connectors.SkipLister); ok {
 		for _, sk := range sl.Skipped() {
 			st.skip(sk.ID, sk.Reason)
 		}
 	}
-	if newest.IsZero() {
-		return conn.Cursor
-	}
-	return newest.UTC().Format(time.RFC3339Nano)
+	return cursor
 }
 
 // storedItems are the revisions and source update times of the stored
-// items of a connection.
+// items of a connection. Each map is read once, when a ref first needs it.
 type storedItems struct {
 	revisions map[string]string
 	updated   map[string]time.Time
@@ -405,7 +440,7 @@ type storedItems struct {
 // update time. Items that an older Assay stored have no revision. Sync
 // skips the fetch, so that a run after an interrupted one fetches only the
 // items it did not store.
-func (st storedItems) has(r connectors.Ref) bool {
+func (st *storedItems) has(r connectors.Ref) bool {
 	if rev, ok := st.revisions[r.ID]; ok && r.Version != "" {
 		return rev == r.Version
 	}
@@ -413,32 +448,35 @@ func (st storedItems) has(r connectors.Ref) bool {
 	return ok && !r.Updated.IsZero() && !r.Updated.After(at)
 }
 
-// stored returns the stored revisions and source update times of a
-// connection, each when a ref has one to compare.
-func (s *Service) stored(ctx context.Context, connectionID int64, refs []connectors.Ref) (storedItems, error) {
-	out := storedItems{revisions: map[string]string{}, updated: map[string]time.Time{}}
+// stored reads the stored revisions and source update times of a
+// connection into out, each the first time a ref has one to compare. Items
+// that this run stores later are not in the maps; the listing names each
+// item once.
+func (s *Service) stored(ctx context.Context, connectionID int64, refs []connectors.Ref, out *storedItems) error {
 	q := New(s.Pool)
-	if slices.ContainsFunc(refs, func(r connectors.Ref) bool { return r.Version != "" }) {
+	if out.revisions == nil && slices.ContainsFunc(refs, func(r connectors.Ref) bool { return r.Version != "" }) {
 		rows, err := q.ItemRevisions(ctx, connectionID)
 		if err != nil {
-			return out, err
+			return err
 		}
+		out.revisions = make(map[string]string, len(rows))
 		for _, r := range rows {
 			out.revisions[r.ExternalID] = r.Revision
 		}
 	}
-	if slices.ContainsFunc(refs, func(r connectors.Ref) bool { return !r.Updated.IsZero() }) {
+	if out.updated == nil && slices.ContainsFunc(refs, func(r connectors.Ref) bool { return !r.Updated.IsZero() }) {
 		rows, err := q.ItemUpdates(ctx, connectionID)
 		if err != nil {
-			return out, err
+			return err
 		}
+		out.updated = make(map[string]time.Time, len(rows))
 		for _, r := range rows {
 			if r.SourceUpdatedAt != nil {
 				out.updated[r.ExternalID] = *r.SourceUpdatedAt
 			}
 		}
 	}
-	return out, nil
+	return nil
 }
 
 // reconcile lists all IDs in scope, tombstones the items that are gone and
@@ -465,10 +503,10 @@ func (s *Service) reconcile(ctx context.Context, conn Connection, k connectors.C
 			st.deleted()
 		}
 	}
-	var missing []string
+	var missing []connectors.Ref
 	for id := range inScope {
 		if !known[id] {
-			missing = append(missing, id)
+			missing = append(missing, connectors.Ref{ID: id})
 		}
 	}
 	s.fetchAll(ctx, conn, k, missing, st)
@@ -480,31 +518,31 @@ func (s *Service) tombstone(ctx context.Context, itemID int64) error {
 	})
 }
 
-// fetchAll fetches and stores items with the concurrency of the
-// connection. A 401 or 403 stops the run.
-func (s *Service) fetchAll(ctx context.Context, conn Connection, k connectors.Connector, ids []string, st *stats) {
+// fetchAll stores items with the concurrency of the connection. It fetches
+// each ref that does not carry its item. A 401 or 403 stops the run.
+func (s *Service) fetchAll(ctx context.Context, conn Connection, k connectors.Connector, refs []connectors.Ref, st *stats) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	work := make(chan string)
+	work := make(chan connectors.Ref)
 	var wg gosync.WaitGroup
 	for range max(1, int(conn.RateConcurrency)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for id := range work {
-				if err := s.fetchOne(ctx, conn, k, id, st); err != nil {
+			for r := range work {
+				if err := s.fetchOne(ctx, conn, k, r, st); err != nil {
 					st.fail(err)
 					cancel()
 				}
 			}
 		}()
 	}
-	for _, id := range ids {
+	for _, r := range refs {
 		if ctx.Err() != nil {
 			break
 		}
 		select {
-		case work <- id:
+		case work <- r:
 		case <-ctx.Done():
 		}
 	}
@@ -512,8 +550,15 @@ func (s *Service) fetchAll(ctx context.Context, conn Connection, k connectors.Co
 	wg.Wait()
 }
 
-func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Connector, id string, st *stats) error {
-	it, err := k.Fetch(ctx, id)
+func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Connector, r connectors.Ref, st *stats) error {
+	id, it := r.ID, r.Item
+	var err error
+	switch {
+	case r.Skip != "":
+		err = &connectors.SkipError{Reason: r.Skip}
+	case it == nil:
+		it, err = k.Fetch(ctx, id)
+	}
 	var skip *connectors.SkipError
 	switch {
 	case errors.As(err, &skip):

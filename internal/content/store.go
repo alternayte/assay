@@ -52,6 +52,22 @@ func (it *Item) Hash() []byte {
 	return h.Sum(nil)
 }
 
+// indexHash is the hash of what the passages and chunks of an item are made
+// from: the title, the body and the given passages. A change to only the
+// metadata or the editor keeps it.
+func (it *Item) indexHash() []byte {
+	h := sha256.New()
+	h.Write([]byte(it.Title))
+	h.Write([]byte{0})
+	h.Write([]byte(it.Body))
+	h.Write([]byte{0})
+	if it.Passages != nil {
+		b, _ := json.Marshal(it.Passages)
+		h.Write(b)
+	}
+	return h.Sum(nil)
+}
+
 func timePtr(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil
@@ -61,13 +77,14 @@ func timePtr(t time.Time) *time.Time {
 
 // Store writes an item of a connection in tx. When the content hash is
 // unchanged it writes nothing. Otherwise it writes a version, replaces the
-// passages and chunks, updates the evidence state and ingests the facts.
+// passages and chunks when the index hash changed, updates the evidence
+// state and ingests the facts.
 func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, it *Item, log *slog.Logger) (Outcome, error) {
 	q := New(tx)
 	if strings.TrimSpace(it.Title) == "" {
 		it.Title = fallbackTitle(it)
 	}
-	hash := it.Hash()
+	hash, index := it.Hash(), it.indexHash()
 	existing, err := q.GetItemByExternalID(ctx, GetItemByExternalIDParams{ConnectionID: connectionID, ExternalID: it.ExternalID})
 	outcome := Updated
 	var itemID int64
@@ -76,7 +93,7 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		outcome = Created
 		itemID, err = q.InsertItem(ctx, InsertItemParams{ConnectionID: connectionID, ExternalID: it.ExternalID, Kind: it.Kind,
 			Title: it.Title, Url: it.URL, Author: it.Author, SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated),
-			ContentHash: hash, Revision: it.Revision})
+			ContentHash: hash, Revision: it.Revision, IndexHash: index})
 		if err != nil {
 			return 0, err
 		}
@@ -101,11 +118,21 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 	}
 	if err := q.UpdateItem(ctx, UpdateItemParams{ID: itemID, Kind: it.Kind, Title: it.Title, Url: it.URL, Author: it.Author,
 		SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated), ContentHash: hash, VersionID: &versionID,
-		Revision: it.Revision}); err != nil {
+		Revision: it.Revision, IndexHash: index}); err != nil {
 		return 0, err
 	}
-	ps, _, err := writeIndex(ctx, q, itemID, versionID, connectionID, it.Title, it.Body, it.Passages)
-	if err != nil {
+	var ps []Passage
+	if outcome == Updated && bytes.Equal(existing.IndexHash, index) {
+		if err := q.SetPassagesVersion(ctx, SetPassagesVersionParams{ItemID: itemID, VersionID: versionID}); err != nil {
+			return 0, err
+		}
+		if err := q.SetChunksVersion(ctx, SetChunksVersionParams{ItemID: itemID, VersionID: versionID}); err != nil {
+			return 0, err
+		}
+		if ps = it.Passages; ps == nil {
+			ps = Split(it.Body)
+		}
+	} else if ps, _, err = writeIndex(ctx, q, itemID, versionID, connectionID, it.Title, it.Body, it.Passages); err != nil {
 		return 0, err
 	}
 	in := ingest{q: q, tx: tx, connectionID: connectionID, domainID: domainID, itemID: itemID, log: log, ids: map[string]int64{}}
@@ -161,13 +188,11 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 }
 
 // writeIndex replaces the passages and chunks of an item with those of a
-// body and updates the evidence state. It returns the passages and the
-// number of chunks.
+// body and updates the evidence state. An old chunk whose text is in the
+// new chunks stays, with its vectors, so that an edit embeds only the
+// chunks it changed. It returns the passages and the number of chunks.
 func writeIndex(ctx context.Context, q *Queries, itemID, versionID, connectionID int64, title, body string, ps []Passage) ([]Passage, int, error) {
 	if err := q.DeleteItemPassages(ctx, itemID); err != nil {
-		return nil, 0, err
-	}
-	if err := q.DeleteItemChunks(ctx, itemID); err != nil {
 		return nil, 0, err
 	}
 	if ps == nil {
@@ -185,18 +210,89 @@ func writeIndex(ctx context.Context, q *Queries, itemID, versionID, connectionID
 		}
 	}
 	chunks := Chunks(title, ps)
-	for _, c := range chunks {
-		rest := c.Text[len(prefix(title, c.HeadingPath)):]
-		if err := q.InsertChunk(ctx, InsertChunkParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID,
-			Ordinal: int32(c.Ordinal), HeadingPath: orEmptyStrings(c.HeadingPath), Text: c.Text, PassageHashes: c.PassageHashes, //nolint:gosec // Ordinals are small.
-			Tokens: int32(c.Tokens), Title: title, Heading: strings.Join(c.HeadingPath, " "), Body: rest}); err != nil { //nolint:gosec // Chunks have at most 400 tokens.
-			return nil, 0, err
-		}
+	if err := writeChunks(ctx, q, itemID, versionID, connectionID, title, chunks); err != nil {
+		return nil, 0, err
 	}
 	if err := q.RefreshEvidence(ctx, itemID); err != nil {
 		return nil, 0, err
 	}
 	return ps, len(chunks), nil
+}
+
+type keptChunk struct {
+	ID          int64    `json:"id"`
+	Ordinal     int      `json:"ordinal"`
+	HeadingPath []string `json:"heading_path"`
+	Hashes      [][]byte `json:"hashes"`
+}
+
+type newChunk struct {
+	Ordinal     int      `json:"ordinal"`
+	HeadingPath []string `json:"heading_path"`
+	Text        string   `json:"text"`
+	Hashes      [][]byte `json:"hashes"`
+	Tokens      int      `json:"tokens"`
+	Heading     string   `json:"heading"`
+	Body        string   `json:"body"`
+	TextHash    []byte   `json:"text_hash"`
+}
+
+// writeChunks keeps each old chunk of an item whose text hash is in the new
+// chunks, deletes the other old chunks and inserts the rest in one
+// statement.
+func writeChunks(ctx context.Context, q *Queries, itemID, versionID, connectionID int64, title string, chunks []Chunk) error {
+	old, err := q.ItemChunkHashes(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	byHash := map[string][]int64{}
+	for _, c := range old {
+		if c.TextHash != nil {
+			byHash[string(c.TextHash)] = append(byHash[string(c.TextHash)], c.ID)
+		}
+	}
+	kept := map[int64]bool{}
+	var keep []keptChunk
+	var add []newChunk
+	for _, c := range chunks {
+		sum := sha256.Sum256([]byte(c.Text))
+		if ids := byHash[string(sum[:])]; len(ids) > 0 {
+			byHash[string(sum[:])] = ids[1:]
+			kept[ids[0]] = true
+			keep = append(keep, keptChunk{ID: ids[0], Ordinal: c.Ordinal, HeadingPath: orEmptyStrings(c.HeadingPath), Hashes: c.PassageHashes})
+			continue
+		}
+		add = append(add, newChunk{Ordinal: c.Ordinal, HeadingPath: orEmptyStrings(c.HeadingPath), Text: c.Text, Hashes: c.PassageHashes,
+			Tokens: c.Tokens, Heading: strings.Join(c.HeadingPath, " "), Body: c.Text[len(prefix(title, c.HeadingPath)):], TextHash: sum[:]})
+	}
+	var gone []int64
+	for _, c := range old {
+		if !kept[c.ID] {
+			gone = append(gone, c.ID)
+		}
+	}
+	if len(gone) > 0 {
+		if err := q.DeleteChunks(ctx, gone); err != nil {
+			return err
+		}
+	}
+	if len(keep) > 0 {
+		b, err := json.Marshal(keep)
+		if err != nil {
+			return err
+		}
+		if err := q.KeepChunks(ctx, KeepChunksParams{VersionID: versionID, Rows: b}); err != nil {
+			return err
+		}
+	}
+	if len(add) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(add)
+	if err != nil {
+		return err
+	}
+	return q.InsertChunks(ctx, InsertChunksParams{ItemID: itemID, VersionID: versionID, ConnectionID: connectionID, Title: title, Rows: b})
 }
 
 type ingest struct {

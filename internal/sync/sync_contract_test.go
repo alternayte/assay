@@ -359,13 +359,15 @@ func TestSCN_CON_008_RetryAfterAndRateLimit(t *testing.T) {
 	env := testkit.Start(t)
 	admin := env.Setup("owner@acme.test")
 	src, base := testkit.FakeSources(t)
-	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-public", Kind: "confluence", BaseURL: base,
-		Scope: map[string]any{"spaces": []string{"ENG"}}, Rate: 5})
-	src.Fail("/confluence/rest/api/content/1003", http.StatusTooManyRequests, 1, "2")
+	// Jira fetches each issue, so the run sends enough requests to show
+	// the rate. A Confluence listing carries the page bodies.
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-jira", Kind: "jira", BaseURL: base,
+		Scope: map[string]any{"projects": []string{"PAY", "REM"}}, Rate: 5})
+	src.Fail("/jira/rest/api/2/issue/PAY-2", http.StatusTooManyRequests, 1, "2")
 	start := time.Now()
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 8 {
-		t.Fatalf("run %+v", run)
+	if want := src.Count("PAY") + src.Count("REM"); run.Status != "succeeded" || run.Created != want {
+		t.Fatalf("run %+v, want %d new", run, want)
 	}
 	var first, retry time.Time
 	var times []time.Time
@@ -374,7 +376,7 @@ func TestSCN_CON_008_RetryAfterAndRateLimit(t *testing.T) {
 			continue
 		}
 		times = append(times, h.At)
-		if h.Path == "/confluence/rest/api/content/1003" {
+		if h.Path == "/jira/rest/api/2/issue/PAY-2" {
 			if first.IsZero() {
 				first = h.At
 			} else {
@@ -598,11 +600,12 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 7 {
 		t.Fatalf("sync after the stop %+v", again)
 	}
-	if n := pageHits(src, mark); n != 1 {
-		t.Fatalf("the sync fetched %d pages, want 1", n)
+	// The listing carries the bodies: no page needs its own request.
+	if n := pageHits(src, mark); n != 0 {
+		t.Fatalf("the sync fetched %d pages, want 0", n)
 	}
 
-	// The fetched page stored its version. Two edits in the same second
+	// The stored page stored its version. Two edits in the same second
 	// still differ by version.
 	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
 		t.Fatal(err)
@@ -611,10 +614,211 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	p.Body += "<p>The digest goes out on Monday.</p>"
 	src.PutPage(p)
 	mark = len(src.Hits())
-	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 {
+	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 || third.Unchanged != 7 {
 		t.Fatalf("sync after a second edit %+v", third)
 	}
-	if n := pageHits(src, mark); n != 1 {
-		t.Fatalf("the sync fetched %d pages, want 1", n)
+	if n := pageHits(src, mark); n != 0 {
+		t.Fatalf("the sync fetched %d pages, want 0", n)
+	}
+}
+
+// searchHits counts the listing requests of the fake Confluence after mark.
+func searchHits(src *fixtures.Sources, mark int) []fixtures.Hit {
+	var out []fixtures.Hit
+	for _, h := range src.Hits()[mark:] {
+		if strings.HasSuffix(h.Path, "/rest/api/content/search") {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+func TestSCN_SYN_014_ListingCarriesBodiesAndSavesProgress(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	src.Bulk("BLK", 120)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "bulk", Kind: "confluence", BaseURL: base,
+		Scope: map[string]any{"spaces": []string{"BLK"}}})
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET rate_per_second = 100000 WHERE id = $1", conn); err != nil {
+		t.Fatal(err)
+	}
+
+	// The fake caps a listing with bodies at 25 pages. The third listing
+	// request fails after sync stored the first 50 pages.
+	src.FailAfter("/confluence/rest/api/content/search", 2, http.StatusBadRequest, 1)
+	mark := len(src.Hits())
+	first := env.RunNow(admin, conn, "sync")
+	if first.Status != "failed" || first.Created != 50 {
+		t.Fatalf("first sync %+v, want failed after 50 pages", first)
+	}
+	if n := pageHits(src, mark); n != 0 {
+		t.Fatalf("the sync fetched %d pages one by one", n)
+	}
+	var cursor string
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT cursor FROM connections WHERE id = $1", conn).Scan(&cursor); err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 1, 1, 0, 0, 49, 0, time.UTC).Format(time.RFC3339Nano); cursor != want {
+		t.Fatalf("the cursor after the failed run is %q, want %q", cursor, want)
+	}
+
+	// The next run lists from the saved cursor and stores only the rest.
+	mark = len(src.Hits())
+	second := env.RunNow(admin, conn, "sync")
+	if second.Status != "succeeded" || second.Created != 70 || second.Unchanged != 50 {
+		t.Fatalf("second sync %+v", second)
+	}
+	hits := searchHits(src, mark)
+	if len(hits) != 5 || pageHits(src, mark) != 0 {
+		t.Fatalf("%d listing and %d page requests for 120 pages, want 5 and 0", len(hits), pageHits(src, mark))
+	}
+	if q, _ := url.ParseQuery(hits[0].Query); !strings.Contains(q.Get("cql"), "lastmodified >=") {
+		t.Fatalf("the second run lists from the start: %s", q.Get("cql"))
+	}
+}
+
+// chunkIDs returns the chunk IDs of an item by ordinal.
+func chunkIDs(t *testing.T, env *testkit.Env, item int64) []int64 {
+	t.Helper()
+	rows, err := env.Server.Pool().Query(t.Context(), "SELECT id FROM chunks WHERE item_id = $1 ORDER BY ordinal", item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		_ = rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// chunkInputs counts the embed inputs that are chunks of the release
+// checklist. Profiles go to the model too.
+func chunkInputs(fake *fixtures.Models) int {
+	n := 0
+	for _, r := range fake.RequestsTo("/v1/embeddings") {
+		in, _ := r.Body["input"].([]any)
+		for _, x := range in {
+			if s, _ := x.(string); strings.HasPrefix(s, "Release checklist") {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func TestSCN_SYN_015_EditsEmbedOnlyChangedChunks(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	fake, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, admin, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, admin, "embed", testkit.Function{Endpoint: ep, Model: "fake-embed-64"})
+
+	var body strings.Builder
+	for i := range 10 {
+		fmt.Fprintf(&body, "<h1>Step %d</h1><p>The release step %d checks the ledger totals before the cut-over.</p>", i, i)
+	}
+	sections := body.String()
+	src.PutPage(fixtures.Page{ID: "9001", Space: "ENG", Title: "Release checklist", Author: "sam.acme", Body: sections})
+	src.PutPage(fixtures.Page{ID: "9002", Space: "ENG", Title: "Release checklist", Author: "sam.acme", Body: sections})
+	conn := publicConnection(t, env, admin, base)
+	if run := env.RunNow(admin, conn, "sync"); run.Status != "succeeded" {
+		t.Fatalf("sync %+v", run)
+	}
+	fake.Reset()
+	if err := env.Server.Embedder().Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// Both pages hold the same chunk texts: each text goes to the model once.
+	seen := map[string]int{}
+	for _, r := range fake.RequestsTo("/v1/embeddings") {
+		in, _ := r.Body["input"].([]any)
+		for _, x := range in {
+			s, _ := x.(string)
+			seen[s]++
+		}
+	}
+	step3 := ""
+	for s, n := range seen {
+		if strings.Contains(s, "release step 3 checks") {
+			step3 = s
+		}
+		if n != 1 {
+			t.Fatalf("the model embedded %q %d times", s, n)
+		}
+	}
+	if step3 == "" {
+		t.Fatal("the model got no text of step 3")
+	}
+	item := itemID(t, env, conn, "9001")
+	before := chunkIDs(t, env, item)
+	if len(before) != 10 {
+		t.Fatalf("%d chunks, want 10", len(before))
+	}
+	var space int64
+	var done int
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT id, done FROM embedding_spaces WHERE status = 'active'").Scan(&space, &done); err != nil {
+		t.Fatal(err)
+	}
+	if n := env.Count("SELECT count(*) FROM chunks"); done != n {
+		t.Fatalf("done %d of %d chunks after the run", done, n)
+	}
+
+	// A label change writes a version and keeps every chunk.
+	p, _ := src.Page("9001")
+	p.Labels = []string{"release"}
+	src.PutPage(p)
+	if run := env.RunNow(admin, conn, "sync"); run.Updated != 1 {
+		t.Fatalf("sync after the label %+v", run)
+	}
+	if after := chunkIDs(t, env, item); !slices.Equal(after, before) {
+		t.Fatalf("a label change replaced the chunks: %v, then %v", before, after)
+	}
+	fake.Reset()
+	if err := env.Server.Embedder().Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if n := chunkInputs(fake); n != 0 {
+		t.Fatalf("a label change sent %d chunk texts to the model", n)
+	}
+	var doneAfter int
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT done FROM embedding_spaces WHERE id = $1", space).Scan(&doneAfter); err != nil {
+		t.Fatal(err)
+	}
+	if doneAfter < done {
+		t.Fatalf("done fell from %d to %d", done, doneAfter)
+	}
+
+	// An edit of one section replaces one chunk; the other nine keep their
+	// IDs and vectors.
+	p, _ = src.Page("9001")
+	p.Body = strings.Replace(p.Body, "release step 3 checks", "release step 3 locks", 1)
+	src.PutPage(p)
+	if run := env.RunNow(admin, conn, "sync"); run.Updated != 1 {
+		t.Fatalf("sync after the edit %+v", run)
+	}
+	after := chunkIDs(t, env, item)
+	changed := 0
+	for i := range after {
+		if after[i] != before[i] {
+			changed++
+		}
+	}
+	if len(after) != 10 || changed != 1 || after[3] == before[3] {
+		t.Fatalf("chunks %v, then %v; want only the fourth new", before, after)
+	}
+	fake.Reset()
+	if err := env.Server.Embedder().Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if inputs := chunkInputs(fake); inputs != 1 {
+		t.Fatalf("one edited section sent %d chunk texts to the model", inputs)
+	}
+	if n := env.Count(fmt.Sprintf("SELECT count(*) FROM emb_%d WHERE ref_kind = 'chunk' AND chunk_id = ANY($1)", space), after); n != 10 {
+		t.Fatalf("%d of 10 chunks have a vector", n)
 	}
 }

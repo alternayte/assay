@@ -42,6 +42,7 @@ type Config struct {
 	SyncWorkers    int
 	ExtractWorkers int
 	DesignWorkers  int
+	EmbedWorkers   int
 }
 
 var knownVars = map[string]bool{
@@ -129,7 +130,8 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		def  int
 		out  *int
 	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers},
-		{"ASSAY_EXTRACT_WORKERS", 4, &cfg.ExtractWorkers}, {"ASSAY_DESIGN_WORKERS", 2, &cfg.DesignWorkers}} {
+		{"ASSAY_EXTRACT_WORKERS", 4, &cfg.ExtractWorkers}, {"ASSAY_DESIGN_WORKERS", 2, &cfg.DesignWorkers},
+		{"ASSAY_EMBED_WORKERS", 4, &cfg.EmbedWorkers}} {
 		n, err := strconv.Atoi(valueOr(env[w.name], strconv.Itoa(w.def)))
 		if err != nil || n < 1 || n > 100 {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))

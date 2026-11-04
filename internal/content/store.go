@@ -224,6 +224,9 @@ type keptChunk struct {
 	Ordinal     int      `json:"ordinal"`
 	HeadingPath []string `json:"heading_path"`
 	Hashes      [][]byte `json:"hashes"`
+	Heading     string   `json:"heading"`
+	Body        string   `json:"body"`
+	TextHash    []byte   `json:"text_hash"`
 }
 
 type newChunk struct {
@@ -256,14 +259,16 @@ func writeChunks(ctx context.Context, q *Queries, itemID, versionID, connectionI
 	var add []newChunk
 	for _, c := range chunks {
 		sum := sha256.Sum256([]byte(c.Text))
+		heading, rest := strings.Join(c.HeadingPath, " "), c.Text[len(prefix(title, c.HeadingPath)):]
 		if ids := byHash[string(sum[:])]; len(ids) > 0 {
 			byHash[string(sum[:])] = ids[1:]
 			kept[ids[0]] = true
-			keep = append(keep, keptChunk{ID: ids[0], Ordinal: c.Ordinal, HeadingPath: orEmptyStrings(c.HeadingPath), Hashes: c.PassageHashes})
+			keep = append(keep, keptChunk{ID: ids[0], Ordinal: c.Ordinal, HeadingPath: orEmptyStrings(c.HeadingPath), Hashes: c.PassageHashes,
+				Heading: heading, Body: rest, TextHash: sum[:]})
 			continue
 		}
 		add = append(add, newChunk{Ordinal: c.Ordinal, HeadingPath: orEmptyStrings(c.HeadingPath), Text: c.Text, Hashes: c.PassageHashes,
-			Tokens: c.Tokens, Heading: strings.Join(c.HeadingPath, " "), Body: c.Text[len(prefix(title, c.HeadingPath)):], TextHash: sum[:]})
+			Tokens: c.Tokens, Heading: heading, Body: rest, TextHash: sum[:]})
 	}
 	var gone []int64
 	for _, c := range old {
@@ -281,7 +286,7 @@ func writeChunks(ctx context.Context, q *Queries, itemID, versionID, connectionI
 		if err != nil {
 			return err
 		}
-		if err := q.KeepChunks(ctx, KeepChunksParams{VersionID: versionID, Rows: b}); err != nil {
+		if err := q.KeepChunks(ctx, KeepChunksParams{VersionID: versionID, Title: title, Rows: b}); err != nil {
 			return err
 		}
 	}

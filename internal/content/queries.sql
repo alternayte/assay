@@ -37,21 +37,29 @@ RETURNING id;
 DELETE FROM passages WHERE item_id = @item_id;
 
 -- name: ItemChunkHashes :many
+-- The hash of the stored text, not the stored hash: a damaged chunk then
+-- does not match, and a chunk from before text_hash matches.
 -- vis:system
-SELECT id, text_hash FROM chunks WHERE item_id = @item_id ORDER BY ordinal;
+SELECT id, sha256(convert_to(text, 'UTF8'))::bytea AS text_hash FROM chunks WHERE item_id = @item_id ORDER BY ordinal;
 
 -- name: DeleteChunks :exec
 -- vis:system
 DELETE FROM chunks WHERE id = ANY(@ids::bigint[]);
 
 -- name: KeepChunks :exec
--- A kept chunk has the same text, so its full-text vector and its
--- embedding vectors stay.
+-- A kept chunk has the same text, so its embedding vectors stay. Its
+-- full-text vector and text hash are written again, for a reindex of a
+-- damaged index.
 -- vis:system
 UPDATE chunks c
 SET version_id = @version_id, ordinal = r.ordinal, heading_path = r.heading_path,
-    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n)
-FROM jsonb_to_recordset(@rows::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[])
+    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n),
+    tsv = setweight(to_tsvector('simple', unaccent(@title::text)), 'A') ||
+          setweight(to_tsvector('simple', unaccent(r.heading)), 'B') ||
+          setweight(to_tsvector('simple', unaccent(r.body)), 'C'),
+    text_hash = decode(r.text_hash, 'base64')
+FROM jsonb_to_recordset(@rows::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[], heading text, body text,
+                                             text_hash text)
 WHERE c.id = r.id;
 
 -- name: SetPassagesVersion :exec

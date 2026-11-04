@@ -586,7 +586,7 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (i
 }
 
 const itemChunkHashes = `-- name: ItemChunkHashes :many
-SELECT id, text_hash FROM chunks WHERE item_id = $1 ORDER BY ordinal
+SELECT id, sha256(convert_to(text, 'UTF8'))::bytea AS text_hash FROM chunks WHERE item_id = $1 ORDER BY ordinal
 `
 
 type ItemChunkHashesRow struct {
@@ -594,6 +594,8 @@ type ItemChunkHashesRow struct {
 	TextHash []byte
 }
 
+// The hash of the stored text, not the stored hash: a damaged chunk then
+// does not match, and a chunk from before text_hash matches.
 // vis:system
 func (q *Queries) ItemChunkHashes(ctx context.Context, itemID int64) ([]ItemChunkHashesRow, error) {
 	rows, err := q.db.Query(ctx, itemChunkHashes, itemID)
@@ -661,21 +663,28 @@ func (q *Queries) ItemEntity(ctx context.Context, id int64) (ItemEntityRow, erro
 const keepChunks = `-- name: KeepChunks :exec
 UPDATE chunks c
 SET version_id = $1, ordinal = r.ordinal, heading_path = r.heading_path,
-    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n)
-FROM jsonb_to_recordset($2::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[])
+    passage_hashes = ARRAY(SELECT decode(h, 'base64') FROM unnest(r.hashes) WITH ORDINALITY AS u (h, n) ORDER BY n),
+    tsv = setweight(to_tsvector('simple', unaccent($2::text)), 'A') ||
+          setweight(to_tsvector('simple', unaccent(r.heading)), 'B') ||
+          setweight(to_tsvector('simple', unaccent(r.body)), 'C'),
+    text_hash = decode(r.text_hash, 'base64')
+FROM jsonb_to_recordset($3::jsonb) AS r (id bigint, ordinal integer, heading_path text[], hashes text[], heading text, body text,
+                                             text_hash text)
 WHERE c.id = r.id
 `
 
 type KeepChunksParams struct {
 	VersionID int64
+	Title     string
 	Rows      json.RawMessage
 }
 
-// A kept chunk has the same text, so its full-text vector and its
-// embedding vectors stay.
+// A kept chunk has the same text, so its embedding vectors stay. Its
+// full-text vector and text hash are written again, for a reindex of a
+// damaged index.
 // vis:system
 func (q *Queries) KeepChunks(ctx context.Context, arg KeepChunksParams) error {
-	_, err := q.db.Exec(ctx, keepChunks, arg.VersionID, arg.Rows)
+	_, err := q.db.Exec(ctx, keepChunks, arg.VersionID, arg.Title, arg.Rows)
 	return err
 }
 

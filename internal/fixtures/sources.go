@@ -101,12 +101,16 @@ type Sources struct {
 	hits     []Hit
 	tokens   map[string]bool
 	now      func() time.Time
+	// catalog holds the Backstage catalog entities by ref.
+	catalog      map[string]map[string]any
+	catalogOrder []string
 }
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
 	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
-		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now}
+		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{}}
+	s.loadCatalog()
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
 		s.users[name] = display
@@ -222,7 +226,8 @@ func token(h string) string {
 
 // ServeHTTP serves the Confluence API under /confluence, the Jira API under
 // /jira, the GitHub API under /github, the GitHub Enterprise Server API
-// under /ghes/api/v3 and the Azure DevOps Server API under /azdo.
+// under /ghes/api/v3, the Azure DevOps Server API under /azdo and the
+// Backstage catalog API under /backstage.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
@@ -265,6 +270,8 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/confluence/"):
 		s.confluence(w, r)
+	case strings.HasPrefix(r.URL.Path, "/backstage/"):
+		s.backstage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jira/"):
 		s.jira(w, r)
 	case strings.HasPrefix(r.URL.Path, "/github/"):

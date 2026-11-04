@@ -42,10 +42,10 @@ func (p *builder) proto(b []byte) error {
 	if title == "" {
 		title = p.file
 	}
-	api := API(p.repo, p.file, title)
+	api := p.apiFor(title)
 	for i, svc := range fd.GetService() {
 		if i == 0 {
-			p.fact(p.repo, "provides_api", &api, "", at(res.ServiceNode(svc)))
+			p.provide(api, at(res.ServiceNode(svc)))
 		}
 		service := qualify(svc.GetName())
 		for _, m := range svc.GetMethod() {

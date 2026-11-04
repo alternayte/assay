@@ -1,0 +1,146 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-api
+  title: Payments API
+  annotations:
+    github.com/project-slug: acme/payments-api
+spec:
+  type: service
+  lifecycle: production
+  owner: group:payments-team
+  system: payments
+  dependsOn:
+    - component:ledger-service
+    - resource:payments-db
+  providesApis:
+    - payments-rest
+  consumesApis:
+    - ledger-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: ledger-service
+  title: Ledger service
+spec:
+  type: service
+  lifecycle: production
+  owner: group:ledger-team
+  system: payments
+  providesApis:
+    - ledger-rest
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: payments-rest
+  title: Payments REST API
+spec:
+  type: openapi
+  lifecycle: production
+  owner: payments-team
+  system: payments
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Payments REST API
+      version: 1.4.0
+    paths:
+      /payments:
+        post:
+          summary: Take a card payment.
+          responses:
+            '201':
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/Payment'
+    components:
+      schemas:
+        Payment:
+          type: object
+          properties:
+            id:
+              type: string
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: ledger-rest
+  title: Ledger REST API
+spec:
+  type: openapi
+  lifecycle: production
+  owner: ledger-team
+  system: payments
+  definition: |
+    openapi: 3.0.3
+    info:
+      title: Ledger REST API
+      version: 2.0.0
+    paths:
+      /entries:
+        post:
+          summary: Post a ledger entry.
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: payments
+  title: Payments
+spec:
+  owner: group:default/payments-team
+  domain: finance
+---
+apiVersion: backstage.io/v1alpha1
+kind: Domain
+metadata:
+  name: finance
+spec:
+  owner: group:finance-leads
+---
+apiVersion: backstage.io/v1alpha1
+kind: Resource
+metadata:
+  name: payments-db
+spec:
+  type: database
+  owner: payments-team
+  system: payments
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: payments-team
+  title: Payments team
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: ledger-team
+  title: Ledger team
+spec:
+  type: team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: dana.acme
+spec:
+  profile:
+    displayName: Dana Acme
+    email: dana@acme.test
+  memberOf: [payments-team]
+---
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: acme-root
+spec:
+  targets:
+    - ./catalog.yaml

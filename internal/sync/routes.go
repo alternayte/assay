@@ -36,7 +36,7 @@ type GroupRef struct {
 // health. The token never leaves the server.
 type ConnectionRecord struct {
 	ID                   int64          `json:"id"`
-	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo"`
+	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,backstage"`
 	Name                 string         `json:"name"`
 	BaseURL              string         `json:"baseUrl"`
 	HasToken             bool           `json:"hasToken"`
@@ -85,7 +85,7 @@ type RunRecord struct {
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo"`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
 	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL."`
 	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
@@ -97,7 +97,7 @@ type sourceBody struct {
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
 	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`

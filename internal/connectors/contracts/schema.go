@@ -152,12 +152,12 @@ func (p *builder) openAPI(b []byte) error {
 		return err
 	}
 	info := get(r, "info")
-	api := API(p.repo, p.file, str(get(info, "title")))
+	api := p.apiFor(str(get(info, "title")))
 	line := keyLine(info, "title")
 	if line == 0 {
 		line = max(keyLine(r, OpenAPI), keyLine(r, Swagger))
 	}
-	p.fact(p.repo, "provides_api", &api, "", line)
+	p.provide(api, line)
 	d := newDefs()
 	d.add(get(get(r, "components"), "schemas"))
 	d.add(get(r, "definitions"))

@@ -20,6 +20,7 @@ import (
 
 	"github.com/alternayte/assay/internal/connectors"
 	"github.com/alternayte/assay/internal/connectors/azdo"
+	"github.com/alternayte/assay/internal/connectors/backstage"
 	"github.com/alternayte/assay/internal/connectors/confluence"
 	"github.com/alternayte/assay/internal/connectors/github"
 	"github.com/alternayte/assay/internal/connectors/jira"
@@ -109,7 +110,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira", "github", "azdo"}
+var Kinds = []string{"confluence", "jira", "github", "azdo", "backstage"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -154,6 +155,8 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		return confluence.New(c, src.Scope, r, limits)
 	case "jira":
 		return jira.New(c, src.Scope, r, limits)
+	case "backstage":
+		return backstage.New(c, src.Scope, src.Options, limits)
 	}
 	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude, Code: src.Code, Skip: rules.SkipGlobs}
 	if len(globs.Include) == 0 {

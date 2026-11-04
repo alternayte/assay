@@ -84,6 +84,31 @@ func topKey(b []byte) string {
 	return ""
 }
 
+// Definition formats of a catalog API entity, from spec.type.
+var definitionFormats = map[string]string{"openapi": OpenAPI, "asyncapi": AsyncAPI, "graphql": GraphQL, "grpc": Proto}
+
+// ParseDefinition returns the facts of the spec.definition of a catalog API
+// entity. keys scopes the keys of the contracts, api is the entity that the
+// operations attach to, and offset is the line before the first line of the
+// definition in its file. It returns no facts for another type.
+func ParseDefinition(typ, name string, b []byte, keys, api content.EntityRef, offset int) (Result, error) {
+	format, ok := definitionFormats[strings.ToLower(strings.TrimSpace(typ))]
+	if !ok {
+		return Result{}, nil
+	}
+	if format == OpenAPI && topKey(b) == Swagger {
+		format = Swagger
+	}
+	p := newBuilder(name, b, keys)
+	p.api, p.offset = &api, offset
+	return p.parse(format, b)
+}
+
+func newBuilder(file string, b []byte, repo content.EntityRef) *builder {
+	return &builder{repo: repo, file: file, lines: strings.Split(string(b), "\n"), models: map[string]bool{}, ops: map[string]bool{},
+		events: map[string]bool{}}
+}
+
 // Result is what a spec file states.
 type Result struct {
 	Facts []content.Fact
@@ -93,10 +118,12 @@ type Result struct {
 
 // Parse returns the facts of a spec file of a repository.
 func Parse(file string, b []byte, repo content.EntityRef) (Result, error) {
-	p := &builder{repo: repo, file: file, lines: strings.Split(string(b), "\n"), models: map[string]bool{}, ops: map[string]bool{},
-		events: map[string]bool{}}
+	return newBuilder(file, b, repo).parse(Detect(file, b), b)
+}
+
+func (p *builder) parse(format string, b []byte) (Result, error) {
 	var err error
-	switch Detect(file, b) {
+	switch format {
 	case OpenAPI, Swagger:
 		err = p.openAPI(b)
 	case AsyncAPI:
@@ -115,7 +142,13 @@ func Parse(file string, b []byte, repo content.EntityRef) (Result, error) {
 
 // builder collects the facts of one file.
 type builder struct {
-	repo   content.EntityRef
+	// repo scopes the keys: a repository, or the api entity of a catalog
+	// definition without a linked repository.
+	repo content.EntityRef
+	// api is the api that the operations attach to, when the caller names
+	// it, such as a catalog API entity. Nil means the api of the file.
+	api    *content.EntityRef
+	offset int
 	file   string
 	lines  []string
 	facts  []content.Fact
@@ -144,7 +177,23 @@ func (p *builder) fact(subject content.EntityRef, predicate string, object *cont
 		return
 	}
 	p.facts = append(p.facts, content.Fact{Subject: subject, Predicate: predicate, Object: object, Text: text, Quote: q, Source: Source,
-		Line: line})
+		Line: line + p.offset})
+}
+
+// apiFor returns the api that the operations of the file attach to.
+func (p *builder) apiFor(title string) content.EntityRef {
+	if p.api != nil {
+		return *p.api
+	}
+	return API(p.repo, p.file, title)
+}
+
+// provide adds the provides_api fact of the api of the file. The api that
+// a caller names has its own facts.
+func (p *builder) provide(api content.EntityRef, line int) {
+	if p.api == nil && p.repo.Type == "repository" {
+		p.fact(p.repo, "provides_api", &api, "", line)
+	}
 }
 
 // API returns the api of a spec file: api:<repo key>:<file path>.

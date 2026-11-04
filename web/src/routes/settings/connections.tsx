@@ -16,7 +16,7 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
-type Kind = "confluence" | "jira" | "github" | "azdo";
+type Kind = "confluence" | "jira" | "github" | "azdo" | "backstage";
 
 const isRepo = (k: string) => k === "github" || k === "azdo";
 
@@ -169,8 +169,21 @@ function DemoNotice() {
 }
 
 /** The source part of a connection form. */
-type Source = { kind: Kind; name: string; baseUrl: string; token: string; apiVersion?: string };
-type Scope = { spaces?: string[]; projects?: string[]; repositories?: string[]; jql?: string };
+type Source = {
+  kind: Kind;
+  name: string;
+  baseUrl: string;
+  token: string;
+  apiVersion?: string;
+  frontendUrl?: string;
+};
+type Scope = {
+  spaces?: string[];
+  projects?: string[];
+  repositories?: string[];
+  namespaces?: string[];
+  jql?: string;
+};
 /** Repository globs, one per line. */
 type Globs = { include: string; exclude: string; code: string };
 type Schedule = {
@@ -190,12 +203,23 @@ const defaultSchedule: Schedule = {
 
 function scopeList(kind: Kind, scope: Scope): string[] {
   if (isRepo(kind)) return scope.repositories ?? [];
+  if (kind === "backstage") return scope.namespaces ?? [];
   return (kind === "jira" ? scope.projects : scope.spaces) ?? [];
 }
 
 function withList(kind: Kind, scope: Scope, ids: string[]): Scope {
   if (isRepo(kind)) return { ...scope, repositories: ids };
+  if (kind === "backstage") return { ...scope, namespaces: ids };
   return kind === "jira" ? { ...scope, projects: ids } : { ...scope, spaces: ids };
+}
+
+/** A Backstage connection with no namespace reads all namespaces. */
+const needsScope = (kind: Kind) => kind !== "backstage";
+
+function optionsOf(s: Source): Record<string, unknown> | undefined {
+  if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined };
+  if (s.kind === "backstage") return { frontendUrl: s.frontendUrl?.trim() || undefined };
+  return undefined;
 }
 
 const lines = (s: string) =>
@@ -229,6 +253,7 @@ function SourceFields({
             <option value="jira">{kindLabel("jira")}</option>
             <option value="github">{kindLabel("github")}</option>
             <option value="azdo">{kindLabel("azdo")}</option>
+            <option value="backstage">{kindLabel("backstage")}</option>
           </Select>
         )}
       </Field>
@@ -271,6 +296,19 @@ function SourceFields({
           />
         )}
       </Field>
+      {value.kind === "backstage" && (
+        <Field label={t("connections.frontendUrl")} hint={t("connections.frontendUrlHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              type="url"
+              className="font-mono"
+              value={value.frontendUrl ?? ""}
+              onChange={(e) => onChange({ ...value, frontendUrl: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
       {value.kind === "azdo" && (
         <Field label={t("connections.apiVersion")} hint={t("connections.apiVersionHint")}>
           {(p) => (
@@ -340,7 +378,7 @@ function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number, 
     token: s.token || undefined,
     connectionId: s.token ? undefined : connectionId,
     scope: scope as Record<string, unknown> | undefined,
-    options: s.kind === "azdo" ? { apiVersion: s.apiVersion?.trim() || undefined } : undefined,
+    options: optionsOf(s),
     includeGlobs: globs && isRepo(s.kind) ? lines(globs.include) : undefined,
     excludeGlobs: globs && isRepo(s.kind) ? lines(globs.exclude) : undefined,
     codeGlobs: globs && isRepo(s.kind) ? lines(globs.code) : undefined,
@@ -408,9 +446,11 @@ function ScopePicker({
   };
   const label = isRepo(source.kind)
     ? t("connections.repositories")
-    : source.kind === "jira"
-      ? t("connections.projects")
-      : t("connections.spaces");
+    : source.kind === "backstage"
+      ? t("connections.namespaces")
+      : source.kind === "jira"
+        ? t("connections.projects")
+        : t("connections.spaces");
   return (
     <div className="flex flex-col gap-3">
       <Field label={t("connections.scopeFilter")} hint={t("connections.scopeHint")}>
@@ -585,7 +625,7 @@ export function NewConnectionPage() {
   };
   const submitScope = (e: FormEvent) => {
     e.preventDefault();
-    if (scopeList(source.kind, scope).length === 0) {
+    if (needsScope(source.kind) && scopeList(source.kind, scope).length === 0) {
       setError(t("connections.scopeRequired"));
       return;
     }
@@ -956,6 +996,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     baseUrl: c.baseUrl,
     token: "",
     apiVersion: String(c.options?.apiVersion ?? "7.1"),
+    frontendUrl: String(c.options?.frontendUrl ?? ""),
   });
   const [scope, setScope] = useState<Scope>(c.scope as Scope);
   const [globs, setGlobs] = useState<Globs>({
@@ -997,7 +1038,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setMsg(undefined);
-    if (scopeList(kind, scope).length === 0) {
+    if (needsScope(kind) && scopeList(kind, scope).length === 0) {
       setMsg({ tone: "danger", text: t("connections.scopeRequired") });
       return;
     }

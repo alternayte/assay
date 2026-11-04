@@ -2327,7 +2327,7 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo";
+            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
             name: string;
             options?: {
                 [key: string]: unknown;
@@ -2380,7 +2380,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -4045,7 +4045,7 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo";
+            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
             options?: {
                 [key: string]: unknown;
             };

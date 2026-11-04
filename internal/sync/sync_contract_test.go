@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alternayte/assay/internal/connectors/tree"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/testkit"
 )
@@ -820,5 +821,96 @@ func TestSCN_SYN_015_EditsEmbedOnlyChangedChunks(t *testing.T) {
 	}
 	if n := env.Count(fmt.Sprintf("SELECT count(*) FROM emb_%d WHERE ref_kind = 'chunk' AND chunk_id = ANY($1)", space), after); n != 10 {
 		t.Fatalf("%d of 10 chunks have a vector", n)
+	}
+}
+
+func TestSCN_CON_010_BackstageCatalog(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-backstage", Kind: "backstage", BaseURL: base,
+		Scope: map[string]any{}})
+	mark := len(src.Hits())
+	first := env.RunNow(admin, conn, "sync")
+	want := 0
+	for kind, n := range src.CatalogKinds() {
+		if kind != "Location" {
+			want += n
+		}
+	}
+	if first.Status != "succeeded" || first.Created != want {
+		t.Fatalf("first sync %+v, want %d entities", first, want)
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND kind = 'catalog_entity'", conn); n != want {
+		t.Fatalf("%d catalog items, want %d", n, want)
+	}
+
+	// The component has its relations with source catalog, each quoting a
+	// line of its YAML passage.
+	comp := "backstage:component:default/payments-api"
+	for _, pred := range []string{"owned_by", "part_of", "provides_api", "depends_on"} {
+		var quote, text string
+		err := env.Server.Pool().QueryRow(t.Context(), `SELECT e.quote, p.text FROM claim_evidence e JOIN claims c ON c.id = e.claim_id
+JOIN entities s ON s.id = c.subject_id JOIN passages p ON p.item_id = e.item_id AND p.hash = e.passage_hash
+WHERE s.key = $1 AND c.predicate = $2 AND e.source_type = 'catalog' AND e.connection_id = $3 LIMIT 1`, comp, pred, conn).Scan(&quote, &text)
+		if err != nil {
+			t.Fatalf("%s: %v", pred, err)
+		}
+		if !strings.Contains(content.Normalize(text), quote) {
+			t.Fatalf("%s quotes %q, which is not in its passage", pred, quote)
+		}
+	}
+	if n := env.Count(`SELECT count(*) FROM entities WHERE key = 'backstage:user:default/dana.acme' AND type = 'person'
+		AND entity_display_name(id, ARRAY[$1::bigint]) = 'Dana Acme'`, conn); n != 1 {
+		t.Fatal("the user is not a person named by its display name")
+	}
+	if n := env.Count(`SELECT count(*) FROM passages p JOIN source_items i ON i.id = p.item_id
+		WHERE i.connection_id = $1 AND p.text LIKE '%dana@acme.test%'`, conn); n != 0 {
+		t.Fatal("a passage stores the email address of a user")
+	}
+
+	// The inline definition gives the operation of the API entity, quoting
+	// its line in the catalog item.
+	op := "operation:backstage:api:default/payments-rest:POST /payments"
+	var quote string
+	if err := env.Server.Pool().QueryRow(t.Context(), `SELECT e.quote FROM claim_evidence e JOIN claims c ON c.id = e.claim_id
+JOIN entities s ON s.id = c.subject_id JOIN entities o ON o.id = c.object_entity_id
+WHERE s.key = 'backstage:api:default/payments-rest' AND c.predicate = 'has_operation' AND o.key = $1`, op).Scan(&quote); err != nil {
+		t.Fatalf("no has_operation for %s: %v", op, err)
+	}
+	if quote != "post:" {
+		t.Fatalf("the operation quotes %q", quote)
+	}
+
+	// A repository catalog file meets the Backstage entity on its key.
+	repo := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
+		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
+	env.RunNow(admin, repo, "sync")
+	if n := env.Count("SELECT count(*) FROM entities WHERE key = $1", comp); n != 1 {
+		t.Fatalf("%d entities for %s", n, comp)
+	}
+	if n := env.Count(`SELECT count(DISTINCT e.connection_id) FROM claim_evidence e JOIN claims c ON c.id = e.claim_id
+JOIN entities s ON s.id = c.subject_id WHERE s.key = $1 AND c.predicate = 'owned_by'`, comp); n != 2 {
+		t.Fatalf("owned_by of the component has evidence from %d connections, want 2", n)
+	}
+
+	// A second sync with no change stores nothing.
+	second := env.RunNow(admin, conn, "sync")
+	if second.Status != "succeeded" || second.Unchanged != want || second.Created != 0 || second.Updated != 0 {
+		t.Fatalf("second sync %+v", second)
+	}
+
+	// An entity that leaves the catalog is a tombstone after reconcile.
+	src.DeleteEntity("component:default/ledger-service")
+	if rec := env.RunNow(admin, conn, "reconcile"); rec.Status != "succeeded" || rec.Deleted != 1 {
+		t.Fatalf("reconcile %+v", rec)
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id = 'component:default/ledger-service'", conn); n != 0 {
+		t.Fatal("the removed entity keeps its item")
+	}
+	for _, h := range src.Hits()[mark:] {
+		if strings.HasPrefix(h.Path, "/backstage/") && h.Method != http.MethodGet {
+			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
+		}
 	}
 }

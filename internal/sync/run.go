@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
@@ -571,16 +572,34 @@ func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Co
 		return err
 	}
 	var outcome content.Outcome
-	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var err error
-		outcome, err = content.Store(ctx, tx, conn.ID, conn.DefaultDomainID, it, s.Log)
-		return err
-	})
+	// Items that name the same entities and claims, such as the entities of
+	// one catalog, lock rows in different orders. A deadlock rolls back one
+	// transaction, and the item is stored again.
+	for attempt := 1; ; attempt++ {
+		err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			var err error
+			outcome, err = content.Store(ctx, tx, conn.ID, conn.DefaultDomainID, it, s.Log)
+			return err
+		})
+		if !retryable(err) || attempt == storeAttempts {
+			break
+		}
+	}
 	if err != nil {
 		return err
 	}
 	st.add(outcome)
 	return nil
+}
+
+// storeAttempts bounds the attempts to store one item.
+const storeAttempts = 5
+
+// retryable reports a deadlock or a serialization failure: the
+// transaction can run again.
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
 }
 
 // tombstoneStored tombstones the stored item with an external ID, if any.

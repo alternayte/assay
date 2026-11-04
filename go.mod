@@ -6,6 +6,7 @@ require (
 	github.com/alternayte/auth-all v0.7.0
 	github.com/alternayte/auth-all/humaauth v0.3.0
 	github.com/bmatcuk/doublestar/v4 v4.9.1
+	github.com/bufbuild/protocompile v0.14.1
 	github.com/danielgtaylor/huma/v2 v2.40.0
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/google/jsonschema-go v0.4.3
@@ -16,8 +17,10 @@ require (
 	github.com/prometheus/client_golang v1.25.0
 	github.com/riverqueue/river v0.50.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.50.0
+	github.com/riverqueue/river/rivertype v0.50.0
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
+	github.com/vektah/gqlparser/v2 v2.5.63
 	github.com/yuin/goldmark v1.8.6
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0
@@ -27,6 +30,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/net v0.62.0
 	golang.org/x/text v0.43.0
+	google.golang.org/protobuf v1.36.12
 	riverqueue.com/riverui v0.22.0
 )
 
@@ -85,7 +89,6 @@ require (
 	github.com/riverqueue/apiframe v0.0.0-20251229202423-2b52ce1c482e // indirect
 	github.com/riverqueue/river/riverdriver v0.50.0 // indirect
 	github.com/riverqueue/river/rivershared v0.50.0 // indirect
-	github.com/riverqueue/river/rivertype v0.50.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
@@ -114,5 +117,4 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
 )

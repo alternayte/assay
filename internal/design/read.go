@@ -40,7 +40,7 @@ type DesignCite struct {
 // DesignPageSection is one section as the reader sees it.
 type DesignPageSection struct {
 	Slug          string          `json:"slug"`
-	Kind          string          `json:"kind" enum:"overview,architecture,component,data,repository"`
+	Kind          string          `json:"kind" enum:"overview,architecture,component,data,repository,contracts"`
 	Title         string          `json:"title"`
 	State         string          `json:"state" enum:"fresh,stale,missing"`
 	Markdown      string          `json:"markdown" doc:"Markers such as [S1] cite the sources."`
@@ -171,6 +171,13 @@ func (s *Service) repositoryPage(ctx context.Context, vis visibility.Set, d *ent
 			}
 		}
 		p.Sections = append(p.Sections, ps)
+	}
+	contracts, err := s.contractsSection(ctx, vis, d.ID, d.Key)
+	if err != nil {
+		return nil, err
+	}
+	if contracts != nil {
+		p.Sections = append(p.Sections, *contracts)
 	}
 	return p, nil
 }

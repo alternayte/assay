@@ -22,6 +22,7 @@ import (
 	"github.com/alternayte/assay/internal/connectors/catalog"
 	"github.com/alternayte/assay/internal/connectors/code"
 	"github.com/alternayte/assay/internal/connectors/codeowners"
+	"github.com/alternayte/assay/internal/connectors/contracts"
 	"github.com/alternayte/assay/internal/content"
 )
 
@@ -74,7 +75,8 @@ type Host interface {
 // (SDD section 8).
 var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/decisions/**/*.md", "CODEOWNERS", ".github/CODEOWNERS",
 	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
-	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml"}
+	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml",
+	"**/swagger*.{yaml,yml,json}", "**/asyncapi*.{yaml,yml,json}", "**/*.{graphql,gql}", "**/*.avsc", "**/*.schema.json"}
 
 // DefaultCodeGlobs are the default code globs of a new repository
 // connection: the source files of Go, TypeScript, JavaScript, C# and
@@ -376,8 +378,36 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 		it.Entities = catalog.Entities(b)
 	case file == l.owners:
 		it.Facts = codeowners.Facts(b, repo, k.host.Provider(), k.host.WebHost())
+	case contracts.Detect(file, b) != "":
+		// The passages keep their lines, so that each fact cites the
+		// passage of its line. A new version retracts the facts that the
+		// file no longer states.
+		res, err := contracts.Parse(file, b, repo)
+		if err != nil {
+			it.Metadata["parseError"] = err.Error()
+		}
+		if res.Skip != "" {
+			it.Metadata["parseSkip"] = res.Skip
+		}
+		it.Facts, it.Passages, it.DropStale = res.Facts, code.Split(file, b), true
 	}
 	return it, nil
+}
+
+func init() { content.SplitFile = splitSpec }
+
+// splitSpec splits the stored body of a spec file as sync does. It returns
+// nil for another file.
+func splitSpec(file, body string) []content.Passage {
+	lines := strings.Split(body, "\n")
+	if len(lines) >= 2 && strings.HasPrefix(lines[0], "```") && strings.HasPrefix(lines[len(lines)-1], "```") {
+		lines = lines[1 : len(lines)-1]
+	}
+	src := []byte(strings.Join(lines, "\n"))
+	if contracts.Detect(file, src) == "" {
+		return nil
+	}
+	return code.Split(file, src)
 }
 
 // Generated reports whether a source file says in its first lines that a
@@ -424,7 +454,8 @@ func (k *Connector) githubHost() string {
 }
 
 // languages are the code fence languages by file extension.
-var languages = map[string]string{".yaml": "yaml", ".yml": "yaml", ".json": "json", ".proto": "protobuf",
+var languages = map[string]string{".yaml": "yaml", ".yml": "yaml", ".json": "json", ".proto": "protobuf", ".graphql": "graphql",
+	".gql": "graphql", ".avsc": "json",
 	".csproj": "xml", ".props": "xml", ".xml": "xml", ".mod": "go-mod", ".txt": "text"}
 
 // Body returns the normalized Markdown body of a file. Markdown files stay

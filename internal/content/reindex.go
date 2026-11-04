@@ -13,6 +13,11 @@ import (
 // does.
 var SplitSource func(file, body string) []Passage
 
+// SplitFile splits the body of a knowledge file that sync splits by lines,
+// such as a spec file, and returns nil for another file. The tree package
+// sets it.
+var SplitFile func(file, body string) []Passage
+
 // Reindexed counts the result of a reindex.
 type Reindexed struct {
 	Items, Passages, Chunks int
@@ -35,9 +40,12 @@ func Reindex(ctx context.Context, pool *pgxpool.Pool) (Reindexed, error) {
 		for _, it := range items {
 			err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 				var code []Passage
-				if it.Kind == "code" && SplitSource != nil {
-					_, file, _ := strings.Cut(it.ExternalID, ":")
+				_, file, _ := strings.Cut(it.ExternalID, ":")
+				switch {
+				case it.Kind == "code" && SplitSource != nil:
 					code = SplitSource(file, it.Body)
+				case it.Kind == "file" && SplitFile != nil:
+					code = SplitFile(file, it.Body)
 				}
 				ps, chunks, err := writeIndex(ctx, New(tx), it.ID, it.VersionID, it.ConnectionID, it.Title, it.Body, code)
 				out.Passages += len(ps)

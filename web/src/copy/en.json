@@ -590,7 +590,10 @@
     "document": "Document",
     "decision": "Decision",
     "environment": "Environment",
-    "term": "Term"
+    "term": "Term",
+    "operation": "Operation",
+    "event": "Event",
+    "data_model": "Data model"
   },
   "explore": {
     "title": "Explore",

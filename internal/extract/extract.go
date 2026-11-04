@@ -79,8 +79,10 @@ type Output struct {
 // Schema is the JSON schema of the output.
 func Schema() map[string]any {
 	preds := make([]string, 0, len(claims.Registry))
-	for name := range claims.Registry {
-		preds = append(preds, name)
+	for name, p := range claims.Registry {
+		if p.Extract {
+			preds = append(preds, name)
+		}
 	}
 	sort.Strings(preds)
 	mention := map[string]any{"type": "object", "additionalProperties": false, "required": []string{"kind", "value"},
@@ -111,8 +113,10 @@ func Version() string {
 	s, _ := json.Marshal(Schema())
 	h.Write(s)
 	names := make([]string, 0, len(claims.Registry))
-	for n := range claims.Registry {
-		names = append(names, n)
+	for n, p := range claims.Registry {
+		if p.Extract {
+			names = append(names, n)
+		}
 	}
 	sort.Strings(names)
 	for _, n := range names {
@@ -213,7 +217,7 @@ func check(r Raw, passageNorm string) (string, string) {
 		return ReasonSchema, "a field is missing or has a wrong value"
 	}
 	p, ok := claims.Registry[r.Predicate]
-	if !ok {
+	if !ok || !p.Extract {
 		return ReasonBadPredicate, "unknown predicate " + r.Predicate
 	}
 	if r.Subject.Kind == "text" {

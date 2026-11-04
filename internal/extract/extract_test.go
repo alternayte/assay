@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alternayte/assay/internal/claims"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/extract"
 )
@@ -28,6 +29,8 @@ func TestSCN_EXT_003_OutputValidation(t *testing.T) {
 		{"an unknown predicate", `{"claims":[` + claim("maintained_by", "name", "name", "Team Hermes", "Team Hermes owns the Payments API.") + `]}`,
 			extract.ReasonBadPredicate, 0},
 		{"a text object for an entity predicate", `{"claims":[` + claim("owned_by", "name", "text", "Team Hermes", "Team Hermes owns the Payments API.") + `]}`,
+			extract.ReasonBadPredicate, 0},
+		{"a contract predicate", `{"claims":[` + claim("channel", "name", "text", "payments.events", "Team Hermes owns the Payments API.") + `]}`,
 			extract.ReasonBadPredicate, 0},
 		{"not JSON", `Team Hermes owns it.`, extract.ReasonSchema, 0},
 		{"an unknown field", `{"claims":[],"notes":"x"}`, extract.ReasonSchema, 0},
@@ -54,6 +57,21 @@ func TestSCN_EXT_003_OutputValidation(t *testing.T) {
 				t.Fatalf("rejections %+v, want %s", bad, c.reason)
 			}
 		})
+	}
+}
+
+// A predicate that extraction does not use leaves the extractor version
+// alone: a new version extracts every passage again.
+func TestSCN_EXT_007_ContractPredicatesKeepVersion(t *testing.T) {
+	before := extract.Version()
+	claims.Registry["test_contract"] = claims.Predicate{Name: "test_contract", Subjects: []string{"api"}, Objects: []string{claims.ObjText}}
+	defer delete(claims.Registry, "test_contract")
+	if after := extract.Version(); after != before {
+		t.Fatalf("the version changed from %s to %s", before, after)
+	}
+	s, _ := json.Marshal(extract.Schema())
+	if strings.Contains(string(s), "has_operation") || strings.Contains(string(s), "test_contract") {
+		t.Fatal("the extract schema offers a contract predicate")
 	}
 }
 

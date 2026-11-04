@@ -56,8 +56,9 @@ func (e *TypeRefused) Error() string {
 }
 
 // fixedTypes are the types that an edit neither sets nor changes: terms
-// belong to the glossary, repositories to the connectors and design pages.
-var fixedTypes = []string{"term", "repository"}
+// belong to the glossary, repositories to the connectors and design pages,
+// and contracts to the spec files and the code of their repository.
+var fixedTypes = []string{"term", "repository", "operation", "event", "data_model"}
 
 // unnamedPrefix is the key prefix of the entities that resolution makes
 // from descriptions. No source system owns them.

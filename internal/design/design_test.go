@@ -198,7 +198,7 @@ func TestSCN_DSG_003_BuildWritesCitedRepositoryPage(t *testing.T) {
 		cited(t, s)
 	}
 	want := []string{"overview", "architecture", "component:.", "component:cmd/server", "component:internal/ledgerclient",
-		"component:internal/payments", "component:internal/store", "data"}
+		"component:internal/payments", "component:internal/store", "data", "contracts"}
 	if !slices.Equal(slugs, want) {
 		t.Fatalf("sections %q, want %q", slugs, want)
 	}

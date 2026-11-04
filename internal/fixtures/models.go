@@ -220,6 +220,9 @@ func fakeContent(body map[string]any) string {
 		if js, ok := rf["json_schema"].(map[string]any); ok && js["name"] == "design_section" {
 			return fakeSection(system, first)
 		}
+		if js, ok := rf["json_schema"].(map[string]any); ok && js["name"] == "design_digest" {
+			return fakeDigestJSON(user)
+		}
 	}
 	if strings.Contains(system, "You write notes about one component") {
 		return fakeDigest(user)
@@ -280,6 +283,57 @@ func fakeDigest(user string) string {
 		return "- The component has no code."
 	}
 	return strings.Join(notes, "\n")
+}
+
+var (
+	httpRoute  = regexp.MustCompile(`"(GET|POST|PUT|PATCH|DELETE) (/[^"\s]*)"`)
+	goStruct   = regexp.MustCompile(`(?m)^type ([A-Z][A-Za-z0-9_]*) struct \{\n((?:\s+[A-Z][A-Za-z0-9_]* +[^\n]+\n)+)\}`)
+	goField    = regexp.MustCompile(`(?m)^\s+([A-Z][A-Za-z0-9_]*) +([^\s]+)`)
+	publishTo  = regexp.MustCompile(`Publish\("([^"]+)", *&?([A-Z][A-Za-z0-9_]*)\{`)
+	firstLines = func(text, part string) string {
+		for _, l := range strings.Split(text, "\n") {
+			if strings.Contains(l, part) {
+				return strings.TrimSpace(l)
+			}
+		}
+		return ""
+	}
+)
+
+// fakeDigestJSON is the JSON digest: the notes of fakeDigest, an operation
+// for each Go route pattern such as "POST /payments", an event for each
+// Publish("topic", Message{ call, and a model for each exported Go struct.
+func fakeDigestJSON(user string) string {
+	type field struct {
+		Name string `json:"name"`
+		Type string `json:"type"`
+	}
+	type model struct {
+		Name    string  `json:"name"`
+		Fields  []field `json:"fields"`
+		Passage string  `json:"passage"`
+		Quote   string  `json:"quote"`
+	}
+	ops, events, models := []map[string]string{}, []map[string]string{}, []model{}
+	for _, m := range digestPassage.FindAllStringSubmatch(user, -1) {
+		id, text := m[1], m[5]
+		for _, r := range httpRoute.FindAllStringSubmatch(text, -1) {
+			ops = append(ops, map[string]string{"protocol": "http", "method": r[1], "target": r[2], "passage": id, "quote": firstLines(text, r[0])})
+		}
+		for _, r := range publishTo.FindAllStringSubmatch(text, -1) {
+			events = append(events, map[string]string{"direction": "publishes", "channel": r[1], "message": r[2], "passage": id,
+				"quote": firstLines(text, r[0])})
+		}
+		for _, r := range goStruct.FindAllStringSubmatch(text, -1) {
+			md := model{Name: r[1], Fields: []field{}, Passage: id, Quote: firstLines(text, "type "+r[1]+" struct")}
+			for _, f := range goField.FindAllStringSubmatch(r[2], -1) {
+				md.Fields = append(md.Fields, field{Name: f[1], Type: f[2]})
+			}
+			models = append(models, md)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"notes": fakeDigest(user), "operations": ops, "events": events, "models": models})
+	return string(b)
 }
 
 // fakeSection writes a design section from the notes and documents of the

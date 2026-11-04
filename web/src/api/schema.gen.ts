@@ -2598,7 +2598,7 @@ export interface components {
             /** Format: date-time */
             editedAt?: string;
             /** @enum {string} */
-            kind: "overview" | "architecture" | "component" | "data" | "repository";
+            kind: "overview" | "architecture" | "component" | "data" | "repository" | "contracts";
             lint: components["schemas"]["Failure"][];
             /** @description Markers such as [S1] cite the sources. */
             markdown: string;

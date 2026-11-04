@@ -374,7 +374,9 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 		if err != nil {
 			it.Metadata["parseError"] = err.Error()
 		}
-		it.Facts = facts
+		// The passages keep their lines, so that each fact cites the
+		// passage of its line, also for an inline API definition.
+		it.Facts, it.Passages = facts, code.Split(file, b)
 		it.Entities = catalog.Entities(b)
 	case file == l.owners:
 		it.Facts = codeowners.Facts(b, repo, k.host.Provider(), k.host.WebHost())
@@ -396,15 +398,15 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 
 func init() { content.SplitFile = splitSpec }
 
-// splitSpec splits the stored body of a spec file as sync does. It returns
-// nil for another file.
+// splitSpec splits the stored body of a spec file or a catalog file as
+// sync does. It returns nil for another file.
 func splitSpec(file, body string) []content.Passage {
 	lines := strings.Split(body, "\n")
 	if len(lines) >= 2 && strings.HasPrefix(lines[0], "```") && strings.HasPrefix(lines[len(lines)-1], "```") {
 		lines = lines[1 : len(lines)-1]
 	}
 	src := []byte(strings.Join(lines, "\n"))
-	if contracts.Detect(file, src) == "" {
+	if contracts.Detect(file, src) == "" && path.Base(file) != "catalog-info.yaml" {
 		return nil
 	}
 	return code.Split(file, src)

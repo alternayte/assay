@@ -45,7 +45,7 @@ func (p *builder) graphQL(b []byte) error {
 			}
 		}
 	}
-	api := API(p.repo, p.file, "")
+	api := p.apiFor("")
 	first := true
 	for _, d := range defs {
 		root, isRoot := roots[d.Name]
@@ -54,7 +54,7 @@ func (p *builder) graphQL(b []byte) error {
 		}
 		for _, f := range d.Fields {
 			if first {
-				p.fact(p.repo, "provides_api", &api, "", line(d.Position))
+				p.provide(api, line(d.Position))
 				first = false
 			}
 			op := GraphQLOperation(p.repo, root, f.Name)

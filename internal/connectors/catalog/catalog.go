@@ -15,6 +15,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/alternayte/assay/internal/connectors/contracts"
 	"github.com/alternayte/assay/internal/content"
 )
 
@@ -33,8 +34,9 @@ var types = map[string]string{
 	"domain":    "system",
 }
 
-// documentKinds are the kinds whose documents create entities.
-var documentKinds = []string{"component", "api", "system", "group", "resource", "domain"}
+// documentKinds are the kinds whose documents create entities. A User is
+// a person named by its display name, with no facts.
+var documentKinds = []string{"component", "api", "system", "group", "user", "resource", "domain"}
 
 // Repository is the repository that holds a catalog file.
 type Repository struct {
@@ -52,13 +54,25 @@ type document struct {
 		Annotations map[string]string `yaml:"annotations"`
 	} `yaml:"metadata"`
 	Spec struct {
+		Type         string   `yaml:"type"`
 		Lifecycle    string   `yaml:"lifecycle"`
 		Owner        string   `yaml:"owner"`
 		System       string   `yaml:"system"`
 		DependsOn    []string `yaml:"dependsOn"`
 		ProvidesAPIs []string `yaml:"providesApis"`
 		ConsumesAPIs []string `yaml:"consumesApis"`
+		Profile      struct {
+			DisplayName string `yaml:"displayName"`
+		} `yaml:"profile"`
 	} `yaml:"spec"`
+}
+
+// title is the name of the entity of a document.
+func (d *document) title() string {
+	if d.Metadata.Title != "" {
+		return d.Metadata.Title
+	}
+	return d.Spec.Profile.DisplayName
 }
 
 // Facts returns the facts of a catalog file. Quotes are the source lines,
@@ -95,15 +109,19 @@ func Facts(file []byte, repo Repository) ([]content.Fact, error) {
 			ns = "default"
 		}
 		subject := ref(kind, ns, d.Metadata.Name)
-		if d.Metadata.Title != "" {
-			subject.Name = d.Metadata.Title
+		if t := d.title(); t != "" {
+			subject.Name = t
+		}
+		if kind == "user" {
+			continue
 		}
 		fact := func(pred string, obj *content.EntityRef, text string, path ...string) {
-			q := line(lineOf(&node, path...))
+			n := lineOf(&node, path...)
+			q := line(n)
 			if q == "" {
 				return
 			}
-			out = append(out, content.Fact{Subject: subject, Predicate: pred, Object: obj, Text: text, Quote: q, Source: Source})
+			out = append(out, content.Fact{Subject: subject, Predicate: pred, Object: obj, Text: text, Quote: q, Source: Source, Line: n})
 		}
 		if d.Spec.Owner != "" {
 			fact("owned_by", parse(d.Spec.Owner, "group", ns), "", "spec", "owner")
@@ -127,19 +145,61 @@ func Facts(file []byte, repo Repository) ([]content.Fact, error) {
 				fact("status", nil, d.Spec.Lifecycle, "spec", "lifecycle")
 			}
 		}
+		linked, annotation := repo.linked(d.Metadata.Annotations)
 		if kind == "component" || kind == "api" {
 			r := repo.Ref
 			path := []string{"metadata", "name"}
-			if linked, key := repo.linked(d.Metadata.Annotations); linked != nil {
+			if linked != nil {
 				r = *linked
-				path = []string{"metadata", "annotations", key}
+				path = []string{"metadata", "annotations", annotation}
 			}
-			q := line(lineOf(&node, path...))
-			obj := subject
-			out = append(out, content.Fact{Subject: r, Predicate: "implements", Object: &obj, Quote: q, Source: Source})
+			// A document outside a repository, such as one from the
+			// Backstage catalog, names its repository only by annotation.
+			if r.Key != "" {
+				q := line(lineOf(&node, path...))
+				obj := subject
+				out = append(out, content.Fact{Subject: r, Predicate: "implements", Object: &obj, Quote: q, Source: Source,
+					Line: lineOf(&node, path...)})
+			}
+		}
+		if kind == "api" {
+			facts, err := definition(&node, d.Spec.Type, subject, linked)
+			if err != nil {
+				return out, err
+			}
+			out = append(out, facts...)
 		}
 	}
 	return out, nil
+}
+
+// definition returns the contracts of the inline spec.definition of an API
+// document. A $text or $ref placeholder is not followed: a file in the
+// repository is parsed on its own, and the Backstage catalog API returns
+// definitions resolved. The keys use the linked repository, or else the
+// API entity key, and the operations attach to the API entity.
+func definition(doc *yaml.Node, typ string, api content.EntityRef, linked *content.EntityRef) ([]content.Fact, error) {
+	n := nodeAt(doc, "spec", "definition")
+	if n == nil || n.Kind != yaml.ScalarNode || strings.TrimSpace(n.Value) == "" {
+		return nil, nil
+	}
+	keys := api
+	if linked != nil {
+		keys = *linked
+	}
+	// A block scalar starts on the line after its indicator.
+	offset := n.Line - 1
+	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 {
+		offset = n.Line
+	}
+	res, err := contracts.ParseDefinition(typ, api.Key, []byte(n.Value), keys, api, offset)
+	for i := range res.Facts {
+		res.Facts[i].Source = Source
+	}
+	if err != nil {
+		return res.Facts, fmt.Errorf("catalog: the definition of %s: %w", api.Key, err)
+	}
+	return res.Facts, nil
 }
 
 // Entities returns the entities that the documents of a catalog file
@@ -161,8 +221,8 @@ func Entities(file []byte) []content.EntityRef {
 			ns = "default"
 		}
 		r := ref(kind, ns, d.Metadata.Name)
-		if d.Metadata.Title != "" {
-			r.Name = d.Metadata.Title
+		if t := d.title(); t != "" {
+			r.Name = t
 		}
 		out = append(out, r)
 	}
@@ -242,6 +302,15 @@ func ref(kind, ns, name string) content.EntityRef {
 // lineOf returns the line of the value at a path of mapping keys and
 // sequence indexes, or 0.
 func lineOf(n *yaml.Node, path ...string) int {
+	if v := nodeAt(n, path...); v != nil {
+		return v.Line
+	}
+	return 0
+}
+
+// nodeAt returns the value at a path of mapping keys and sequence indexes,
+// or nil.
+func nodeAt(n *yaml.Node, path ...string) *yaml.Node {
 	if n.Kind == yaml.DocumentNode && len(n.Content) > 0 {
 		n = n.Content[0]
 	}
@@ -256,18 +325,18 @@ func lineOf(n *yaml.Node, path ...string) int {
 				}
 			}
 			if next == nil {
-				return 0
+				return nil
 			}
 			n = next
 		case yaml.SequenceNode:
 			var i int
 			if _, err := fmt.Sscan(p, &i); err != nil || i >= len(n.Content) {
-				return 0
+				return nil
 			}
 			n = n.Content[i]
 		default:
-			return 0
+			return nil
 		}
 	}
-	return n.Line
+	return n
 }

@@ -54,12 +54,12 @@ func (p *builder) asyncAPI(b []byte) error {
 		return err
 	}
 	info := get(r, "info")
-	api := API(p.repo, p.file, str(get(info, "title")))
+	api := p.apiFor(str(get(info, "title")))
 	line := keyLine(info, "title")
 	if line == 0 {
 		line = keyLine(r, AsyncAPI)
 	}
-	p.fact(p.repo, "provides_api", &api, "", line)
+	p.provide(api, line)
 	d := newDefs()
 	d.add(get(get(r, "components"), "schemas"))
 	if strings.HasPrefix(str(get(r, AsyncAPI)), "2") {
@@ -184,7 +184,9 @@ func (p *builder) message(r *yaml.Node, d *defs, channel string, channelLine int
 	if !p.event(ev.Key) {
 		return false
 	}
-	p.fact(p.repo, predicate, &ev, "", opLine)
+	if p.repo.Type == "repository" {
+		p.fact(p.repo, predicate, &ev, "", opLine)
+	}
 	p.fact(ev, "channel", nil, channel, channelLine)
 	payload := get(m.node, "payload")
 	if model := p.schemaModel(payload, m.name+" payload", d); model != nil {

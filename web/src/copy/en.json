@@ -388,7 +388,8 @@
       "confluence": "Confluence",
       "jira": "Jira",
       "github": "GitHub",
-      "azdo": "Azure DevOps Server"
+      "azdo": "Azure DevOps Server",
+      "backstage": "Backstage"
     },
     "status": {
       "active": "Active",
@@ -491,8 +492,12 @@
       "confluence": "The URL before /rest, such as https://wiki.acme.test.",
       "jira": "The URL before /rest, such as https://jira.acme.test.",
       "github": "Use https://api.github.com for GitHub. Use https://git.acme.test/api/v3 for GitHub Enterprise Server.",
-      "azdo": "The collection URL, such as https://ado.acme.test/tfs/AcmeCollection."
+      "azdo": "The collection URL, such as https://ado.acme.test/tfs/AcmeCollection.",
+      "backstage": "The URL of the Backstage backend, such as https://backstage.acme.test. Use a static external access token."
     },
+    "frontendUrl": "Web address",
+    "frontendUrlHint": "The Backstage web address for links. Leave it empty when it is the same as the base URL.",
+    "namespaces": "Namespaces",
     "apiVersion": "API version",
     "apiVersionHint": "Assay sends this api-version with each request.",
     "repositories": "Repositories",

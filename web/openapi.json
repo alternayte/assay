@@ -938,7 +938,8 @@
               "confluence",
               "jira",
               "github",
-              "azdo"
+              "azdo",
+              "backstage"
             ],
             "type": "string"
           },
@@ -1062,7 +1063,8 @@
               "confluence",
               "jira",
               "github",
-              "azdo"
+              "azdo",
+              "backstage"
             ],
             "type": "string"
           },
@@ -5932,7 +5934,8 @@
               "confluence",
               "jira",
               "github",
-              "azdo"
+              "azdo",
+              "backstage"
             ],
             "type": "string"
           },

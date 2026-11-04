@@ -134,6 +134,36 @@ func (q *Queries) DeleteComponents(ctx context.Context, arg DeleteComponentsPara
 	return err
 }
 
+const entitiesByPrefix = `-- name: EntitiesByPrefix :many
+SELECT id FROM entities WHERE key LIKE ANY($1::text[]) AND status <> 'merged' ORDER BY key LIMIT $2
+`
+
+type EntitiesByPrefixParams struct {
+	Prefixes []string
+	Lim      int32
+}
+
+// The entities whose keys match one of the LIKE patterns.
+func (q *Queries) EntitiesByPrefix(ctx context.Context, arg EntitiesByPrefixParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, entitiesByPrefix, arg.Prefixes, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const entityByKey = `-- name: EntityByKey :one
 SELECT id, key, type FROM entities WHERE key = $1 AND status = 'active'
 `
@@ -722,6 +752,51 @@ type SetSectionInputParams struct {
 func (q *Queries) SetSectionInput(ctx context.Context, arg SetSectionInputParams) error {
 	_, err := q.db.Exec(ctx, setSectionInput, arg.InputHash, arg.ID)
 	return err
+}
+
+const specOperations = `-- name: SpecOperations :many
+SELECT DISTINCT a.key AS api_key, coalesce(entity_display_name(a.id, $1::bigint[]), a.key)::text AS api_name, o.key AS operation_key
+FROM entities a
+JOIN claims c ON c.subject_id = a.id AND c.predicate = 'has_operation' AND c.retracted_at IS NULL
+JOIN entities o ON o.id = c.object_entity_id
+WHERE a.key LIKE $2::text AND a.key NOT LIKE $3::text
+  AND EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id AND e.connection_id = ANY($1::bigint[])
+                                               AND e.source_type = 'repository')
+ORDER BY a.key
+`
+
+type SpecOperationsParams struct {
+	Visible  []int64
+	Prefix   string
+	Inferred string
+}
+
+type SpecOperationsRow struct {
+	ApiKey       string
+	ApiName      string
+	OperationKey string
+}
+
+// The operations of the spec apis of a repository: apis whose keys start
+// with the prefix, with has_operation evidence from a spec file.
+func (q *Queries) SpecOperations(ctx context.Context, arg SpecOperationsParams) ([]SpecOperationsRow, error) {
+	rows, err := q.db.Query(ctx, specOperations, arg.Visible, arg.Prefix, arg.Inferred)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SpecOperationsRow
+	for rows.Next() {
+		var i SpecOperationsRow
+		if err := rows.Scan(&i.ApiKey, &i.ApiName, &i.OperationKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const startRun = `-- name: StartRun :one

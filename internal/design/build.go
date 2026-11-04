@@ -16,6 +16,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/alternayte/assay/internal/claims"
+	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/pages"
@@ -65,7 +66,7 @@ func (s *Service) QueueBuild(ctx context.Context, tx pgx.Tx, connectionID int64)
 // Limits of the model inputs, in tokens.
 const (
 	digestInputTokens  = 6000
-	digestOutputTokens = 700
+	digestOutputTokens = 2500
 	sectionDigestWords = 220
 	sectionOutTokens   = 1500
 	maxDocPassages     = 12
@@ -80,6 +81,9 @@ type repoInput struct {
 	repo         string
 	items        []RepositoryItemsRow
 	passages     map[int64][]ItemPassagesRow
+	// specAPIs are the spec apis of the repository by protocol. Inferred
+	// operations attach to them.
+	specAPIs map[string]content.EntityRef
 }
 
 // budget counts the tokens of one build.
@@ -225,6 +229,9 @@ func (s *Service) buildSteps(ctx context.Context, in *repoInput, rules Rules, b 
 	for _, p := range ps {
 		in.passages[p.ItemID] = append(in.passages[p.ItemID], p)
 	}
+	if in.specAPIs, err = s.specAPIs(ctx, in); err != nil {
+		return err
+	}
 	comps := Components(in.name, files, rules.MaxSections)
 	old, err := q.Components(ctx, ComponentsParams{EntityID: in.entityID, ConnectionID: in.connectionID})
 	if err != nil {
@@ -297,15 +304,19 @@ func catalogPaths(items []RepositoryItemsRow) map[string]string {
 	return out
 }
 
-// digest writes the internal summary of a component from its code.
+// digest writes the internal summary of a component from its code, and the
+// contracts that the code states as inferred facts of its passages.
 func (s *Service) digest(ctx context.Context, in *repoInput, row DesignComponent, c Component, byPath map[string]RepositoryItemsRow, b *budget) error {
 	cs := map[string]Cite{}
+	byID := map[string]marked{}
+	var items []int64
 	var body strings.Builder
 	fmt.Fprintf(&body, "<component path=%q kind=%q files=\"%d\">\n", c.Path, c.Kind, len(c.Files))
 	tokens := 0
 	n := 0
 	for _, f := range c.Files {
 		it := byPath[f]
+		items = append(items, it.ID)
 		for _, p := range in.passages[it.ID] {
 			t := models.EstimateTokens(p.Text)
 			if tokens+t > digestInputTokens {
@@ -315,26 +326,43 @@ func (s *Service) digest(ctx context.Context, in *repoInput, row DesignComponent
 			n++
 			id := fmt.Sprintf("S%d", n)
 			cs[id] = passageCite(it, p, in.kind)
+			byID[id] = marked{item: it.ID, row: p}
 			fmt.Fprintf(&body, "<passage id=%q file=%q lines=\"%d-%d\">\n%s\n</passage>\n", id, f, deref(p.StartLine), deref(p.EndLine), data(p.Text))
 		}
 	}
 	body.WriteString("</component>")
 	if n == 0 {
-		return New(s.Pool).SetDigest(ctx, SetDigestParams{ID: row.ID, Digest: "", DigestCites: []byte("{}"), DigestHash: hashOf(row.PassageSetHash), Now: s.now()})
+		return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			if err := content.WriteInferred(ctx, tx, in.connectionID, items, nil, s.now(), s.Log); err != nil {
+				return err
+			}
+			return New(tx).SetDigest(ctx, SetDigestParams{ID: row.ID, Digest: "", DigestCites: []byte("{}"), DigestHash: hashOf(row.PassageSetHash), Now: s.now()})
+		})
 	}
 	msgs := []models.Message{{Role: "system", Content: DigestPrompt}, {Role: "user", Content: body.String()}}
-	res, err := s.Models.Chat(ctx, models.Design, models.ChatRequest{Messages: msgs, MaxTokens: digestOutputTokens, Ref: "design:digest:" + in.key})
+	res, err := s.Models.Chat(ctx, models.Design, models.ChatRequest{Messages: msgs, MaxTokens: digestOutputTokens, Schema: digestSchema(),
+		SchemaName: "design_digest", Ref: "design:digest:" + in.key})
 	if err != nil {
 		return err
 	}
 	b.add(res, tokens)
-	notes := keepCited(res.Content, cs)
+	var ans digestAnswer
+	if err := json.Unmarshal([]byte(res.Content), &ans); err != nil {
+		ans = digestAnswer{Notes: res.Content}
+	}
+	notes := keepCited(ans.Notes, cs)
 	used := map[string]Cite{}
 	for _, m := range citedMarkers(notes) {
 		used[m] = cs[m]
 	}
 	raw, _ := json.Marshal(used)
-	return New(s.Pool).SetDigest(ctx, SetDigestParams{ID: row.ID, Digest: notes, DigestCites: raw, DigestHash: hashOf(notes, used), Now: s.now()})
+	facts := inferred(in, ans, byID)
+	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		if err := content.WriteInferred(ctx, tx, in.connectionID, items, facts, s.now(), s.Log); err != nil {
+			return err
+		}
+		return New(tx).SetDigest(ctx, SetDigestParams{ID: row.ID, Digest: notes, DigestCites: raw, DigestHash: hashOf(notes, used), Now: s.now()})
+	})
 }
 
 var (

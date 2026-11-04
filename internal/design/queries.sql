@@ -132,3 +132,19 @@ SELECT DISTINCT c.entity_id, c.connection_id FROM design_components c WHERE c.en
 
 -- name: SetSectionInput :exec
 UPDATE design_sections SET input_hash = @input_hash WHERE id = @id;
+
+-- name: SpecOperations :many
+-- The operations of the spec apis of a repository: apis whose keys start
+-- with the prefix, with has_operation evidence from a spec file.
+SELECT DISTINCT a.key AS api_key, coalesce(entity_display_name(a.id, @visible::bigint[]), a.key)::text AS api_name, o.key AS operation_key
+FROM entities a
+JOIN claims c ON c.subject_id = a.id AND c.predicate = 'has_operation' AND c.retracted_at IS NULL
+JOIN entities o ON o.id = c.object_entity_id
+WHERE a.key LIKE @prefix::text AND a.key NOT LIKE @inferred::text
+  AND EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id AND e.connection_id = ANY(@visible::bigint[])
+                                               AND e.source_type = 'repository')
+ORDER BY a.key;
+
+-- name: EntitiesByPrefix :many
+-- The entities whose keys match one of the LIKE patterns.
+SELECT id FROM entities WHERE key LIKE ANY(@prefixes::text[]) AND status <> 'merged' ORDER BY key LIMIT @lim;

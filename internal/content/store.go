@@ -365,13 +365,7 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		return nil
 	}
 	quote := Normalize(f.Quote)
-	var passageHash []byte
-	for _, p := range ps {
-		if strings.Contains(p.Norm, quote) {
-			passageHash = p.Hash
-			break
-		}
-	}
+	passageHash := passageOf(ps, quote, f.Line)
 	if passageHash == nil {
 		in.log.Warn("fact dropped", "predicate", f.Predicate, "reason", "the quote is in no passage")
 		return nil
@@ -413,6 +407,24 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		}
 	}
 	return in.evidence(ctx, claimID, passageHash, "field", "supports", quote, source, at)
+}
+
+// passageOf returns the hash of the passage that holds a quote: the one
+// whose lines hold line when passages have lines, else the first.
+func passageOf(ps []Passage, quote string, line int) []byte {
+	var first []byte
+	for _, p := range ps {
+		if !strings.Contains(p.Norm, quote) {
+			continue
+		}
+		if line > 0 && p.StartLine <= line && line <= p.EndLine {
+			return p.Hash
+		}
+		if first == nil {
+			first = p.Hash
+		}
+	}
+	return first
 }
 
 // evidence adds an evidence row. New support for a claim reopens the

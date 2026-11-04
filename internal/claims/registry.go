@@ -11,7 +11,7 @@ import (
 
 // EntityTypes are the entity types (REQ-ENT-001).
 var EntityTypes = []string{"person", "team", "service", "api", "system", "resource", "repository", "project",
-	"initiative", "issue", "document", "decision", "environment", "term"}
+	"initiative", "issue", "document", "decision", "environment", "term", "operation", "event", "data_model"}
 
 // Object kinds that are not entity types.
 const (
@@ -32,6 +32,9 @@ type Predicate struct {
 	Priority []string
 	// NeverConflicts is set for stated.
 	NeverConflicts bool
+	// Extract is set for the predicates that prose extraction may use. The
+	// extract schema and the extractor version read only these.
+	Extract bool
 }
 
 // Source types of evidence. decision is the source of repo_system claims
@@ -70,6 +73,22 @@ func init() {
 		{Name: "broader", Subjects: []string{"term"}, Objects: []string{"term"}, Multi: true, Priority: []string{"registry", "others"}},
 		{Name: "relates_to", Subjects: []string{"term"}, Objects: []string{ObjAny}, Multi: true, Priority: []string{"registry", "others"}},
 		{Name: "stated", Subjects: []string{ObjAny}, Objects: []string{ObjText}, Multi: true, Priority: []string{"others"}, NeverConflicts: true},
+	} {
+		p.Extract = true
+		Registry[p.Name] = p
+	}
+	// Contracts come from spec files and from design digests, never from
+	// prose extraction.
+	contract := []string{"registry", "repository", "catalog", "others", "decision"}
+	for _, p := range []Predicate{
+		{Name: "has_operation", Subjects: []string{"api"}, Objects: []string{"operation"}, Multi: true, Priority: contract},
+		{Name: "request", Subjects: []string{"operation"}, Objects: []string{"data_model"}, Priority: contract},
+		{Name: "response", Subjects: []string{"operation"}, Objects: []string{"data_model"}, Multi: true, Priority: contract},
+		{Name: "publishes", Subjects: []string{"service", "repository"}, Objects: []string{"event"}, Multi: true, Priority: contract},
+		{Name: "subscribes_to", Subjects: []string{"service", "repository"}, Objects: []string{"event"}, Multi: true, Priority: contract},
+		{Name: "payload", Subjects: []string{"event"}, Objects: []string{"data_model"}, Priority: contract},
+		{Name: "channel", Subjects: []string{"event"}, Objects: []string{ObjText}, Priority: contract},
+		{Name: "has_field", Subjects: []string{"data_model"}, Objects: []string{ObjText}, Multi: true, Priority: contract},
 	} {
 		Registry[p.Name] = p
 	}

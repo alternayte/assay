@@ -288,6 +288,16 @@ func (q *Queries) DeleteChunks(ctx context.Context, ids []int64) error {
 	return err
 }
 
+const deleteInferredEvidence = `-- name: DeleteInferredEvidence :exec
+DELETE FROM claim_evidence WHERE item_id = ANY($1::bigint[]) AND kind = 'passage' AND source_type = 'decision'
+`
+
+// vis:system
+func (q *Queries) DeleteInferredEvidence(ctx context.Context, itemIds []int64) error {
+	_, err := q.db.Exec(ctx, deleteInferredEvidence, itemIds)
+	return err
+}
+
 const deleteItem = `-- name: DeleteItem :execrows
 DELETE FROM source_items WHERE id = $1
 `
@@ -462,6 +472,32 @@ func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) 
 		&i.SourceUpdatedAt,
 	)
 	return i, err
+}
+
+const inferredClaims = `-- name: InferredClaims :many
+SELECT DISTINCT claim_id FROM claim_evidence
+WHERE item_id = ANY($1::bigint[]) AND kind = 'passage' AND source_type = 'decision'
+`
+
+// vis:system
+func (q *Queries) InferredClaims(ctx context.Context, itemIds []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, inferredClaims, itemIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var claim_id int64
+		if err := rows.Scan(&claim_id); err != nil {
+			return nil, err
+		}
+		items = append(items, claim_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertChunks = `-- name: InsertChunks :exec

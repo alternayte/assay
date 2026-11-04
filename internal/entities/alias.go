@@ -31,7 +31,7 @@ func NormalizeAlias(s string) string {
 }
 
 // Providers are the key prefixes of entities (REQ-ENT-002).
-var Providers = []string{"registry", "backstage", "jira", "confluence", "github", "azdo"}
+var Providers = []string{"registry", "backstage", "jira", "confluence", "github", "azdo", "api", "operation", "event", "data_model"}
 
 // CheckRef reports whether an entity type and key are valid: a known type
 // and a provider-qualified key.

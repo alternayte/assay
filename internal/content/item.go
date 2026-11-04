@@ -57,4 +57,7 @@ type Fact struct {
 	// Source is the evidence source type, such as catalog. Empty means the
 	// type of the connection.
 	Source string `json:",omitempty"`
+	// Line is the source line of the quote, or 0. It selects the passage
+	// when the same quote is in several passages.
+	Line int `json:",omitempty"`
 }

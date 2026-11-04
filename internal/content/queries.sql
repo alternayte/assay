@@ -295,3 +295,12 @@ JOIN source_versions v ON v.id = i.version_id
 WHERE i.id > @after
 ORDER BY i.id
 LIMIT @lim;
+
+-- name: InferredClaims :many
+-- vis:system
+SELECT DISTINCT claim_id FROM claim_evidence
+WHERE item_id = ANY(@item_ids::bigint[]) AND kind = 'passage' AND source_type = 'decision';
+
+-- name: DeleteInferredEvidence :exec
+-- vis:system
+DELETE FROM claim_evidence WHERE item_id = ANY(@item_ids::bigint[]) AND kind = 'passage' AND source_type = 'decision';

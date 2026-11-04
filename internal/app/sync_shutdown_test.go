@@ -74,6 +74,13 @@ func TestSCN_SYN_013_ShutdownRequeuesRunningSync(t *testing.T) {
 
 	stop := worker(t, db)
 	waitRun(t, env, run, "running", 15*time.Second)
+	// The run must have sent its first request, so that the fault is used
+	// before the stop.
+	for end := time.Now().Add(15 * time.Second); len(src.Hits()) == 0; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("the run sent no request")
+		}
+	}
 	stop()
 	if s := runStatus(t, env, run); s != "queued" {
 		t.Fatalf("after the shutdown the run is %s", s)

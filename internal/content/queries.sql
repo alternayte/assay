@@ -192,14 +192,36 @@ WHERE c.id = ANY(@ids::bigint[]) AND c.retracted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id);
 
 -- name: GetVisibleItem :one
+-- The entity of the item is empty when it has no visible source. A merged
+-- entity shows as its winner.
 SELECT i.id, i.connection_id, c.name AS connection_name, c.kind AS connection_kind, i.kind, i.title, i.url, i.author,
-       i.source_updated_at
+       i.source_updated_at, coalesce(ent.key, '')::text AS entity_key, coalesce(ent.name, '')::text AS entity_name,
+       coalesce(ent.type, '')::text AS entity_type
 FROM source_items i
 JOIN connections c ON c.id = i.connection_id
+LEFT JOIN LATERAL (
+    SELECT coalesce(entity_visible_key(w.id, @visible::bigint[]), w.key)::text AS key,
+           coalesce(entity_display_name(w.id, @visible::bigint[]), w.key)::text AS name, w.type
+    FROM entities e
+    JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
+    WHERE e.id = i.entity_id
+      AND EXISTS (SELECT 1 FROM entity_sources s
+                  WHERE s.entity_id = ANY(entity_members(w.id))
+                    AND s.connection_id = ANY(@visible::bigint[]))
+) ent ON true
 WHERE i.id = @id AND i.connection_id = ANY(@visible::bigint[]);
 
+-- name: VisibleItemByURL :one
+-- The visible item with the URL. Of several, the newest source update wins,
+-- then the lowest ID.
+SELECT i.id
+FROM source_items i
+WHERE i.url = @url AND i.connection_id = ANY(@visible::bigint[])
+ORDER BY i.source_updated_at DESC NULLS LAST, i.id
+LIMIT 1;
+
 -- name: VisiblePassages :many
-SELECT hash, ordinal, kind, heading_path, text
+SELECT hash, ordinal, kind, heading_path, text, start_line, end_line
 FROM passages
 WHERE item_id = @item_id AND connection_id = ANY(@visible::bigint[])
 ORDER BY ordinal;

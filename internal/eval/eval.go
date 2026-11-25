@@ -1,6 +1,7 @@
 // Package eval runs a question set against an Assay instance and scores
 // the answers (REQ-EVL-002 to REQ-EVL-004): citation precision and recall,
-// fact recall, no-evidence accuracy, latency and cost.
+// fact recall, no-evidence accuracy, latency and cost. The retrieval eval
+// scores the search_context ranking alone (REQ-EVL-006).
 package eval
 
 import (
@@ -34,6 +35,9 @@ type Question struct {
 	Facts []string `yaml:"facts"`
 	// NoEvidence is true for a question that the sources cannot answer.
 	NoEvidence bool `yaml:"no_evidence"`
+	// Expected are the graded items that search should rank. Only the
+	// retrieval eval reads them.
+	Expected []Expected `yaml:"expected"`
 }
 
 // Load reads and checks a question set.
@@ -46,7 +50,8 @@ func Load(path string) ([]Question, error) {
 }
 
 // Parse decodes and checks a question set: unique IDs, a question text, and
-// sources and facts, or no_evidence with neither.
+// sources and facts, or no_evidence with neither. Expected items need a
+// source and a grade of 1 to 3, and one of them a grade of 2 or more.
 func Parse(b []byte) ([]Question, error) {
 	var qs []Question
 	dec := yaml.NewDecoder(bytes.NewReader(b))
@@ -73,6 +78,17 @@ func Parse(b []byte) ([]Question, error) {
 		}
 		if !q.NoEvidence && (len(q.Sources) == 0 || len(q.Facts) == 0) {
 			errs = append(errs, fmt.Errorf("%s: give sources and facts, or no_evidence", where))
+		}
+		if q.NoEvidence && len(q.Expected) > 0 {
+			errs = append(errs, fmt.Errorf("%s: a no-evidence question has no expected items", where))
+		}
+		for _, e := range q.Expected {
+			if strings.TrimSpace(e.Source) == "" || e.Grade < 1 || e.Grade > 3 {
+				errs = append(errs, fmt.Errorf("%s: an expected item needs a source and a grade of 1 to 3", where))
+			}
+		}
+		if len(q.Expected) > 0 && !slices.ContainsFunc(q.Expected, func(e Expected) bool { return e.Grade >= 2 }) {
+			errs = append(errs, fmt.Errorf("%s: give an expected item with a grade of 2 or more", where))
 		}
 	}
 	return qs, errors.Join(errs...)

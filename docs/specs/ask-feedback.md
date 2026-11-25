@@ -15,7 +15,7 @@ Under each answer, the user marks it as helpful or not helpful. A not-helpful ma
 - Group = the first visible entity that the question names, from `MentionedEntities`. A question that names none goes under "No named thing" — this needs no model call.
 - Each row shows the question, the date, the mark, the reason and the wrong-citation flag. A row opens no answer text.
 - The Ask page says once, under the marks: "Admins can see questions with no answer or a not-helpful mark. They do not see who asked."
-- `assay eval --from-feedback --url --token --out <file>` calls a new admin route `GET /api/v1/feedback/questions`. It writes the existing eval YAML: the question, `sources` from the titles of the cited items of up-marked answers, `facts` empty with a `# TODO` comment, and `no_evidence: true` for no-evidence questions with a down mark — a person adds the facts, and `Parse` refuses the file until then.
+- `assay eval --from-feedback --url --token --out <file>` calls a new admin route `GET /api/v1/feedback/questions`. It writes the existing eval YAML: the question, `sources` from the titles of the cited items of up-marked answers, `facts` empty with an `# Action:` comment, and `no_evidence: true` for no-evidence questions with a down mark — a person adds the facts, and `Parse` refuses the file until then.
 - The export holds only questions whose connections the token user can see, with the same rule as the list.
 - The output file is never in the repository. The command prints that the file holds real questions.
 - `DeleteQuestionsBefore` also deletes their feedback, by the foreign key with `ON DELETE CASCADE` — retention covers feedback too.

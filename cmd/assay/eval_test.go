@@ -156,3 +156,73 @@ func TestSCN_EVL_006_RetrievalEvalRowPerQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestSCN_ASK_011_FromFeedbackWritesAQuestionSet(t *testing.T) {
+	env := testkit.Start(t)
+	owner := env.Setup("owner@acme.test")
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, owner, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
+		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
+	if r := env.RunNow(owner, conn, "sync"); r.Status != "succeeded" {
+		t.Fatalf("sync: %+v", r)
+	}
+	fake, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, owner, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, owner, "answer", testkit.Function{Endpoint: ep, Model: "fake-chat"})
+	questionID := regexp.MustCompile(`"questionId":(\d+)`)
+	ask := func(q string) string {
+		t.Helper()
+		r := owner.Must(http.StatusOK, http.MethodPost, "/api/v1/ask", map[string]string{"question": q})
+		m := questionID.FindAllSubmatch(r.Body, -1)
+		if len(m) == 0 {
+			t.Fatalf("no answer: %s", r.Body)
+		}
+		return string(m[len(m)-1][1])
+	}
+	mark := func(id, rating string) {
+		owner.Must(http.StatusOK, http.MethodPut, "/api/v1/questions/"+id+"/feedback", map[string]string{"rating": rating})
+	}
+	mark(ask("What does the Payments API do?"), "up")
+	mark(ask("Which team owns the Payments API?"), "down")
+	fake.OnChat(func(map[string]any) string { return "Nobody knows." })
+	mark(ask("What is on the cafeteria menu on Fridays?"), "down")
+	ask("Is this question rated?")
+
+	var tok struct {
+		Value string `json:"value"`
+	}
+	owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/tokens", map[string]any{"name": "export"}).JSON(t, &tok)
+	set := filepath.Join(t.TempDir(), "feedback.yaml")
+	var out, errOut bytes.Buffer
+	if code := run([]string{"eval", "--from-feedback", "--url", env.HTTP.URL, "--token", tok.Value, "--out", set}, nil, &out, &errOut); code != 0 {
+		t.Fatalf("export: exit %d: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "real questions") {
+		t.Fatalf("the command does not say that the file holds real questions: %s", out.String())
+	}
+	b, err := os.ReadFile(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qs, err := eval.Parse(b)
+	if err == nil || !strings.Contains(err.Error(), "give sources and facts") {
+		t.Fatalf("Parse accepts the set without facts: %v\n%s", err, b)
+	}
+	if len(qs) != 3 || qs[0].Question != "What does the Payments API do?" || len(qs[0].Sources) == 0 || !qs[2].NoEvidence {
+		t.Fatalf("questions %+v\n%s", qs, b)
+	}
+	// A person adds the sources and facts. Then the set parses.
+	filled := strings.ReplaceAll(strings.ReplaceAll(string(b), "facts: []", "facts: [card payments]"), "sources: []", "sources: [README]")
+	if _, err := eval.Parse([]byte(filled)); err != nil {
+		t.Fatalf("the filled set does not parse: %v\n%s", err, filled)
+	}
+
+	// The file never goes into the repository.
+	inRepo := filepath.Join("..", "..", "tmp", "feedback.yaml")
+	if code := run([]string{"eval", "--from-feedback", "--url", env.HTTP.URL, "--token", tok.Value, "--out", inRepo}, nil, &out, &errOut); code != 2 {
+		t.Fatalf("an export into the repository exits %d", code)
+	}
+	if _, err := os.Stat(inRepo); err == nil {
+		t.Fatal("the export wrote into the repository")
+	}
+}

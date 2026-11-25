@@ -55,10 +55,15 @@ type answer struct {
 	} `json:"notice"`
 }
 
-// ask posts a question and returns the server-sent events.
-func ask(t *testing.T, cl *testkit.Client, q string) []event {
+// ask posts a question, as a follow-up in a thread when one is given, and
+// returns the server-sent events.
+func ask(t *testing.T, cl *testkit.Client, q string, thread ...int64) []event {
 	t.Helper()
-	r := cl.Do(http.MethodPost, "/api/v1/ask", map[string]string{"question": q})
+	body := map[string]any{"question": q}
+	if len(thread) > 0 && thread[0] != 0 {
+		body["threadId"] = thread[0]
+	}
+	r := cl.Do(http.MethodPost, "/api/v1/ask", body)
 	if r.Status != http.StatusOK || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("ask: %d %s %s", r.Status, r.Header.Get("Content-Type"), r.Body)
 	}

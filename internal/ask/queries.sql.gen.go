@@ -11,6 +11,60 @@ import (
 	"time"
 )
 
+const citedSource = `-- name: CitedSource :one
+SELECT i.id, i.title, i.url, i.kind, i.source_updated_at, i.connection_id, k.name AS connection_name, k.kind AS source_type,
+       string_agg(p.text, E'\n\n' ORDER BY p.ordinal)::text AS text,
+       (SELECT f.heading_path FROM passages f
+        WHERE f.item_id = i.id AND f.version_id = i.version_id AND f.connection_id = ANY($1::bigint[])
+          AND encode(f.hash, 'hex') = ANY($2::text[])
+        ORDER BY f.ordinal LIMIT 1)::text[] AS heading_path
+FROM source_items i
+JOIN connections k ON k.id = i.connection_id
+JOIN passages p ON p.item_id = i.id AND p.version_id = i.version_id
+WHERE i.id = $3 AND i.connection_id = ANY($1::bigint[]) AND p.connection_id = ANY($1::bigint[])
+  AND encode(p.hash, 'hex') = ANY($2::text[])
+GROUP BY i.id, k.name, k.kind
+`
+
+type CitedSourceParams struct {
+	Visible []int64
+	Hashes  []string
+	ItemID  int64
+}
+
+type CitedSourceRow struct {
+	ID              int64
+	Title           string
+	Url             string
+	Kind            string
+	SourceUpdatedAt *time.Time
+	ConnectionID    int64
+	ConnectionName  string
+	SourceType      string
+	Text            string
+	HeadingPath     []string
+}
+
+// A cited source read again for the reader: the current passages of the
+// item with the hashes, in order.
+func (q *Queries) CitedSource(ctx context.Context, arg CitedSourceParams) (CitedSourceRow, error) {
+	row := q.db.QueryRow(ctx, citedSource, arg.Visible, arg.Hashes, arg.ItemID)
+	var i CitedSourceRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.Url,
+		&i.Kind,
+		&i.SourceUpdatedAt,
+		&i.ConnectionID,
+		&i.ConnectionName,
+		&i.SourceType,
+		&i.Text,
+		&i.HeadingPath,
+	)
+	return i, err
+}
+
 const codeLines = `-- name: CodeLines :one
 SELECT coalesce(min(p.start_line), 0)::integer AS start_line, coalesce(max(p.end_line), 0)::integer AS end_line
 FROM passages p
@@ -37,9 +91,12 @@ func (q *Queries) CodeLines(ctx context.Context, arg CodeLinesParams) (CodeLines
 }
 
 const deleteQuestionsBefore = `-- name: DeleteQuestionsBefore :execrows
-DELETE FROM questions WHERE created_at < $1
+DELETE FROM questions
+WHERE thread_id IN (SELECT t.thread_id FROM questions t GROUP BY t.thread_id HAVING max(t.created_at) < $1::timestamptz)
 `
 
+// Retention deletes whole threads by the time of their last turn. The
+// marks go with their questions.
 func (q *Queries) DeleteQuestionsBefore(ctx context.Context, before time.Time) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteQuestionsBefore, before)
 	if err != nil {
@@ -48,8 +105,67 @@ func (q *Queries) DeleteQuestionsBefore(ctx context.Context, before time.Time) (
 	return result.RowsAffected(), nil
 }
 
+const firstMentioned = `-- name: FirstMentioned :many
+SELECT n.ord::integer AS ord, m.entity_id,
+       coalesce(entity_visible_key(m.entity_id, $1::bigint[]), e.key)::text AS key,
+       coalesce(entity_display_name(m.entity_id, $1::bigint[]), e.key)::text AS name
+FROM unnest($2::text[]) WITH ORDINALITY AS n(norm, ord)
+JOIN LATERAL (
+    SELECT a.entity_id
+    FROM entity_aliases a
+    JOIN entities x ON x.id = a.entity_id
+    WHERE a.connection_id = ANY($1::bigint[])
+      AND x.status <> 'merged'
+      AND length(a.alias_norm) >= 3
+      AND strpos(' ' || n.norm || ' ', ' ' || a.alias_norm || ' ') > 0
+    GROUP BY a.entity_id
+    ORDER BY max(length(a.alias_norm)) DESC, a.entity_id
+    LIMIT 1
+) m ON true
+JOIN entities e ON e.id = m.entity_id
+`
+
+type FirstMentionedParams struct {
+	Visible []int64
+	Norms   []string
+}
+
+type FirstMentionedRow struct {
+	Ord      int32
+	EntityID int64
+	Key      string
+	Name     string
+}
+
+// The first visible entity that each normalized question names, by the
+// order of MentionedEntities. ord is the 1-based position in norms.
+func (q *Queries) FirstMentioned(ctx context.Context, arg FirstMentionedParams) ([]FirstMentionedRow, error) {
+	rows, err := q.db.Query(ctx, firstMentioned, arg.Visible, arg.Norms)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FirstMentionedRow
+	for rows.Next() {
+		var i FirstMentionedRow
+		if err := rows.Scan(
+			&i.Ord,
+			&i.EntityID,
+			&i.Key,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getQuestion = `-- name: GetQuestion :one
-SELECT id, user_id, text, answer_md, citations, flags, created_at FROM questions WHERE id = $1 AND user_id = $2
+SELECT id, user_id, text, answer_md, citations, flags, created_at, thread_id, turn FROM questions WHERE id = $1 AND user_id = $2
 `
 
 type GetQuestionParams struct {
@@ -68,17 +184,21 @@ func (q *Queries) GetQuestion(ctx context.Context, arg GetQuestionParams) (Quest
 		&i.Citations,
 		&i.Flags,
 		&i.CreatedAt,
+		&i.ThreadID,
+		&i.Turn,
 	)
 	return i, err
 }
 
 const insertQuestion = `-- name: InsertQuestion :one
-INSERT INTO questions (user_id, text, answer_md, citations, flags, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO questions (thread_id, turn, user_id, text, answer_md, citations, flags, created_at)
+VALUES ($1::bigint, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id
 `
 
 type InsertQuestionParams struct {
+	ThreadID  *int64
+	Turn      int32
 	UserID    string
 	Text      string
 	AnswerMd  string
@@ -87,8 +207,12 @@ type InsertQuestionParams struct {
 	CreatedAt time.Time
 }
 
+// Without a thread, the trigger questions_own_thread sets thread_id to the
+// ID of the question.
 func (q *Queries) InsertQuestion(ctx context.Context, arg InsertQuestionParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertQuestion,
+		arg.ThreadID,
+		arg.Turn,
 		arg.UserID,
 		arg.Text,
 		arg.AnswerMd,
@@ -101,31 +225,80 @@ func (q *Queries) InsertQuestion(ctx context.Context, arg InsertQuestionParams) 
 	return id, err
 }
 
-const listQuestions = `-- name: ListQuestions :many
-SELECT id, text, created_at FROM questions WHERE user_id = $1 ORDER BY id DESC LIMIT $2
+const itemTitles = `-- name: ItemTitles :many
+SELECT i.id, i.title FROM source_items i
+WHERE i.id = ANY($1::bigint[]) AND i.connection_id = ANY($2::bigint[])
 `
 
-type ListQuestionsParams struct {
-	UserID string
-	Lim    int32
+type ItemTitlesParams struct {
+	Ids     []int64
+	Visible []int64
 }
 
-type ListQuestionsRow struct {
-	ID        int64
-	Text      string
-	CreatedAt time.Time
+type ItemTitlesRow struct {
+	ID    int64
+	Title string
 }
 
-func (q *Queries) ListQuestions(ctx context.Context, arg ListQuestionsParams) ([]ListQuestionsRow, error) {
-	rows, err := q.db.Query(ctx, listQuestions, arg.UserID, arg.Lim)
+func (q *Queries) ItemTitles(ctx context.Context, arg ItemTitlesParams) ([]ItemTitlesRow, error) {
+	rows, err := q.db.Query(ctx, itemTitles, arg.Ids, arg.Visible)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListQuestionsRow
+	var items []ItemTitlesRow
 	for rows.Next() {
-		var i ListQuestionsRow
-		if err := rows.Scan(&i.ID, &i.Text, &i.CreatedAt); err != nil {
+		var i ItemTitlesRow
+		if err := rows.Scan(&i.ID, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listThreads = `-- name: ListThreads :many
+SELECT f.id, f.text, count(*)::integer AS turns, max(q.created_at)::timestamptz AS last_at
+FROM questions q
+JOIN questions f ON f.id = q.thread_id
+WHERE q.user_id = $1
+GROUP BY f.id, f.text
+ORDER BY max(q.id) DESC
+LIMIT $2
+`
+
+type ListThreadsParams struct {
+	UserID string
+	Lim    int32
+}
+
+type ListThreadsRow struct {
+	ID     int64
+	Text   string
+	Turns  int32
+	LastAt time.Time
+}
+
+// One row per thread: the first question, the turn count and the time of
+// the last turn.
+func (q *Queries) ListThreads(ctx context.Context, arg ListThreadsParams) ([]ListThreadsRow, error) {
+	rows, err := q.db.Query(ctx, listThreads, arg.UserID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListThreadsRow
+	for rows.Next() {
+		var i ListThreadsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Text,
+			&i.Turns,
+			&i.LastAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -169,6 +342,200 @@ func (q *Queries) MentionedEntities(ctx context.Context, arg MentionedEntitiesPa
 			return nil, err
 		}
 		items = append(items, entity_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const questionsToImprove = `-- name: QuestionsToImprove :many
+SELECT q.id, q.text, q.created_at, coalesce((q.flags ->> 'noEvidence')::boolean, false)::boolean AS no_evidence,
+       coalesce(f.rating, '')::text AS rating, coalesce(f.reason, '')::text AS reason, coalesce(f.wrong_citation, false)::boolean AS wrong_citation
+FROM questions q
+LEFT JOIN answer_feedback f ON f.question_id = q.id
+WHERE q.created_at >= $1
+  AND ((q.flags ->> 'noEvidence')::boolean IS TRUE OR f.rating = 'down')
+  AND NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements_text(coalesce(q.flags -> 'connections', '[]'::jsonb)) c
+      WHERE NOT (c::bigint = ANY($2::bigint[])))
+ORDER BY q.created_at DESC, q.id DESC
+LIMIT $3
+`
+
+type QuestionsToImproveParams struct {
+	Since   time.Time
+	Visible []int64
+	Lim     int32
+}
+
+type QuestionsToImproveRow struct {
+	ID            int64
+	Text          string
+	CreatedAt     time.Time
+	NoEvidence    bool
+	Rating        string
+	Reason        string
+	WrongCitation bool
+}
+
+// Questions of all users with no evidence or a not-helpful mark since a
+// time, whose connections are all in the visible set of the reader. It
+// never reads who asked.
+func (q *Queries) QuestionsToImprove(ctx context.Context, arg QuestionsToImproveParams) ([]QuestionsToImproveRow, error) {
+	rows, err := q.db.Query(ctx, questionsToImprove, arg.Since, arg.Visible, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QuestionsToImproveRow
+	for rows.Next() {
+		var i QuestionsToImproveRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Text,
+			&i.CreatedAt,
+			&i.NoEvidence,
+			&i.Rating,
+			&i.Reason,
+			&i.WrongCitation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const ratedQuestions = `-- name: RatedQuestions :many
+SELECT q.id, q.text, q.citations, coalesce((q.flags ->> 'noEvidence')::boolean, false)::boolean AS no_evidence, f.rating
+FROM questions q
+JOIN answer_feedback f ON f.question_id = q.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(coalesce(q.flags -> 'connections', '[]'::jsonb)) c
+    WHERE NOT (c::bigint = ANY($1::bigint[])))
+ORDER BY q.id
+`
+
+type RatedQuestionsRow struct {
+	ID         int64
+	Text       string
+	Citations  json.RawMessage
+	NoEvidence bool
+	Rating     string
+}
+
+// Questions of all users with a mark, whose connections are all in the
+// visible set of the reader. It never reads who asked.
+func (q *Queries) RatedQuestions(ctx context.Context, visible []int64) ([]RatedQuestionsRow, error) {
+	rows, err := q.db.Query(ctx, ratedQuestions, visible)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RatedQuestionsRow
+	for rows.Next() {
+		var i RatedQuestionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Text,
+			&i.Citations,
+			&i.NoEvidence,
+			&i.Rating,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setFeedback = `-- name: SetFeedback :exec
+INSERT INTO answer_feedback (question_id, rating, reason, wrong_citation, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $5)
+ON CONFLICT (question_id) DO UPDATE
+SET rating = EXCLUDED.rating, reason = EXCLUDED.reason, wrong_citation = EXCLUDED.wrong_citation, updated_at = EXCLUDED.updated_at
+`
+
+type SetFeedbackParams struct {
+	QuestionID    int64
+	Rating        string
+	Reason        string
+	WrongCitation bool
+	Now           time.Time
+}
+
+func (q *Queries) SetFeedback(ctx context.Context, arg SetFeedbackParams) error {
+	_, err := q.db.Exec(ctx, setFeedback,
+		arg.QuestionID,
+		arg.Rating,
+		arg.Reason,
+		arg.WrongCitation,
+		arg.Now,
+	)
+	return err
+}
+
+const threadTurns = `-- name: ThreadTurns :many
+SELECT q.id, q.thread_id, q.turn, q.text, q.answer_md, q.citations, q.flags, q.created_at,
+       coalesce(f.rating, '')::text AS rating, coalesce(f.reason, '')::text AS reason, coalesce(f.wrong_citation, false)::boolean AS wrong_citation
+FROM questions q
+LEFT JOIN answer_feedback f ON f.question_id = q.id
+WHERE q.thread_id = $1 AND q.user_id = $2
+ORDER BY q.turn
+`
+
+type ThreadTurnsParams struct {
+	ThreadID int64
+	UserID   string
+}
+
+type ThreadTurnsRow struct {
+	ID            int64
+	ThreadID      int64
+	Turn          int32
+	Text          string
+	AnswerMd      string
+	Citations     json.RawMessage
+	Flags         json.RawMessage
+	CreatedAt     time.Time
+	Rating        string
+	Reason        string
+	WrongCitation bool
+}
+
+// The turns of a thread of the user with their marks, in order.
+func (q *Queries) ThreadTurns(ctx context.Context, arg ThreadTurnsParams) ([]ThreadTurnsRow, error) {
+	rows, err := q.db.Query(ctx, threadTurns, arg.ThreadID, arg.UserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ThreadTurnsRow
+	for rows.Next() {
+		var i ThreadTurnsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ThreadID,
+			&i.Turn,
+			&i.Text,
+			&i.AnswerMd,
+			&i.Citations,
+			&i.Flags,
+			&i.CreatedAt,
+			&i.Rating,
+			&i.Reason,
+			&i.WrongCitation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

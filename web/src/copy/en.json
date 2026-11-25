@@ -371,7 +371,21 @@
     "jobsOpen": "Open the job queue",
     "notRun": "Run the checks to see the state of this install.",
     "colCheck": "Check",
-    "colResult": "Result"
+    "colResult": "Result",
+    "improveTitle": "Questions to improve",
+    "improveBody": "Questions of the last 90 days with no evidence or a not-helpful mark. You see a question only when you can read all its sources. The list does not show who asked.",
+    "improveEmpty": "No question needs work now.",
+    "noName": "No named thing",
+    "improveCount": "Questions: {count}",
+    "colQuestion": "Question",
+    "colAsked": "Asked",
+    "colMark": "Mark",
+    "colReason": "Reason",
+    "markUp": "Helpful",
+    "markDown": "Not helpful",
+    "markNone": "No mark",
+    "noEvidence": "No evidence",
+    "wrongCitation": "Wrong citation"
   },
   "connections": {
     "title": "Connections",
@@ -579,7 +593,16 @@
       "review": "Review",
       "decision": "Decision"
     },
-    "asked": "Asked {when}"
+    "asked": "Asked {when}",
+    "newQuestion": "New question",
+    "turn": "Question {n}",
+    "followUpLabel": "Follow-up question",
+    "followUpPlaceholder": "Ask more about this answer.",
+    "followUpHint": "Assay reads the earlier questions and answers of this thread.",
+    "threadFull": "This thread has 6 questions. Your next question starts a new thread.",
+    "threadStarted": "The last thread had 6 questions. Assay started a new thread for your question.",
+    "historyTurns": "{count} questions",
+    "lastAsked": "Last question {when}"
   },
   "entityTypes": {
     "person": "Person",
@@ -1136,5 +1159,47 @@
     "deleteConfirm": "Delete the entity",
     "propose": "Send to a reviewer",
     "cancel": "Cancel"
+  },
+  "feedback": {
+    "question": "Was this answer helpful?",
+    "up": "Helpful",
+    "down": "Not helpful",
+    "reason": "Reason",
+    "reasonHint": "Optional. Tell what is wrong with the answer.",
+    "wrongCitation": "A citation is wrong",
+    "save": "Save",
+    "saved": "Your mark is saved.",
+    "fixHint": "You can report a problem with a cited claim, or propose a finding from a cited source.",
+    "privacy": "Admins can see questions with no answer or a not-helpful mark. They do not see who asked."
+  },
+  "finding": {
+    "open": "Propose a finding",
+    "title": "Propose a finding",
+    "body": "A reviewer checks your finding. The source system does not change.",
+    "subject": "Subject",
+    "subjectHint": "Search for the thing that the finding is about.",
+    "predicate": "Relation",
+    "predicatePick": "Choose a relation",
+    "predicateHint": "The relations that the subject type permits.",
+    "valueKind": "Value type",
+    "valueEntity": "A thing",
+    "valueText": "A text",
+    "value": "Value",
+    "valueHint": "The value that the source states.",
+    "entityHint": "Search for the thing that the source names.",
+    "quote": "Quote",
+    "quoteHint": "Copy the exact words from {title}. Assay refuses a quote that is not in the source.",
+    "scope": "Environment",
+    "scopeHint": "Optional. For example, production.",
+    "note": "Note",
+    "noteHint": "Optional. Tell the reviewer why the finding is correct.",
+    "subjectRequired": "Choose a subject.",
+    "predicateRequired": "Choose a relation.",
+    "valueRequired": "Give a value.",
+    "quoteRequired": "Give a quote.",
+    "send": "Send finding",
+    "sent": "Your finding is in the review queue.",
+    "cancel": "Cancel",
+    "close": "Close"
   }
 }

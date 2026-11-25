@@ -110,15 +110,6 @@
       "Answer": {
         "additionalProperties": false,
         "properties": {
-          "$schema": {
-            "description": "A URL to the JSON Schema for this object.",
-            "examples": [
-              "https://example.com/api/v1/schemas/Answer.json"
-            ],
-            "format": "uri",
-            "readOnly": true,
-            "type": "string"
-          },
           "cited": {
             "items": {
               "type": "string"
@@ -140,6 +131,9 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/Feedback"
           },
           "links": {
             "$ref": "#/components/schemas/Linked"
@@ -164,6 +158,7 @@
             "type": "string"
           },
           "questionId": {
+            "description": "0 when Assay refused the question and did not store it.",
             "format": "int64",
             "type": "integer"
           },
@@ -178,6 +173,16 @@
               "$ref": "#/components/schemas/Source"
             },
             "type": "array"
+          },
+          "threadId": {
+            "description": "The ID of the first question of the thread.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "turn": {
+            "description": "The position in the thread, from 1.",
+            "format": "int64",
+            "type": "integer"
           },
           "uncited": {
             "description": "Sentences without a valid citation.",
@@ -199,6 +204,8 @@
         },
         "required": [
           "questionId",
+          "threadId",
+          "turn",
           "question",
           "markdown",
           "cited",
@@ -258,6 +265,11 @@
             "maxLength": 1000,
             "minLength": 1,
             "type": "string"
+          },
+          "threadId": {
+            "description": "A thread of the caller. The question is a follow-up in it. A full thread starts a new thread.",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
@@ -2585,6 +2597,73 @@
         ],
         "type": "object"
       },
+      "Feedback": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Feedback.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "wrongCitation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating",
+          "reason",
+          "wrongCitation"
+        ],
+        "type": "object"
+      },
+      "FeedbackInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/FeedbackInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "Only a down mark keeps it.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "wrongCitation": {
+            "description": "A citation of the answer is wrong. Only a down mark keeps it.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "type": "object"
+      },
       "FieldError": {
         "additionalProperties": false,
         "properties": {
@@ -2984,6 +3063,97 @@
           "unchanged",
           "proposals",
           "errors"
+        ],
+        "type": "object"
+      },
+      "ImproveGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "entityKey": {
+            "type": "string"
+          },
+          "entityName": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/ImproveQuestion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entityKey",
+          "entityName",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "ImproveOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ImproveOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ImproveGroup"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "type": "object"
+      },
+      "ImproveQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "askedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "noEvidence": {
+            "type": "boolean"
+          },
+          "rating": {
+            "description": "Empty without a mark.",
+            "enum": [
+              "",
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "wrongCitation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "askedAt",
+          "noEvidence",
+          "rating",
+          "reason",
+          "wrongCitation"
         ],
         "type": "object"
       },
@@ -3973,7 +4143,8 @@
               "answer_off",
               "budget_exceeded",
               "answer_failed",
-              "hidden"
+              "hidden",
+              "thread_hidden"
             ],
             "type": "string"
           },
@@ -4876,22 +5047,91 @@
       "QuestionSummary": {
         "additionalProperties": false,
         "properties": {
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
           "id": {
+            "description": "The thread ID: the ID of the first question.",
             "format": "int64",
             "type": "integer"
           },
-          "text": {
+          "lastAt": {
+            "description": "The time of the last turn.",
+            "format": "date-time",
             "type": "string"
+          },
+          "text": {
+            "description": "The first question of the thread.",
+            "type": "string"
+          },
+          "turns": {
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "text",
-          "createdAt"
+          "turns",
+          "lastAt"
+        ],
+        "type": "object"
+      },
+      "RatedOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RatedOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/RatedQuestion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "type": "object"
+      },
+      "RatedQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "noEvidence": {
+            "type": "boolean"
+          },
+          "question": {
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "sources": {
+            "description": "The titles of the cited items of an up-marked answer, as the reader sees them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "question",
+          "rating",
+          "noEvidence",
+          "sources"
         ],
         "type": "object"
       },
@@ -6549,6 +6789,35 @@
         ],
         "type": "object"
       },
+      "Thread": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Thread.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "threadId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/Answer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "threadId",
+          "turns"
+        ],
+        "type": "object"
+      },
       "Token": {
         "additionalProperties": false,
         "properties": {
@@ -7416,7 +7685,7 @@
     },
     "/api/v1/ask": {
       "post": {
-        "description": "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.",
+        "description": "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice. The thread of another user gives 404.",
         "operationId": "ask",
         "requestBody": {
           "content": {
@@ -9064,6 +9333,38 @@
         ]
       }
     },
+    "/api/v1/diagnostics/questions": {
+      "get": {
+        "description": "Questions of all users of the last 90 days with no evidence or a not-helpful mark, grouped by the first thing that each names. A question shows only when all connections of its answer are visible to the caller. No row names the asker or holds the answer.",
+        "operationId": "listQuestionsToImprove",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImproveOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the questions to improve",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/api/v1/domains": {
       "get": {
         "operationId": "listDomains",
@@ -10273,6 +10574,38 @@
         ]
       }
     },
+    "/api/v1/feedback/questions": {
+      "get": {
+        "description": "assay eval --from-feedback reads it. Each question has a mark, and all connections of its answer are visible to the caller. An up-marked answer gives the titles of its cited items. No row names the asker.",
+        "operationId": "listFeedbackQuestions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RatedOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the rated questions for an evaluation set",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/api/v1/findings": {
       "post": {
         "description": "Creates a finding card and a Proposed claim. Each quote must be an exact part of a visible item. A hidden item gives 404.",
@@ -11469,7 +11802,7 @@
     },
     "/api/v1/questions": {
       "get": {
-        "description": "The history is private. Each user sees only their own questions.",
+        "description": "The history is private. Each user sees only their own questions. Each row is one thread.",
         "operationId": "listQuestions",
         "responses": {
           "200": {
@@ -11493,7 +11826,7 @@
             "description": "Error"
           }
         },
-        "summary": "List your questions",
+        "summary": "List your question threads",
         "tags": [
           "ask"
         ]
@@ -11501,7 +11834,7 @@
     },
     "/api/v1/questions/{id}": {
       "get": {
-        "description": "The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.",
+        "description": "Any turn gives the whole thread. The question of another user gives 404. When a source of a turn is no longer visible, the answer of that turn is hidden.",
         "operationId": "getQuestion",
         "parameters": [
           {
@@ -11519,7 +11852,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Answer"
+                  "$ref": "#/components/schemas/Thread"
                 }
               }
             },
@@ -11536,7 +11869,60 @@
             "description": "Error"
           }
         },
-        "summary": "Get one of your questions with its answer",
+        "summary": "Get the thread of one of your questions",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
+    "/api/v1/questions/{id}/feedback": {
+      "put": {
+        "description": "One mark per answer. A new mark replaces the old one. Only a down mark keeps the reason and the wrong-citation flag. The question of another user gives 404.",
+        "operationId": "setFeedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feedback"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Mark one of your answers as helpful or not helpful",
         "tags": [
           "ask"
         ]

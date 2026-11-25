@@ -1,16 +1,16 @@
 -- name: InsertConnection :one
 INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, code_globs, sync_minutes, reconcile_hours,
-                         rate_concurrency, rate_per_second, owner_id, default_domain_id)
+                         rate_concurrency, rate_per_second, parallel_parts, owner_id, default_domain_id)
 VALUES (@kind, @name, @base_url, @scope, @options, @include_globs, @exclude_globs, @code_globs, @sync_minutes, @reconcile_hours,
-        @rate_concurrency, @rate_per_second, @owner_id, @default_domain_id)
+        @rate_concurrency, @rate_per_second, @parallel_parts, @owner_id, @default_domain_id)
 RETURNING id;
 
 -- name: UpdateConnection :execrows
 UPDATE connections
 SET name = @name, base_url = @base_url, scope = @scope, options = @options, include_globs = @include_globs,
     exclude_globs = @exclude_globs, code_globs = coalesce(sqlc.narg(code_globs)::text[], code_globs), sync_minutes = @sync_minutes, reconcile_hours = @reconcile_hours,
-    rate_concurrency = @rate_concurrency, rate_per_second = @rate_per_second, default_domain_id = @default_domain_id,
-    updated_at = now()
+    rate_concurrency = @rate_concurrency, rate_per_second = @rate_per_second, parallel_parts = @parallel_parts,
+    default_domain_id = @default_domain_id, updated_at = now()
 WHERE id = @id AND kind <> 'registry';
 
 -- name: SetConnectionSecret :exec
@@ -49,6 +49,11 @@ RETURNING group_id;
 -- name: GroupsExist :one
 SELECT count(*) FROM groups WHERE id = ANY(@ids::bigint[]);
 
+-- name: PauseActive :execrows
+-- Pauses an active connection. A paused one stays as it is.
+UPDATE connections SET status = 'paused', status_reason = @reason, updated_at = now()
+WHERE id = @id AND status = 'active' AND kind <> 'registry';
+
 -- name: SetStatus :execrows
 UPDATE connections SET status = @status, status_reason = @reason, updated_at = now()
 WHERE id = @id AND kind <> 'registry';
@@ -69,15 +74,76 @@ ORDER BY id DESC LIMIT 1;
 SELECT * FROM sync_runs WHERE id = @id;
 
 -- name: StartRun :execrows
-UPDATE sync_runs SET status = 'running', started_at = @now, cursor_from = @cursor
+UPDATE sync_runs SET status = 'running', started_at = coalesce(started_at, @now)
 WHERE id = @id AND status IN ('queued', 'running');
 
 -- name: RequeueRun :exec
 UPDATE sync_runs SET status = 'queued', started_at = NULL WHERE id = @id AND status = 'running';
 
+-- name: LockRun :one
+SELECT * FROM sync_runs WHERE id = @id FOR UPDATE;
+
+-- name: RequeueIdleRun :exec
+-- A run whose running parts all went back to the queue shows as queued.
+UPDATE sync_runs r SET status = 'queued'
+WHERE r.id = @id AND r.status = 'running'
+  AND NOT EXISTS (SELECT 1 FROM sync_parts p WHERE p.run_id = r.id AND p.status = 'running');
+
+-- name: InsertParts :exec
+INSERT INTO sync_parts (run_id, part) SELECT @run_id, unnest(@parts::text[]);
+
+-- name: RunHasParts :one
+SELECT EXISTS (SELECT 1 FROM sync_parts WHERE run_id = @run_id);
+
+-- name: GetPart :one
+SELECT * FROM sync_parts WHERE run_id = @run_id AND part = @part;
+
+-- name: LockConnectionParts :exec
+-- Serializes the start of the part jobs of one connection across processes.
+SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_parts', @connection_id::bigint));
+
+-- name: RunningParts :one
+-- The running part jobs of a connection, other than one part.
+SELECT count(*) FROM sync_parts p JOIN sync_runs r ON r.id = p.run_id
+WHERE r.connection_id = @connection_id AND p.status = 'running' AND NOT (p.run_id = @run_id AND p.part = @part);
+
+-- name: StartPart :execrows
+-- A running part starts again when its job runs again after a crash.
+UPDATE sync_parts SET status = 'running', host = @host, started_at = @now
+WHERE run_id = @run_id AND part = @part AND status IN ('queued', 'running');
+
+-- name: RequeuePart :exec
+UPDATE sync_parts SET status = 'queued', started_at = NULL WHERE run_id = @run_id AND part = @part AND status = 'running';
+
+-- name: FinishPart :exec
+UPDATE sync_parts SET status = @status, cursor = @cursor, stats = @stats, error = @error, gone = @gone, finished_at = @now
+WHERE run_id = @run_id AND part = @part;
+
+-- name: RunParts :many
+SELECT * FROM sync_parts WHERE run_id = @run_id ORDER BY part;
+
+-- name: UnfinishedParts :one
+SELECT count(*) FROM sync_parts WHERE run_id = @run_id AND status IN ('queued', 'running');
+
+-- name: ListRunParts :many
+SELECT * FROM sync_parts WHERE run_id = ANY(@run_ids::bigint[]) ORDER BY run_id, part;
+
+-- name: FailQueuedParts :many
+-- The queued parts of the running runs of a connection fail. Their jobs
+-- are cancelled.
+UPDATE sync_parts p SET status = 'failed', error = @error, finished_at = @now
+FROM sync_runs r
+WHERE r.id = p.run_id AND r.connection_id = @connection_id AND p.status = 'queued'
+RETURNING p.run_id;
+
+-- name: FailStaleParts :many
+UPDATE sync_parts SET status = 'failed', finished_at = @now, error = 'The run stopped without a result.'
+WHERE status = 'running' AND started_at < @before
+RETURNING run_id;
+
 -- name: FinishRun :exec
 UPDATE sync_runs
-SET status = @status, finished_at = @now, cursor_to = @cursor_to, seen = @seen, created = @created, updated = @updated,
+SET status = @status, finished_at = @now, seen = @seen, created = @created, updated = @updated,
     unchanged = @unchanged, deleted = @deleted, skipped = @skipped, error = @error
 WHERE id = @id;
 
@@ -89,29 +155,56 @@ UPDATE sync_runs SET status = 'failed', finished_at = @now, error = @error
 WHERE connection_id = @connection_id AND status = 'queued';
 
 -- name: FailStaleRuns :execrows
-UPDATE sync_runs SET status = 'failed', finished_at = @now, error = 'The run stopped without a result.'
-WHERE status = 'running' AND started_at < @before;
+-- Runs that stopped before they wrote their parts. The last part of a run
+-- with parts ends it.
+UPDATE sync_runs r SET status = 'failed', finished_at = @now, error = 'The run stopped without a result.'
+WHERE r.status = 'running' AND r.started_at < @before
+  AND NOT EXISTS (SELECT 1 FROM sync_parts p WHERE p.run_id = r.id);
 
 -- name: DeleteRunsBefore :execrows
 DELETE FROM sync_runs WHERE queued_at < @before AND status IN ('succeeded', 'failed');
 
--- name: SetCursor :exec
-UPDATE connections SET cursor = @cursor, last_sync_at = @now WHERE id = @id;
+-- name: PartCursor :one
+SELECT cursor FROM connection_cursors WHERE connection_id = @connection_id AND part = @part;
+
+-- name: SetPartCursor :exec
+-- Saves the cursor of a part. The sync of the connection counts as run.
+WITH saved AS (
+    INSERT INTO connection_cursors (connection_id, part, cursor) VALUES (@connection_id, @part, @cursor)
+    ON CONFLICT (connection_id, part) DO UPDATE SET cursor = excluded.cursor
+)
+UPDATE connections SET last_sync_at = @now WHERE id = @connection_id;
+
+-- name: FinishSync :exec
+UPDATE connections SET last_sync_at = @now WHERE id = @id;
 
 -- name: FinishReconcile :exec
 UPDATE connections SET last_reconcile_at = @now, permissions_checked_at = @now WHERE id = @id;
 
--- name: ItemIDs :many
+-- name: PartItemIDs :many
 -- vis:system
-SELECT id, external_id FROM source_items WHERE connection_id = @connection_id;
+SELECT id, external_id FROM source_items WHERE connection_id = @connection_id AND part = @part;
 
 -- name: ItemRevisions :many
+-- The revisions of the items of one part. An item of another part is
+-- stored again, so that it moves to this part.
 -- vis:system
-SELECT external_id, revision FROM source_items WHERE connection_id = @connection_id AND revision <> '';
+SELECT external_id, revision FROM source_items WHERE connection_id = @connection_id AND part = @part AND revision <> '';
 
 -- name: ItemUpdates :many
 -- vis:system
-SELECT external_id, source_updated_at FROM source_items WHERE connection_id = @connection_id AND source_updated_at IS NOT NULL;
+SELECT external_id, source_updated_at FROM source_items
+WHERE connection_id = @connection_id AND part = @part AND source_updated_at IS NOT NULL;
+
+-- name: StillInPart :many
+-- The items of a list that are still in a part.
+-- vis:system
+SELECT id FROM source_items WHERE id = ANY(@ids::bigint[]) AND part = @part;
+
+-- name: ItemsOutsideParts :many
+-- The items of a connection whose part is no longer in its scope.
+-- vis:system
+SELECT id FROM source_items WHERE connection_id = @connection_id AND NOT (part = ANY(@parts::text[]));
 
 -- name: ItemByExternalID :one
 -- vis:system

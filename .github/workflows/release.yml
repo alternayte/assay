@@ -36,3 +36,16 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The chart version follows the release: the chart of v1.5.0 is 1.5.0
+      # and installs the image v1.5.0. It goes to the release and to GHCR.
+      - name: Install helm
+        run: GOBIN=$PWD/bin go install helm.sh/helm/v3/cmd/helm@v3.17.3
+      - name: Package and publish the chart
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          bin/helm package deploy/helm/assay --version "${TAG#v}" --app-version "$TAG" -d tmp/chart
+          gh release upload "$TAG" "tmp/chart/assay-${TAG#v}.tgz"
+          echo "$GITHUB_TOKEN" | bin/helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          bin/helm push "tmp/chart/assay-${TAG#v}.tgz" oci://ghcr.io/alternayte/charts

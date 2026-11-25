@@ -2334,6 +2334,12 @@ export interface components {
             };
             /**
              * Format: int32
+             * @description The parts of a run, such as spaces or repositories, that run at once across all worker processes.
+             * @default 4
+             */
+            parallelParts: number;
+            /**
+             * Format: int32
              * @default 4
              */
             rateConcurrency: number;
@@ -2394,6 +2400,11 @@ export interface components {
             };
             ownerEmail: string;
             ownerId: string | null;
+            /**
+             * Format: int32
+             * @description The parts of a run, such as spaces or repositories, that run at once across all worker processes.
+             */
+            parallelParts: number;
             /** Format: date-time */
             permissionsCheckedAt: string | null;
             /** Format: int32 */
@@ -3510,6 +3521,28 @@ export interface components {
             /** @enum {string} */
             state: "fresh" | "stale" | "missing" | "insufficient" | "needs_edit" | "off" | "failed";
         };
+        PartRecord: {
+            /** Format: int32 */
+            created: number;
+            /** Format: int32 */
+            deleted: number;
+            error: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** @description The worker process that ran the part. */
+            host: string;
+            part: string;
+            /** Format: int32 */
+            seen: number;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Format: int32 */
+            unchanged: number;
+            /** Format: int32 */
+            updated: number;
+        };
         PassageRecord: {
             hash: string;
             headingPath: string[];
@@ -3861,6 +3894,7 @@ export interface components {
             id: number;
             /** @enum {string} */
             kind: "sync" | "reconcile";
+            parts: components["schemas"]["PartRecord"][];
             /** Format: date-time */
             queuedAt: string;
             /** Format: int32 */

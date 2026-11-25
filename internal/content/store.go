@@ -93,15 +93,17 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 		outcome = Created
 		itemID, err = q.InsertItem(ctx, InsertItemParams{ConnectionID: connectionID, ExternalID: it.ExternalID, Kind: it.Kind,
 			Title: it.Title, Url: it.URL, Author: it.Author, SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated),
-			ContentHash: hash, Revision: it.Revision, IndexHash: index})
+			ContentHash: hash, Revision: it.Revision, IndexHash: index, Part: it.Part})
 		if err != nil {
 			return 0, err
 		}
 	case err != nil:
 		return 0, err
 	case bytes.Equal(existing.ContentHash, hash):
-		if existing.Revision != it.Revision {
-			if err := q.SetRevision(ctx, SetRevisionParams{ID: existing.ID, Revision: it.Revision}); err != nil {
+		// An item that moved to another part, such as a page that moved to
+		// another space, keeps its content and changes its part.
+		if existing.Revision != it.Revision || existing.Part != it.Part {
+			if err := q.SetRevision(ctx, SetRevisionParams{ID: existing.ID, Revision: it.Revision, Part: it.Part}); err != nil {
 				return 0, err
 			}
 		}
@@ -118,7 +120,7 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 	}
 	if err := q.UpdateItem(ctx, UpdateItemParams{ID: itemID, Kind: it.Kind, Title: it.Title, Url: it.URL, Author: it.Author,
 		SourceCreatedAt: timePtr(it.Created), SourceUpdatedAt: timePtr(it.Updated), ContentHash: hash, VersionID: &versionID,
-		Revision: it.Revision, IndexHash: index}); err != nil {
+		Revision: it.Revision, IndexHash: index, Part: it.Part}); err != nil {
 		return 0, err
 	}
 	var ps []Passage

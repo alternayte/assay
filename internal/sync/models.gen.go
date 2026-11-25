@@ -27,13 +27,26 @@ type Connection struct {
 	Status               string
 	StatusReason         string
 	DefaultDomainID      *int64
-	Cursor               string
 	LastSyncAt           *time.Time
 	LastReconcileAt      *time.Time
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	CodeGlobs            []string
+	ParallelParts        int32
+}
+
+type SyncPart struct {
+	RunID      int64
+	Part       string
+	Status     string
+	Cursor     string
+	Stats      json.RawMessage
+	Error      string
+	Host       string
+	Gone       []int64
+	StartedAt  *time.Time
+	FinishedAt *time.Time
 }
 
 type SyncRun struct {

@@ -53,23 +53,34 @@ func TestSCN_CON_004_GitHubIndexesOnlyMatchingFiles(t *testing.T) {
 			if err != nil || len(scopes) != len(fixtures.GitHubRepos)+1 || scopes[0].ID != "acme/checkout-web" {
 				t.Fatalf("scopes %+v %v", scopes, err)
 			}
+			parts, err := k.Parts(ctx)
+			if err != nil || len(parts) != 2 || parts[0].Key != "acme/payments-api" || parts[1].Key != "acme/reminder-service" {
+				t.Fatalf("parts %+v %v", parts, err)
+			}
 			var got []string
-			if err := k.Changed(ctx, time.Time{}, func(r connectors.Ref) error {
-				if r.Version == "" {
-					t.Errorf("%s has no blob ID", r.ID)
+			for _, p := range parts {
+				if err := k.Changed(ctx, p, time.Time{}, func(r connectors.Ref) error {
+					if r.Version == "" {
+						t.Errorf("%s has no blob ID", r.ID)
+					}
+					if !strings.HasPrefix(r.ID, p.Key+":") {
+						t.Errorf("%s is listed in the part %s", r.ID, p.Key)
+					}
+					got = append(got, r.ID)
+					return nil
+				}); err != nil {
+					t.Fatal(err)
 				}
-				got = append(got, r.ID)
-				return nil
-			}); err != nil {
-				t.Fatal(err)
 			}
 			slices.Sort(got)
 			if !slices.Equal(got, want) {
 				t.Fatalf("files\n got %v\nwant %v", got, want)
 			}
 			var ids []string
-			if err := k.ListIDs(ctx, func(id string) error { ids = append(ids, id); return nil }); err != nil {
-				t.Fatal(err)
+			for _, p := range parts {
+				if err := k.ListIDs(ctx, p, func(id string) error { ids = append(ids, id); return nil }); err != nil {
+					t.Fatal(err)
+				}
 			}
 			slices.Sort(ids)
 			if !slices.Equal(ids, want) {
@@ -134,9 +145,15 @@ func TestSCN_CON_004_GitHubEmptyRepositoryHasNoFiles(t *testing.T) {
 	if _, err := k.Validate(ctx); err != nil {
 		t.Fatalf("validation: %v", err)
 	}
-	var got []string
-	if err := k.Changed(ctx, time.Time{}, func(r connectors.Ref) error { got = append(got, r.ID); return nil }); err != nil {
+	parts, err := k.Parts(ctx)
+	if err != nil {
 		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range parts {
+		if err := k.Changed(ctx, p, time.Time{}, func(r connectors.Ref) error { got = append(got, r.ID); return nil }); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(got) == 0 || slices.ContainsFunc(got, func(id string) bool { return strings.HasPrefix(id, fixtures.EmptyRepo+":") }) {
 		t.Fatalf("files %v", got)

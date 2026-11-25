@@ -50,10 +50,15 @@ func quoted(vs []string) string {
 	return strings.Join(q, ",")
 }
 
-func (k *Connector) cql() string {
+// cql is the query of the pages in scope. spaces narrows it to the spaces
+// of one part; nil means the spaces of the scope.
+func (k *Connector) cql(spaces []string) string {
+	if spaces == nil {
+		spaces = k.scope.Spaces
+	}
 	parts := []string{"type=page"}
-	if len(k.scope.Spaces) > 0 {
-		parts = append(parts, "space in ("+quoted(k.scope.Spaces)+")")
+	if len(spaces) > 0 {
+		parts = append(parts, "space in ("+quoted(spaces)+")")
 	}
 	if len(k.scope.Ancestors) > 0 {
 		parts = append(parts, "ancestor in ("+strings.Join(k.scope.Ancestors, ",")+")")
@@ -87,7 +92,7 @@ func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error)
 		return connectors.Validation{}, err
 	}
 	var p searchPage
-	if err := k.c.GetJSON(ctx, "/rest/api/content/search", url.Values{"cql": {k.cql()}, "limit": {"1"}}, &p); err != nil {
+	if err := k.c.GetJSON(ctx, "/rest/api/content/search", url.Values{"cql": {k.cql(nil)}, "limit": {"1"}}, &p); err != nil {
 		return connectors.Validation{}, err
 	}
 	name := u.DisplayName
@@ -117,6 +122,26 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 			return out, nil
 		}
 	}
+}
+
+// Parts are the spaces of the scope, one part per space. A scope without
+// spaces reads every space of the token.
+func (k *Connector) Parts(ctx context.Context) ([]connectors.Part, error) {
+	keys := k.scope.Spaces
+	if len(keys) == 0 {
+		spaces, err := k.Scopes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range spaces {
+			keys = append(keys, s.ID)
+		}
+	}
+	out := make([]connectors.Part, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, connectors.Part{Key: key})
+	}
+	return out, nil
 }
 
 // search calls fn for each page of a CQL query. It follows the next link
@@ -153,11 +178,11 @@ func (k *Connector) search(ctx context.Context, cql, expand string, limit int, f
 	}
 }
 
-// Changed lists the pages modified at or after since, each with its body.
-// CQL dates use the time zone of the token user, so the query starts
-// Overlap earlier.
-func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connectors.Ref) error) error {
-	cql := k.cql()
+// Changed lists the pages of a space modified at or after since, each with
+// its body. CQL dates use the time zone of the token user, so the query
+// starts Overlap earlier.
+func (k *Connector) Changed(ctx context.Context, part connectors.Part, since time.Time, fn func(connectors.Ref) error) error {
+	cql := k.cql([]string{part.Key})
 	if !since.IsZero() {
 		cql += fmt.Sprintf(` AND lastmodified >= "%s"`, since.Add(-connectors.Overlap).UTC().Format("2006/01/02 15:04"))
 	}
@@ -178,9 +203,9 @@ func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connec
 	})
 }
 
-// ListIDs lists all page IDs in scope.
-func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.search(ctx, k.cql(), "", 100, func(p *pageJSON) error { return fn(p.ID) })
+// ListIDs lists all page IDs of a space in scope.
+func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(string) error) error {
+	return k.search(ctx, k.cql([]string{part.Key}), "", 100, func(p *pageJSON) error { return fn(p.ID) })
 }
 
 type person struct {

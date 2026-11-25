@@ -586,7 +586,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 
 	// A run that stopped before its end leaves the cursor where it was.
 	// Assay before 1.3.3 stored pages without a revision.
-	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connection_cursors SET cursor = '' WHERE connection_id = $1", conn); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE source_items SET revision = '' WHERE connection_id = $1", conn); err != nil {
@@ -608,7 +608,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 
 	// The stored page stored its version. Two edits in the same second
 	// still differ by version.
-	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connection_cursors SET cursor = '' WHERE connection_id = $1", conn); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = src.Page("1007")
@@ -657,7 +657,7 @@ func TestSCN_SYN_014_ListingCarriesBodiesAndSavesProgress(t *testing.T) {
 		t.Fatalf("the sync fetched %d pages one by one", n)
 	}
 	var cursor string
-	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT cursor FROM connections WHERE id = $1", conn).Scan(&cursor); err != nil {
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT cursor FROM connection_cursors WHERE connection_id = $1 AND part = 'BLK'", conn).Scan(&cursor); err != nil {
 		t.Fatal(err)
 	}
 	if want := time.Date(2026, 1, 1, 0, 0, 49, 0, time.UTC).Format(time.RFC3339Nano); cursor != want {

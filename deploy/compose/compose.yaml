@@ -17,19 +17,38 @@ services:
       retries: 30
     restart: unless-stopped
 
+  # The web service serves the UI, REST and MCP.
   assay:
     image: ${ASSAY_IMAGE:-ghcr.io/alternayte/assay:${ASSAY_VERSION:-latest}}
     env_file: .env
     environment:
       ASSAY_DATABASE_URL: postgres://assay:${POSTGRES_PASSWORD}@db:5432/assay?sslmode=disable
+      ASSAY_ROLE: web
     ports:
       - "127.0.0.1:${ASSAY_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    # Assay needs up to 30 seconds to finish requests and put running jobs
-    # back in the queue. Docker stops a container after 10 seconds by default.
+    # Assay needs up to 30 seconds to finish requests. Docker stops a
+    # container after 10 seconds by default.
+    stop_grace_period: 45s
+
+  # The workers run the syncs, the embedding, the extraction and the other
+  # jobs. docker compose up -d --scale worker=3 runs three of them: each sync
+  # part runs on one worker, and the rate limit of a connection holds across
+  # all of them.
+  worker:
+    image: ${ASSAY_IMAGE:-ghcr.io/alternayte/assay:${ASSAY_VERSION:-latest}}
+    env_file: .env
+    environment:
+      ASSAY_DATABASE_URL: postgres://assay:${POSTGRES_PASSWORD}@db:5432/assay?sslmode=disable
+      ASSAY_ROLE: worker
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    # Assay needs up to 30 seconds to put running jobs back in the queue.
     stop_grace_period: 45s
 
   # The demo profile adds the fixture server: the fake Acme sources and the

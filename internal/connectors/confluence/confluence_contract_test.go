@@ -43,8 +43,12 @@ func TestSCN_CON_003_ConfluenceMarkdownMatchesGolden(t *testing.T) {
 	if v.User != "Assay Reader" || v.Sample != 8 {
 		t.Fatalf("validation %+v", v)
 	}
+	parts, err := k.Parts(ctx)
+	if err != nil || len(parts) != 1 || parts[0].Key != "ENG" {
+		t.Fatalf("parts %+v, %v", parts, err)
+	}
 	var ids []string
-	if err := k.ListIDs(ctx, func(id string) error { ids = append(ids, id); return nil }); err != nil {
+	if err := k.ListIDs(ctx, parts[0], func(id string) error { ids = append(ids, id); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(ids)

@@ -434,15 +434,26 @@ func (q *Queries) GetItemByExternalID(ctx context.Context, arg GetItemByExternal
 
 const getVisibleItem = `-- name: GetVisibleItem :one
 SELECT i.id, i.connection_id, c.name AS connection_name, c.kind AS connection_kind, i.kind, i.title, i.url, i.author,
-       i.source_updated_at
+       i.source_updated_at, coalesce(ent.key, '')::text AS entity_key, coalesce(ent.name, '')::text AS entity_name,
+       coalesce(ent.type, '')::text AS entity_type
 FROM source_items i
 JOIN connections c ON c.id = i.connection_id
-WHERE i.id = $1 AND i.connection_id = ANY($2::bigint[])
+LEFT JOIN LATERAL (
+    SELECT coalesce(entity_visible_key(w.id, $1::bigint[]), w.key)::text AS key,
+           coalesce(entity_display_name(w.id, $1::bigint[]), w.key)::text AS name, w.type
+    FROM entities e
+    JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
+    WHERE e.id = i.entity_id
+      AND EXISTS (SELECT 1 FROM entity_sources s
+                  WHERE s.entity_id = ANY(entity_members(w.id))
+                    AND s.connection_id = ANY($1::bigint[]))
+) ent ON true
+WHERE i.id = $2 AND i.connection_id = ANY($1::bigint[])
 `
 
 type GetVisibleItemParams struct {
-	ID      int64
 	Visible []int64
+	ID      int64
 }
 
 type GetVisibleItemRow struct {
@@ -455,10 +466,15 @@ type GetVisibleItemRow struct {
 	Url             string
 	Author          string
 	SourceUpdatedAt *time.Time
+	EntityKey       string
+	EntityName      string
+	EntityType      string
 }
 
+// The entity of the item is empty when it has no visible source. A merged
+// entity shows as its winner.
 func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) (GetVisibleItemRow, error) {
-	row := q.db.QueryRow(ctx, getVisibleItem, arg.ID, arg.Visible)
+	row := q.db.QueryRow(ctx, getVisibleItem, arg.Visible, arg.ID)
 	var i GetVisibleItemRow
 	err := row.Scan(
 		&i.ID,
@@ -470,6 +486,9 @@ func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) 
 		&i.Url,
 		&i.Author,
 		&i.SourceUpdatedAt,
+		&i.EntityKey,
+		&i.EntityName,
+		&i.EntityType,
 	)
 	return i, err
 }
@@ -1014,8 +1033,30 @@ func (q *Queries) UpsertEntity(ctx context.Context, arg UpsertEntityParams) (int
 	return id, err
 }
 
+const visibleItemByURL = `-- name: VisibleItemByURL :one
+SELECT i.id
+FROM source_items i
+WHERE i.url = $1 AND i.connection_id = ANY($2::bigint[])
+ORDER BY i.source_updated_at DESC NULLS LAST, i.id
+LIMIT 1
+`
+
+type VisibleItemByURLParams struct {
+	Url     string
+	Visible []int64
+}
+
+// The visible item with the URL. Of several, the newest source update wins,
+// then the lowest ID.
+func (q *Queries) VisibleItemByURL(ctx context.Context, arg VisibleItemByURLParams) (int64, error) {
+	row := q.db.QueryRow(ctx, visibleItemByURL, arg.Url, arg.Visible)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const visiblePassages = `-- name: VisiblePassages :many
-SELECT hash, ordinal, kind, heading_path, text
+SELECT hash, ordinal, kind, heading_path, text, start_line, end_line
 FROM passages
 WHERE item_id = $1 AND connection_id = ANY($2::bigint[])
 ORDER BY ordinal
@@ -1032,6 +1073,8 @@ type VisiblePassagesRow struct {
 	Kind        string
 	HeadingPath []string
 	Text        string
+	StartLine   *int32
+	EndLine     *int32
 }
 
 func (q *Queries) VisiblePassages(ctx context.Context, arg VisiblePassagesParams) ([]VisiblePassagesRow, error) {
@@ -1049,6 +1092,8 @@ func (q *Queries) VisiblePassages(ctx context.Context, arg VisiblePassagesParams
 			&i.Kind,
 			&i.HeadingPath,
 			&i.Text,
+			&i.StartLine,
+			&i.EndLine,
 		); err != nil {
 			return nil, err
 		}

@@ -49,6 +49,9 @@ Commands:
                          --url, --token, --file, optional --out (default
                          stdout), --title and --labels (a labels file or the
                          fixture manifest URL, for the decision bands).
+                         --retrieval scores the search_context ranking of
+                         the questions with expected items instead, with
+                         MRR, Hit@k, recall@k and nDCG@10.
   demo remove            Purge the Acme demo connections with their data.
                          Data that people added stays.
   version                Print the version.
@@ -307,7 +310,8 @@ func fixturesServe(args []string, stderr io.Writer) int {
 }
 
 // runEval asks each question of a set with an access token and writes the
-// report (REQ-EVL-003).
+// report (REQ-EVL-003). With --retrieval it scores search alone
+// (REQ-EVL-006).
 func runEval(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("assay eval", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -317,7 +321,12 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	out := fs.String("out", "", "the report file; empty writes to stdout")
 	title := fs.String("title", "Assay evaluation", "the report title")
 	labels := fs.String("labels", "", "a labels file or the manifest URL of the fixture server; adds the precision and recall per decision band")
+	retrieval := fs.Bool("retrieval", false, "score the search_context ranking of the questions with expected items; no answer model")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *retrieval && *labels != "" {
+		fmt.Fprintln(stderr, "assay eval: --labels does not apply to --retrieval")
 		return 2
 	}
 	if *token == "" {
@@ -335,7 +344,23 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	client := &http.Client{Timeout: 2 * time.Minute}
-	report := eval.Score(eval.Run(ctx, client, *base, *token, qs)).Markdown(*title)
+	var report string
+	n := len(qs)
+	if *retrieval {
+		rs, err := eval.Retrieve(ctx, client, *base, *token, qs)
+		if err != nil {
+			fmt.Fprintf(stderr, "assay eval: %v\n", err)
+			return 1
+		}
+		titled := false
+		fs.Visit(func(f *flag.Flag) { titled = titled || f.Name == "title" })
+		if !titled {
+			*title = "Assay retrieval evaluation"
+		}
+		report, n = eval.ScoreRetrieval(eval.ReadPipeline(ctx, client, *base, *token), rs).Markdown(*title), len(rs)
+	} else {
+		report = eval.Score(eval.Run(ctx, client, *base, *token, qs)).Markdown(*title)
+	}
 	if *labels != "" {
 		l, err := eval.LoadLabels(ctx, client, *labels)
 		if err != nil {
@@ -357,6 +382,6 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "assay eval: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "assay eval: %d questions, report in %s\n", len(qs), *out)
+	fmt.Fprintf(stdout, "assay eval: %d questions, report in %s\n", n, *out)
 	return 0
 }

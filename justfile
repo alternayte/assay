@@ -126,3 +126,14 @@ eval:
     : "${ASSAY_EVAL_URL:?set ASSAY_EVAL_URL}" "${ASSAY_EVAL_TOKEN:?set ASSAY_EVAL_TOKEN}"
     mkdir -p {{reports}}
     go run ./cmd/assay eval --url "$ASSAY_EVAL_URL" --token "$ASSAY_EVAL_TOKEN" --file "${ASSAY_EVAL_FILE:-evals/questions.yaml}" --out {{reports}}/eval.md
+
+# ASSAY_EVAL_URL and ASSAY_EVAL_TOKEN select the instance; an admin token
+# also reads the embed and rerank settings for the report header.
+# ASSAY_EVAL_FILE defaults to evals/questions.yaml.
+# Retrieval evaluation: scores search alone and writes retrieval.md.
+eval-retrieval:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ASSAY_EVAL_URL:?set ASSAY_EVAL_URL}" "${ASSAY_EVAL_TOKEN:?set ASSAY_EVAL_TOKEN}"
+    mkdir -p {{reports}}
+    go run ./cmd/assay eval --retrieval --url "$ASSAY_EVAL_URL" --token "$ASSAY_EVAL_TOKEN" --file "${ASSAY_EVAL_FILE:-evals/questions.yaml}" --out {{reports}}/retrieval.md

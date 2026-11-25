@@ -36,7 +36,7 @@ type GroupRef struct {
 // health. The token never leaves the server.
 type ConnectionRecord struct {
 	ID                   int64          `json:"id"`
-	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,backstage"`
+	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
 	Name                 string         `json:"name"`
 	BaseURL              string         `json:"baseUrl"`
 	HasToken             bool           `json:"hasToken"`
@@ -103,8 +103,8 @@ type RunRecord struct {
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
-	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL."`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
+	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest."`
 	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
@@ -115,7 +115,7 @@ type sourceBody struct {
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
 	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
@@ -613,12 +613,17 @@ func registryProblem() error {
 	return api.Problem(http.StatusConflict, "registry", "The registry is built in. It cannot be changed, paused or purged.")
 }
 
+// repoKind reports whether a connection kind reads repositories.
+func repoKind(kind string) bool {
+	return kind == "github" || kind == "azdo" || kind == "gitlab" || kind == "bitbucket"
+}
+
 // create inserts a connection owned by owner, visible only to the owner.
 func (s *Service) create(ctx context.Context, owner string, b connectionBody) (int64, error) {
 	code := []string{}
 	if b.CodeGlobs != nil {
 		code = orStrings(*b.CodeGlobs)
-	} else if b.Kind == "github" || b.Kind == "azdo" {
+	} else if repoKind(b.Kind) {
 		rules, err := settings.Read[RulesConfig](ctx, s.Pool, Rules)
 		if err != nil {
 			return 0, err

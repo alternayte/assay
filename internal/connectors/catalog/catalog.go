@@ -251,8 +251,11 @@ func (r Repository) linked(ann map[string]string) (*content.EntityRef, string) {
 }
 
 // RepositoryOf returns the repository of a browse URL. An Azure DevOps URL
-// has the form .../<project>/_git/<repository>. Other URLs are GitHub URLs
-// of the form https://<host>/<owner>/<repository>/....
+// has the form .../<project>/_git/<repository>. A GitLab URL has the form
+// https://<host>/<namespace>/<project>/-/..., or any path on gitlab.com. A
+// Bitbucket Data Center URL has the form .../projects/<key>/repos/<slug>/...
+// or .../scm/<key>/<slug>.git. Other URLs are GitHub URLs of the form
+// https://<host>/<owner>/<repository>/....
 func RepositoryOf(raw string) *content.EntityRef {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" {
@@ -260,9 +263,20 @@ func RepositoryOf(raw string) *content.EntityRef {
 	}
 	parts := strings.FieldsFunc(u.Path, func(r rune) bool { return r == '/' })
 	for i, p := range parts {
-		if p == "_git" && i > 0 && i+1 < len(parts) {
+		switch {
+		case p == "_git" && i > 0 && i+1 < len(parts):
 			return repoRef("azdo", u.Host, parts[i-1]+"/"+parts[i+1])
+		case p == "-" && i >= 2:
+			return repoRef("gitlab", u.Host, strings.Join(parts[:i], "/"))
+		case p == "projects" && i+3 < len(parts) && parts[i+2] == "repos":
+			return repoRef("bitbucket", u.Host, parts[i+1]+"/"+parts[i+3])
+		case p == "scm" && i+2 < len(parts) && strings.HasSuffix(parts[i+2], ".git"):
+			return repoRef("bitbucket", u.Host, parts[i+1]+"/"+strings.TrimSuffix(parts[i+2], ".git"))
 		}
+	}
+	if strings.EqualFold(u.Host, "gitlab.com") && len(parts) >= 2 {
+		parts[len(parts)-1] = strings.TrimSuffix(parts[len(parts)-1], ".git")
+		return repoRef("gitlab", u.Host, strings.Join(parts, "/"))
 	}
 	if len(parts) < 2 {
 		return nil

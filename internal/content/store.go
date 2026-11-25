@@ -458,7 +458,7 @@ func (in *ingest) sourceType(ctx context.Context) (string, error) {
 		in.kind = k
 	}
 	switch in.kind {
-	case "github", "azdo":
+	case "github", "azdo", "gitlab", "bitbucket":
 		return "repository", nil
 	}
 	return in.kind, nil

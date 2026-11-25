@@ -23,6 +23,8 @@ func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	mux.Handle("/github/", sources)
 	mux.Handle("/ghes/", sources)
 	mux.Handle("/azdo/", sources)
+	mux.Handle("/gitlab/", sources)
+	mux.Handle("/bitbucket/", sources)
 	mux.Handle("GET /manifest.json", sources)
 	// The control routes let the browser tests change a page and read the
 	// methods that Assay sent. No connector calls them.

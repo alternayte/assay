@@ -131,3 +131,21 @@ func TestSCN_CON_006_CatalogKeysTypesAndClaims(t *testing.T) {
 		t.Fatal("bad YAML gave no error")
 	}
 }
+
+// TestSCN_CON_006_RepositoryKeysOfBrowseURLs checks that a source-location
+// URL names the repository with the key that its connection gives it.
+func TestSCN_CON_006_RepositoryKeysOfBrowseURLs(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://ado.acme.test/tfs/Acme/Platform/_git/ledger-service?path=/":               "azdo:ado.acme.test:platform/ledger-service",
+		"https://gitlab.acme.test/acme/payments/billing-api/-/tree/main/":                  "gitlab:gitlab.acme.test:acme/payments/billing-api",
+		"https://gitlab.com/acme/payments/billing-api.git":                                 "gitlab:gitlab.com:acme/payments/billing-api",
+		"https://bitbucket.acme.test/projects/PLAT/repos/billing-gateway/browse/README.md": "bitbucket:bitbucket.acme.test:plat/billing-gateway",
+		"https://bitbucket.acme.test/scm/plat/billing-gateway.git":                         "bitbucket:bitbucket.acme.test:plat/billing-gateway",
+		"https://github.com/acme/payments-api/tree/main/":                                  "github:github.com:acme/payments-api",
+	} {
+		ref := catalog.RepositoryOf(raw)
+		if ref == nil || ref.Key != want {
+			t.Errorf("%s: got %+v, want %s", raw, ref, want)
+		}
+	}
+}

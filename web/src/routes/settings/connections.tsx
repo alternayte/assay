@@ -16,9 +16,16 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
-type Kind = "confluence" | "jira" | "github" | "azdo" | "backstage";
+type Kind = "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
 
-const isRepo = (k: string) => k === "github" || k === "azdo";
+const repoKinds: string[] = ["github", "azdo", "gitlab", "bitbucket"];
+const isRepo = (k: string) => repoKinds.includes(k);
+
+/** GitLab and Bitbucket name the token scopes in their own hint. */
+function tokenHint(kind: Kind): string {
+  if (kind === "gitlab" || kind === "bitbucket") return t(`connections.tokenHints.${kind}`);
+  return t("connections.tokenHint");
+}
 
 function messageOf(e: unknown): string {
   if (e instanceof ApiError) {
@@ -255,6 +262,8 @@ function SourceFields({
             <option value="jira">{kindLabel("jira")}</option>
             <option value="github">{kindLabel("github")}</option>
             <option value="azdo">{kindLabel("azdo")}</option>
+            <option value="gitlab">{kindLabel("gitlab")}</option>
+            <option value="bitbucket">{kindLabel("bitbucket")}</option>
             <option value="backstage">{kindLabel("backstage")}</option>
           </Select>
         )}
@@ -284,7 +293,7 @@ function SourceFields({
       </Field>
       <Field
         label={t("connections.token")}
-        hint={keepToken ? t("connections.tokenKeep") : t("connections.tokenHint")}
+        hint={keepToken ? t("connections.tokenKeep") : tokenHint(value.kind)}
       >
         {(p) => (
           <Input

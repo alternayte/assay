@@ -21,8 +21,10 @@ import (
 	"github.com/alternayte/assay/internal/connectors"
 	"github.com/alternayte/assay/internal/connectors/azdo"
 	"github.com/alternayte/assay/internal/connectors/backstage"
+	"github.com/alternayte/assay/internal/connectors/bitbucket"
 	"github.com/alternayte/assay/internal/connectors/confluence"
 	"github.com/alternayte/assay/internal/connectors/github"
+	"github.com/alternayte/assay/internal/connectors/gitlab"
 	"github.com/alternayte/assay/internal/connectors/jira"
 	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/outbound"
@@ -110,7 +112,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira", "github", "azdo", "backstage"}
+var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -136,13 +138,16 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	if err != nil {
 		return nil, err
 	}
-	authorization := "Bearer " + src.Token
-	if src.Kind == "azdo" {
+	authorization, header := "Bearer "+src.Token, ""
+	switch src.Kind {
+	case "azdo":
 		// Azure DevOps Server takes a personal access token as the
 		// password of Basic authentication.
 		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
+	case "gitlab":
+		authorization, header = src.Token, gitlab.TokenHeader
 	}
-	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization,
+	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization, AuthHeader: header,
 		Concurrency: src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID})
 	if err != nil {
 		return nil, err
@@ -171,6 +176,10 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		return github.New(c, src.Scope, globs, limits)
 	case "azdo":
 		return azdo.New(c, src.Scope, src.Options, globs, limits)
+	case "gitlab":
+		return gitlab.New(c, src.Scope, globs, limits)
+	case "bitbucket":
+		return bitbucket.New(c, src.Scope, globs, limits)
 	}
 	return nil, fmt.Errorf("sync: connections of kind %s cannot sync", src.Kind)
 }

@@ -139,9 +139,12 @@ type SkipLister interface {
 type Client struct {
 	http *http.Client
 	base *url.URL
-	auth string
-	sem  chan struct{}
-	pace *pace
+	// authHeader carries auth: Authorization, or another header such as
+	// PRIVATE-TOKEN for GitLab.
+	authHeader string
+	auth       string
+	sem        chan struct{}
+	pace       *pace
 	// Backoff is the first retry delay without Retry-After.
 	Backoff time.Duration
 	// Retries is the number of retries after the first attempt.
@@ -152,8 +155,11 @@ type Client struct {
 type ClientOptions struct {
 	BaseURL       string
 	Authorization string // the Authorization header value
-	Concurrency   int
-	PerSecond     float64
+	// AuthHeader is the name of the header that carries Authorization.
+	// Empty is Authorization.
+	AuthHeader  string
+	Concurrency int
+	PerSecond   float64
 	// Pool and ConnectionID share the rate of a stored connection: each
 	// request reserves a slot in PostgreSQL. A client without them, for a
 	// source that is not stored yet, spaces only its own requests.
@@ -171,21 +177,31 @@ func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
 	if o.Concurrency < 1 {
 		o.Concurrency = 1
 	}
+	if o.AuthHeader == "" {
+		o.AuthHeader = "Authorization"
+	}
 	if o.PerSecond <= 0 {
 		o.PerSecond = 5
 	}
 	return &Client{
-		http: h, base: u, auth: o.Authorization,
+		http: h, base: u, auth: o.Authorization, authHeader: o.AuthHeader,
 		sem:     make(chan struct{}, o.Concurrency),
 		pace:    newPace(o.Pool, o.ConnectionID, time.Duration(float64(time.Second)/o.PerSecond)),
 		Backoff: time.Second, Retries: 4,
 	}, nil
 }
 
-// URL returns the absolute URL of a path below the base URL.
+// URL returns the absolute URL of a path below the base URL. A path with
+// percent escapes, such as the URL-encoded project ID of GitLab, is sent
+// as it is.
 func (c *Client) URL(path string, q url.Values) string {
 	u := *c.base
-	u.Path = strings.TrimRight(u.Path, "/") + path
+	raw := strings.TrimRight(u.EscapedPath(), "/") + path
+	if p, err := url.PathUnescape(raw); err == nil && strings.Contains(path, "%") {
+		u.Path, u.RawPath = p, raw
+	} else {
+		u.Path, u.RawPath = strings.TrimRight(u.Path, "/")+path, ""
+	}
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -195,14 +211,21 @@ func (c *Client) Host() string { return c.base.Host }
 
 // GetJSON sends a GET request and decodes the JSON answer into out.
 func (c *Client) GetJSON(ctx context.Context, path string, q url.Values, out any) error {
-	b, err := c.Get(ctx, path, q, "application/json")
+	_, err := c.GetJSONHeader(ctx, path, q, out)
+	return err
+}
+
+// GetJSONHeader sends a GET request, decodes the JSON answer into out and
+// returns the response header, such as the Link header of a paged answer.
+func (c *Client) GetJSONHeader(ctx context.Context, path string, q url.Values, out any) (http.Header, error) {
+	b, h, err := c.get(ctx, path, q, "application/json")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("connectors: the answer for %s is not valid JSON: %w", path, err)
+		return nil, fmt.Errorf("connectors: the answer for %s is not valid JSON: %w", path, err)
 	}
-	return nil
+	return h, nil
 }
 
 // maxBody bounds one answer.
@@ -210,82 +233,87 @@ const maxBody = 64 << 20
 
 // Get sends a GET request and returns the body.
 func (c *Client) Get(ctx context.Context, path string, q url.Values, accept string) ([]byte, error) {
+	b, _, err := c.get(ctx, path, q, accept)
+	return b, err
+}
+
+func (c *Client) get(ctx context.Context, path string, q url.Values, accept string) ([]byte, http.Header, error) {
 	var last error
 	for attempt := 0; attempt <= c.Retries; attempt++ {
-		b, retry, err := c.once(ctx, path, q, accept)
+		b, h, retry, err := c.once(ctx, path, q, accept)
 		if err == nil {
-			return b, nil
+			return b, h, nil
 		}
 		last = err
 		if retry < 0 {
-			return nil, err
+			return nil, nil, err
 		}
 		if retry > 0 {
 			// The source named the time to wait. Every request of the
 			// connection waits for it, in every process. The next attempt
 			// waits in its reservation.
 			if err := c.pace.hold(ctx, retry); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			continue
 		}
 		wait := c.Backoff << attempt
 		wait += time.Duration(rand.Int64N(int64(wait)/2 + 1)) //nolint:gosec // Jitter needs no secure source.
 		if err := sleep(ctx, wait); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return nil, last
+	return nil, nil, last
 }
 
 // once sends one request. retry is -1 when a retry cannot help, 0 for the
 // default backoff, or the Retry-After delay.
-func (c *Client) once(ctx context.Context, path string, q url.Values, accept string) ([]byte, time.Duration, error) {
+func (c *Client) once(ctx context.Context, path string, q url.Values, accept string) ([]byte, http.Header, time.Duration, error) {
 	select {
 	case c.sem <- struct{}{}:
 	case <-ctx.Done():
-		return nil, -1, ctx.Err()
+		return nil, nil, -1, ctx.Err()
 	}
 	defer func() { <-c.sem }()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL(path, q), nil)
 	if err != nil {
-		return nil, -1, err
+		return nil, nil, -1, err
 	}
 	req.Header.Set("Accept", accept)
 	resp, err := c.Do(req)
 	if err != nil {
 		if errors.Is(err, errPace) {
-			return nil, -1, err
+			return nil, nil, -1, err
 		}
 		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) || isCertificate(err) {
-			return nil, -1, err
+			return nil, nil, -1, err
 		}
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
 		if wait, ok := rateLimit(resp); ok {
-			return nil, wait, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
+			return nil, nil, wait, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
 		}
 		if resp.StatusCode == http.StatusForbidden {
-			return nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
+			return nil, nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
 		}
-		return nil, 0, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
+		return nil, nil, 0, &StatusError{Status: resp.StatusCode, Path: path, RateLimit: true}
 	case resp.StatusCode == http.StatusUnauthorized:
-		return nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
+		return nil, nil, -1, fmt.Errorf("%w: %w", ErrUnauthorized, &StatusError{Status: resp.StatusCode, Path: path})
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, -1, ErrNotFound
+		return nil, nil, -1, ErrNotFound
 	case resp.StatusCode >= 500:
-		return nil, retryAfter(resp.Header.Get("Retry-After")), &StatusError{Status: resp.StatusCode, Path: path}
+		return nil, nil, retryAfter(resp.Header.Get("Retry-After")), &StatusError{Status: resp.StatusCode, Path: path}
 	case resp.StatusCode >= 300:
-		return nil, -1, &StatusError{Status: resp.StatusCode, Path: path}
+		return nil, nil, -1, &StatusError{Status: resp.StatusCode, Path: path}
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, 0, err
 	}
-	return b, 0, nil
+	return b, resp.Header, 0, nil
 }
 
 // Do sends a request with the connection credentials in the next request
@@ -296,7 +324,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	if c.auth != "" {
-		req.Header.Set("Authorization", c.auth)
+		req.Header.Set(c.authHeader, c.auth)
 	}
 	return c.http.Do(req)
 }

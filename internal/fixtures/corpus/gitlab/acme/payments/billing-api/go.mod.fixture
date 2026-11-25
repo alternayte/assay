@@ -1,0 +1,3 @@
+module gitlab.acme.test/acme/payments/billing-api
+
+go 1.26

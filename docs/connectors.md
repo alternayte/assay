@@ -12,12 +12,18 @@ Connectors are read-only. The connector HTTP client sends only GET and HEAD requ
 | Confluence Data Center | `/rest/api/content` | Personal access token (bearer) | Spaces, optional ancestors and labels |
 | GitHub (cloud and Enterprise Server) | REST v3 | Token (bearer) | Repositories, default branch |
 | Azure DevOps Server | Items API, `api-version` 7.1 by default | Personal access token (Basic) | Repositories |
+| GitLab (gitlab.com and self-managed) | REST v4 | Personal, group or project access token with `read_api` and `read_repository` (`PRIVATE-TOKEN` header) | Projects, default branch |
+| Bitbucket Data Center | REST 1.0 | HTTP access token with Repository read (bearer) | Repositories, default branch |
 
 Jira issues give their summary, description, the newest 50 comments, status, type, assignee, reporter, priority, labels, components, fix versions, due date, parent and links. Confluence pages give their title, body, version, ancestors, labels and author.
 
+The base URL of a GitLab connection is `https://gitlab.com` or the URL of the self-managed server. The base URL of a Bitbucket connection is the URL before `/rest`. A GitLab project ID is its path with namespace, such as `acme/payments/billing-api`. A Bitbucket repository ID is the project key and the repository slug, such as `PLAT/billing-gateway`.
+
+Bitbucket lists files without blob IDs. The version of each file is the last commit that changed it, so a sync fetches only the changed files. Bitbucket before 7.14 omits the next page of a long file list. A sync then fails with the message "Bitbucket returned no next page. Upgrade Bitbucket to 7.14 or later."
+
 Repositories give only the files that the include globs select. The defaults are:
 
-`README*`, `docs/**/*.md`, `**/adr/**/*.md`, `**/decisions/**/*.md`, `CODEOWNERS`, `.github/CODEOWNERS`, `**/catalog-info.yaml`, `**/openapi*.{yaml,yml,json}`, `**/*.proto`, `go.mod`, `package.json`, `*.csproj`, `Directory.Packages.props`, `Chart.yaml`, `**/values*.yaml`, `deploy/**/*.yaml` and `k8s/**`.
+`README*`, `docs/**/*.md`, `**/adr/**/*.md`, `**/decisions/**/*.md`, `CODEOWNERS`, `.github/CODEOWNERS`, `.gitlab/CODEOWNERS`, `.bitbucket/CODEOWNERS`, `**/catalog-info.yaml`, `**/openapi*.{yaml,yml,json}`, `**/*.proto`, `go.mod`, `package.json`, `*.csproj`, `Directory.Packages.props`, `Chart.yaml`, `**/values*.yaml`, `deploy/**/*.yaml` and `k8s/**`.
 
 A file above 512 KB, or a repository above 2,000 files, is skipped. Each run lists the skipped items with a reason. Admins change the limits in Settings, General.
 
@@ -26,7 +32,7 @@ A file above 512 KB, or a repository above 2,000 files, is skipped. Each run lis
 Some sources give claims with no model call:
 
 - `catalog-info.yaml` (Backstage kinds Component, API, System, Group, Resource and Domain) gives entities `backstage:<kind>:<namespace>/<name>` and the claims `owned_by`, `part_of`, `depends_on`, `provides_api`, `consumes_api` and `status`. The repository gets `implements`.
-- The default rule of `CODEOWNERS` gives an `owned_by` claim for the repository. Path rules give no claim.
+- The default rule of `CODEOWNERS` gives an `owned_by` claim for the repository. Path rules give no claim. Each host reads its own file: GitHub and Azure DevOps `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, GitLab `CODEOWNERS`, `docs/CODEOWNERS` or `.gitlab/CODEOWNERS`, and Bitbucket `.bitbucket/CODEOWNERS`. A Bitbucket group `@@group` is a team.
 - Jira fields give `status`, `assigned_to`, `target_date`, `blocks` (the configured link type) and `part_of`. The issue types in the connector rules become initiatives.
 - Confluence pages with a decision label (default `decision` and `adr`) become decisions. Tables with Term and Definition columns on pages with a glossary label (default `glossary`) give terms.
 

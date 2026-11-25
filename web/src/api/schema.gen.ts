@@ -2400,7 +2400,7 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
             name: string;
             options?: {
                 [key: string]: unknown;
@@ -2459,7 +2459,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -3199,7 +3199,7 @@ export interface components {
             kind: string;
             passages: components["schemas"]["PassageRecord"][];
             /** @enum {string} */
-            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo";
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket";
             title: string;
             /** Format: date-time */
             updatedAt: string | null;
@@ -4221,7 +4221,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest.
              */
             baseUrl: string;
             /** @description Source files to index. Empty turns code indexing off. */
@@ -4235,7 +4235,7 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
             options?: {
                 [key: string]: unknown;
             };
@@ -8200,7 +8200,7 @@ export interface operations {
                 /** @description Search source code only. Off by default: results hold no source code. */
                 code?: boolean;
                 /** @description The kind of the source connection. */
-                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "";
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "";
                 connection?: number;
                 /** @description Items about an entity of this type. */
                 entityType?: string;

@@ -1,8 +1,9 @@
 // Package tree reads the knowledge files and the source code of
-// repositories. GitHub and Azure DevOps Server list the tree of a branch
-// with a blob ID per file. Sync fetches only the files whose blob ID
-// changed. Catalog and CODEOWNERS files become facts. Source files become
-// items of kind code with one passage per declaration.
+// repositories. GitHub, Azure DevOps Server, GitLab and Bitbucket Data
+// Center list the tree of a branch with a version per file. Sync fetches
+// only the files whose version changed. Catalog and CODEOWNERS files
+// become facts. Source files become items of kind code with one passage
+// per declaration.
 package tree
 
 import (
@@ -28,8 +29,9 @@ import (
 
 // Repo is one repository of a host.
 type Repo struct {
-	// ID is owner/name on GitHub and project/name on Azure DevOps. It is
-	// the prefix of the item IDs.
+	// ID is owner/name on GitHub, project/name on Azure DevOps, the path
+	// with namespace on GitLab and project key/slug on Bitbucket. It is the
+	// prefix of the item IDs.
 	ID     string
 	Name   string
 	Branch string
@@ -42,12 +44,15 @@ type Repo struct {
 // Entry is one file of a tree.
 type Entry struct {
 	Path string
+	// Blob is the version of the file: its blob ID, or on Bitbucket the
+	// last commit that changed it.
 	Blob string
 	// Size is the file size in bytes, or -1 when the host does not list it.
 	Size int64
 }
 
-// Host is one repository host. GitHub and Azure DevOps Server implement it.
+// Host is one repository host. GitHub, Azure DevOps Server, GitLab and
+// Bitbucket Data Center implement it.
 type Host interface {
 	// User returns the source user of the token.
 	User(ctx context.Context) (string, error)
@@ -74,6 +79,7 @@ type Host interface {
 // DefaultGlobs are the default include globs of a repository connection
 // (SDD section 8).
 var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/decisions/**/*.md", "CODEOWNERS", ".github/CODEOWNERS",
+	".gitlab/CODEOWNERS", ".bitbucket/CODEOWNERS",
 	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
 	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml",
 	"**/swagger*.{yaml,yml,json}", "**/asyncapi*.{yaml,yml,json}", "**/*.{graphql,gql}", "**/*.avsc", "**/*.schema.json"}
@@ -152,7 +158,7 @@ type listing struct {
 	// knowledge files and source files have their own limits.
 	rank    map[string]int
 	code    map[string]bool
-	owners  string         // the CODEOWNERS file that GitHub uses
+	owners  string         // the CODEOWNERS file that the host uses
 	skipped map[string]int // skip glob to the number of files
 }
 
@@ -309,7 +315,7 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 			knowledge++
 		}
 	}
-	for _, p := range []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"} {
+	for _, p := range ownersFiles(k.host.Provider()) {
 		if _, ok := l.index[p]; ok {
 			l.owners = p
 			break
@@ -319,6 +325,19 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 	k.listings[id] = l
 	k.mu.Unlock()
 	return l, nil
+}
+
+// ownersFiles are the CODEOWNERS paths that a host reads, in the order
+// that it looks for them. The first that exists is the file of the
+// repository.
+func ownersFiles(provider string) []string {
+	switch provider {
+	case "gitlab":
+		return []string{"CODEOWNERS", "docs/CODEOWNERS", ".gitlab/CODEOWNERS"}
+	case "bitbucket":
+		return []string{".bitbucket/CODEOWNERS"}
+	}
+	return []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
 }
 
 // Fetch reads one file. A file that is gone from the tree, or from the

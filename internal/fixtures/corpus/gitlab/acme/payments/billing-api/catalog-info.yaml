@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: billing-api
+  title: Billing API
+spec:
+  type: service
+  lifecycle: production
+  owner: group:billing-team
+  system: payments
+  dependsOn:
+    - component:payments-api

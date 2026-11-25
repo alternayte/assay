@@ -41,11 +41,14 @@ func Facts(file []byte, repo content.EntityRef, provider, host string) []content
 	return out
 }
 
-// owner maps @org/team to a team, @user to a person and an email address
-// to a person.
+// owner maps @org/team and the Bitbucket group @@group to a team, @user
+// to a person and an email address to a person.
 func owner(o, provider, host string) *content.EntityRef {
 	prefix := provider + ":" + host + ":"
 	switch {
+	case strings.HasPrefix(o, "@@") && len(o) > 2:
+		team := strings.ToLower(o[2:])
+		return &content.EntityRef{Type: "team", Key: prefix + "team:" + team, Name: team, Aliases: []string{o}}
 	case strings.HasPrefix(o, "@") && strings.Contains(o, "/"):
 		team := strings.ToLower(o[1:])
 		return &content.EntityRef{Type: "team", Key: prefix + "team:" + team, Name: team[strings.Index(team, "/")+1:], Aliases: []string{o}}

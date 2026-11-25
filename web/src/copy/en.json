@@ -403,6 +403,8 @@
       "jira": "Jira",
       "github": "GitHub",
       "azdo": "Azure DevOps Server",
+      "gitlab": "GitLab",
+      "bitbucket": "Bitbucket Data Center",
       "backstage": "Backstage"
     },
     "status": {
@@ -477,6 +479,10 @@
     "token": "Personal access token",
     "tokenHint": "Use a read-only token. Assay stores it encrypted and never shows it again.",
     "tokenKeep": "Leave empty to keep the stored token.",
+    "tokenHints": {
+      "gitlab": "Use a personal, group or project access token with the read_api and read_repository scopes. Assay stores it encrypted.",
+      "bitbucket": "Use an HTTP access token with the Repository read permission. Assay stores it encrypted."
+    },
     "test": "Test the connection",
     "testing": "Testing",
     "testOk": "Connected as {user}. The source has {count} items for this token.",
@@ -511,6 +517,8 @@
       "jira": "The URL before /rest, such as https://jira.acme.test.",
       "github": "Use https://api.github.com for GitHub. Use https://git.acme.test/api/v3 for GitHub Enterprise Server.",
       "azdo": "The collection URL, such as https://ado.acme.test/tfs/AcmeCollection.",
+      "gitlab": "Use https://gitlab.com for GitLab. Use the server URL, such as https://gitlab.acme.test, for a self-managed server.",
+      "bitbucket": "The URL before /rest, such as https://bitbucket.acme.test.",
       "backstage": "The URL of the Backstage backend, such as https://backstage.acme.test. Use a static external access token."
     },
     "frontendUrl": "Web address",
@@ -591,6 +599,8 @@
       "jira": "Jira",
       "github": "GitHub",
       "azdo": "Azure DevOps",
+      "gitlab": "GitLab",
+      "bitbucket": "Bitbucket",
       "catalog": "Catalog",
       "codeowners": "CODEOWNERS",
       "repository": "Repository",

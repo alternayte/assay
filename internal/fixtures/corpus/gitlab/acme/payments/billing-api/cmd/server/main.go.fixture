@@ -1,0 +1,14 @@
+// Command server runs the Billing API.
+package main
+
+import (
+	"log"
+	"net/http"
+
+	"gitlab.acme.test/acme/payments/billing-api/internal/invoice"
+)
+
+func main() {
+	http.Handle("/v1/invoices/", invoice.Handler())
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}

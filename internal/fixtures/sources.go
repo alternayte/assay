@@ -82,7 +82,8 @@ type Hit struct {
 	Method string
 	Path   string
 	Query  string
-	// Auth is the scheme of the Authorization header, such as Basic.
+	// Auth is the scheme of the Authorization header, such as Basic, or
+	// PRIVATE-TOKEN when the GitLab token header carries the token.
 	Auth string
 	At   time.Time
 }
@@ -104,6 +105,9 @@ type Sources struct {
 	// catalog holds the Backstage catalog entities by ref.
 	catalog      map[string]map[string]any
 	catalogOrder []string
+	// noNextPageStart makes the Bitbucket file list omit nextPageStart, as
+	// Bitbucket before 7.14 does.
+	noNextPageStart bool
 }
 
 // NewSources loads the Acme corpus.
@@ -226,11 +230,16 @@ func token(h string) string {
 
 // ServeHTTP serves the Confluence API under /confluence, the Jira API under
 // /jira, the GitHub API under /github, the GitHub Enterprise Server API
-// under /ghes/api/v3, the Azure DevOps Server API under /azdo and the
-// Backstage catalog API under /backstage.
+// under /ghes/api/v3, the Azure DevOps Server API under /azdo, the GitLab
+// API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket
+// and the Backstage catalog API under /backstage.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	tok := token(r.Header.Get("Authorization"))
+	if pt := r.Header.Get("PRIVATE-TOKEN"); scheme == "" && pt != "" {
+		scheme, tok = "PRIVATE-TOKEN", pt
+	}
 	s.hits = append(s.hits, Hit{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: scheme, At: time.Now()})
 	var fault *Fault
 	for prefix, f := range s.faults {
@@ -244,7 +253,7 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	authorized := s.tokens[token(r.Header.Get("Authorization"))]
+	authorized := s.tokens[tok]
 	s.mu.Unlock()
 	if r.URL.Path == "/manifest.json" && r.Method == http.MethodGet {
 		s.serveManifest(w, r)
@@ -280,6 +289,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.github(w, r, "/ghes/api/v3", "/ghes")
 	case strings.HasPrefix(r.URL.Path, "/azdo/"+AzdoCollection+"/"):
 		s.azdo(w, r)
+	case strings.HasPrefix(r.URL.Path, "/gitlab/api/v4/"):
+		s.gitlab(w, r)
+	case strings.HasPrefix(r.URL.Path, "/bitbucket/"):
+		s.bitbucket(w, r)
 	default:
 		http.NotFound(w, r)
 	}

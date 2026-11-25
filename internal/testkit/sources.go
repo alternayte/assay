@@ -40,7 +40,7 @@ var DefaultRules = connectors.Rules{InitiativeTypes: []string{"Epic", "Initiativ
 // Connection is a connection to create in a test.
 type Connection struct {
 	Name    string
-	Kind    string // confluence, jira, github, azdo or backstage
+	Kind    string // confluence, jira, github, azdo, gitlab, bitbucket or backstage
 	BaseURL string // the fixture server URL; Path is added
 	Path    string // the API path on the fixture server; empty is /<kind>
 	Scope   map[string]any

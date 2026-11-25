@@ -25,6 +25,9 @@ var authRoutes = map[string]bool{
 	"DELETE /sessions/{id}":     true,
 	"POST /sessions/revoke-all": true,
 	"POST /password/change":     true,
+	// Sign-in with the identity provider. The provider ID is fixed.
+	"GET /oauth/sso":          true,
+	"GET /oauth/sso/callback": true,
 }
 
 func authRouteAllowed(method, path string) bool {
@@ -83,6 +86,19 @@ func (s *Server) authHandler() http.Handler {
 		if !authRouteAllowed(r.Method, rel) {
 			http.NotFound(w, r)
 			return
+		}
+		// With password sign-in off, the password route does not exist.
+		if r.Method == http.MethodPost && rel == "/sign-in/email" {
+			on, err := s.sso.PasswordOn(r.Context())
+			if err != nil {
+				s.log.Error("read the sign-in setting", "error", err.Error())
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if !on {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		h.ServeHTTP(w, r)
 	})

@@ -17,11 +17,22 @@ The leak suite of the build plants a canary word in a restricted space and check
 
 Connectors are read-only. They send only GET and HEAD requests to the host of the connection and follow no redirect to another host. A 401 or 403 from a source pauses the connection and hides its content at once.
 
+The Entra ID directory sync has one exception. Microsoft Graph has no token flow over GET, so a separate token client sends one POST with the client credentials to the token URL of the tenant. That client sends only POST and only to that exact URL. The Graph reads use the GET-only connector client.
+
 Source text is data, not instructions. Model prompts mark it as data, MCP outputs put it only in `excerpt` and `quote` fields with a notice, and the UI renders it without scripts.
+
+## Sign-in with the identity provider
+
+- Users sign in through OpenID Connect with the provider ID `sso`. auth-all verifies the signature, the issuer, the audience, the nonce and the expiry of the ID token.
+- The first sign-in creates the user with the member role. An existing user links to an IdP account only when both sides have a verified address.
+- When an access group is set, a user outside it cannot sign in. The directory poll deactivates users who leave it, who are disabled or who are deleted. Deactivation ends their sessions and tokens.
+- The poll enables a user again only when the poll deactivated the user. A deactivation by an admin stays.
+- A failed poll changes nothing, so a directory outage deactivates nobody.
+- Password sign-in turns off only after an enabled admin signs in with SSO. Then `POST /api/auth/sign-in/email` returns 404.
 
 ## Secrets and tokens
 
-- Source tokens, model keys and the SMTP password are encrypted with `ASSAY_SECRET_KEY` (AES-GCM). Routes never return them.
+- Source tokens, model keys, the SMTP password and the OIDC client secret are encrypted with `ASSAY_SECRET_KEY` (AES-GCM). Routes never return them.
 - Access tokens, invite links and reset links are stored as SHA-256 hashes and show once. Access tokens expire after 90 days by default and after 365 days at most.
 - Deactivation of a user ends their sessions and tokens at once.
 - Sign-in has rate limits per address and per IP.

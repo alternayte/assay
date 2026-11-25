@@ -45,13 +45,36 @@ function errorText(e: unknown, map: Record<string, string>): string {
   return t("errors.network");
 }
 
+/** The landing page of a sign-in when the URL names none. */
+function nextPath(next: string | undefined, fallback: string): string {
+  return next?.startsWith("/") && !next.startsWith("//") ? next : fallback;
+}
+
+/** The copy for the error code that a failed SSO sign-in returns with. */
+function ssoError(code: string): string {
+  switch (code) {
+    case "SSO_ACCESS_DENIED":
+      return t("auth.ssoNoAccess");
+    case "USER_DISABLED":
+      return t("auth.ssoDisabled");
+    case "EMAIL_ALREADY_EXISTS":
+      return t("auth.ssoExists");
+    default:
+      return t("auth.ssoFailed");
+  }
+}
+
 export function SignInPage() {
   const qc = useQueryClient();
-  const search = useSearch({ strict: false }) as { next?: string };
+  const search = useSearch({ strict: false }) as { next?: string; error?: string };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const options = useQuery({
+    queryKey: ["sign-in-options"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/sign-in/options")),
+  });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -60,8 +83,7 @@ export function SignInPage() {
     try {
       unwrap(await api.POST("/api/auth/sign-in/email", { body: { email, password } }));
       await qc.invalidateQueries();
-      const next = search.next?.startsWith("/") && !search.next.startsWith("//") ? search.next : "/";
-      window.location.assign(next);
+      window.location.assign(nextPath(search.next, "/"));
     } catch (err) {
       setError(
         errorText(err, {
@@ -73,39 +95,65 @@ export function SignInPage() {
     }
   };
 
+  if (options.isPending) {
+    return (
+      <PublicPage title={t("auth.signInTitle")}>
+        <SkeletonRows label={t("app.loading")} rows={2} />
+      </PublicPage>
+    );
+  }
+  const sso = options.data?.sso ?? false;
+  const passwordOn = options.data?.password ?? true;
+  const ssoHref = `/api/auth/oauth/sso?redirect_to=${encodeURIComponent(nextPath(search.next, "/explore"))}`;
+
   return (
-    <PublicPage title={t("auth.signInTitle")} body={t("auth.signInBody")}>
-      <form onSubmit={submit} className="flex flex-col gap-4">
-        {error && <Notice tone="danger">{error}</Notice>}
-        <Field label={t("auth.email")}>
-          {(p) => (
-            <Input
-              {...p}
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          )}
-        </Field>
-        <Field label={t("auth.password")}>
-          {(p) => (
-            <Input
-              {...p}
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          )}
-        </Field>
-        <Button type="submit" variant="primary" disabled={busy}>
-          {busy ? t("auth.signingIn") : t("auth.signIn")}
-        </Button>
-        <p className="text-sm text-ink-muted">{t("auth.noAccount")}</p>
-      </form>
+    <PublicPage title={t("auth.signInTitle")} body={sso ? t("auth.signInBodySSO") : t("auth.signInBody")}>
+      <div className="flex flex-col gap-4">
+        {search.error && <Notice tone="danger">{ssoError(search.error)}</Notice>}
+        {sso && (
+          <Button asChild variant="primary">
+            <a href={ssoHref}>{options.data?.label || t("auth.ssoDefault")}</a>
+          </Button>
+        )}
+        {sso && passwordOn && (
+          <p className="label flex items-center gap-3 text-ink-muted before:h-px before:flex-1 before:bg-rule after:h-px after:flex-1 after:bg-rule">
+            {t("auth.or")}
+          </p>
+        )}
+        {passwordOn && (
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            {error && <Notice tone="danger">{error}</Notice>}
+            <Field label={t("auth.email")}>
+              {(p) => (
+                <Input
+                  {...p}
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              )}
+            </Field>
+            <Field label={t("auth.password")}>
+              {(p) => (
+                <Input
+                  {...p}
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              )}
+            </Field>
+            <Button type="submit" variant={sso ? "secondary" : "primary"} disabled={busy}>
+              {busy ? t("auth.signingIn") : t("auth.signIn")}
+            </Button>
+            <p className="text-sm text-ink-muted">{t("auth.noAccount")}</p>
+          </form>
+        )}
+      </div>
     </PublicPage>
   );
 }

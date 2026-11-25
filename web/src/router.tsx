@@ -27,6 +27,7 @@ import { DomainsPage } from "@/routes/settings/domains";
 import { GroupsPage } from "@/routes/settings/groups";
 import { AuditPage, EmailPage, GeneralPage, SettingsLayout } from "@/routes/settings/index";
 import { ModelsPage } from "@/routes/settings/models";
+import { SignInSettingsPage } from "@/routes/settings/signin";
 import { UsersPage } from "@/routes/settings/users";
 import { UpdatesPage } from "@/routes/updates";
 
@@ -117,6 +118,11 @@ const settingsIndex = createRoute({
 });
 const users = createRoute({ getParentRoute: () => settings, path: "/users", component: UsersPage });
 const groups = createRoute({ getParentRoute: () => settings, path: "/groups", component: GroupsPage });
+const signInSettings = createRoute({
+  getParentRoute: () => settings,
+  path: "/sign-in",
+  component: SignInSettingsPage,
+});
 const connections = createRoute({
   getParentRoute: () => settings,
   path: "/connections",
@@ -171,6 +177,7 @@ const routeTree = root.addChildren([
       settingsIndex,
       users,
       groups,
+      signInSettings,
       connections,
       newConnection,
       connection,

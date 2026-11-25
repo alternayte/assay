@@ -22,6 +22,14 @@ type Group struct {
 	Name        string `json:"name"`
 	Builtin     bool   `json:"builtin" doc:"True for Everyone, which holds all active users and cannot change."`
 	MemberCount int64  `json:"memberCount"`
+	// Mapping is the identity provider group that sets the members.
+	Mapping *Mapping `json:"mapping,omitempty"`
+}
+
+// Mapping names the identity provider group of a mapped group.
+type Mapping struct {
+	ExternalID   string `json:"externalId"`
+	ExternalName string `json:"externalName"`
 }
 
 // Member is a user in a group.
@@ -33,6 +41,31 @@ type Member struct {
 }
 
 var errBuiltin = api.Problem(http.StatusForbidden, "builtin_group", "Everyone holds all active users. It cannot change.")
+
+// errMapped refuses a manual member change of a mapped group. The next
+// directory poll would undo it.
+var errMapped = api.Problem(http.StatusConflict, "mapped_group",
+	"The identity provider sets the members of this group. Change the members in the identity provider.")
+
+// editable refuses a member change of the built-in group and of a mapped
+// group.
+func (s *Service) editable(ctx context.Context, q *Queries, id int64) error {
+	g, err := s.group(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	if g.Builtin {
+		return errBuiltin
+	}
+	mapped, err := q.GroupMapped(ctx, id)
+	if err != nil {
+		return err
+	}
+	if mapped {
+		return errMapped
+	}
+	return nil
+}
 
 func (s *Service) registerGroups(a huma.API) {
 	admins := huma.Middlewares{api.Require(auth.RoleAdmin)}
@@ -53,7 +86,11 @@ func (s *Service) registerGroups(a huma.API) {
 		out := &listOutput{}
 		out.Body.Groups = make([]Group, 0, len(rows))
 		for _, r := range rows {
-			out.Body.Groups = append(out.Body.Groups, Group{ID: r.ID, Name: r.Name, Builtin: r.Builtin, MemberCount: r.MemberCount})
+			g := Group{ID: r.ID, Name: r.Name, Builtin: r.Builtin, MemberCount: r.MemberCount}
+			if r.MappedID != "" {
+				g.Mapping = &Mapping{ExternalID: r.MappedID, ExternalName: r.MappedName}
+			}
+			out.Body.Groups = append(out.Body.Groups, g)
 		}
 		return out, nil
 	})
@@ -187,12 +224,8 @@ func (s *Service) registerGroups(a huma.API) {
 			return nil, err
 		}
 		err := s.tx(ctx, func(q *Queries, tx pgx.Tx) error {
-			g, err := s.group(ctx, q, in.ID)
-			if err != nil {
+			if err := s.editable(ctx, q, in.ID); err != nil {
 				return err
-			}
-			if g.Builtin {
-				return errBuiltin
 			}
 			// An admin does not give itself the content of a connection
 			// of another owner (SI-01).
@@ -219,12 +252,8 @@ func (s *Service) registerGroups(a huma.API) {
 		Summary: "Remove a user from a group", DefaultStatus: http.StatusNoContent, Middlewares: admins,
 	}, func(ctx context.Context, in *memberInput) (*struct{}, error) {
 		err := s.tx(ctx, func(q *Queries, tx pgx.Tx) error {
-			g, err := s.group(ctx, q, in.ID)
-			if err != nil {
+			if err := s.editable(ctx, q, in.ID); err != nil {
 				return err
-			}
-			if g.Builtin {
-				return errBuiltin
 			}
 			n, err := q.RemoveGroupMember(ctx, RemoveGroupMemberParams{GroupID: in.ID, UserID: in.UserID})
 			if err != nil {

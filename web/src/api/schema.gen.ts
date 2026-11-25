@@ -1178,6 +1178,30 @@ export interface paths {
         patch: operations["renameGroup"];
         trace?: never;
     };
+    "/api/v1/groups/{id}/mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Map an IdP group to a group
+         * @description The IdP then sets the members. The current members are removed, and sign-in and the directory poll add the IdP members.
+         */
+        put: operations["setGroupMapping"];
+        post?: never;
+        /**
+         * Remove the IdP mapping of a group
+         * @description The members stay, and admins change them again.
+         */
+        delete: operations["deleteGroupMapping"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups/{id}/members": {
         parameters: {
             query?: never;
@@ -1861,6 +1885,83 @@ export interface paths {
          * @description Needs the setup token from ASSAY_SETUP_TOKEN. Returns 404 after the first admin exists.
          */
         post: operations["completeSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sign-in/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the sign-in methods
+         * @description The sign-in page calls it before sign-in.
+         */
+        get: operations["getSignInOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the state of SSO and the directory sync */
+        get: operations["getSSOStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/directory/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List directory groups
+         * @description Reads the groups of the directory for the group picker.
+         */
+        get: operations["listDirectoryGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the client secret
+         * @description The secret is write-only.
+         */
+        put: operations["setSSOSecret"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2754,6 +2855,11 @@ export interface components {
             op: "=" | "+" | "-";
             text: string;
         };
+        DirectoryGroup: {
+            /** @description The IdP group ID. */
+            id: string;
+            name: string;
+        };
         Domain: {
             description: string;
             /** Format: int64 */
@@ -3087,6 +3193,7 @@ export interface components {
             builtin: boolean;
             /** Format: int64 */
             id: number;
+            mapping?: components["schemas"]["Mapping"];
             /** Format: int64 */
             memberCount: number;
             name: string;
@@ -3098,6 +3205,15 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+        };
+        GroupsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/GroupsOutputBody.json
+             */
+            readonly $schema?: string;
+            groups: components["schemas"]["DirectoryGroup"][];
         };
         HistoryOutputBody: {
             /**
@@ -3421,6 +3537,21 @@ export interface components {
             email: string;
             role: string;
         };
+        Mapping: {
+            externalId: string;
+            externalName: string;
+        };
+        MappingInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MappingInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description The IdP group ID. Entra ID uses the object ID. */
+            externalId: string;
+            externalName: string;
+        };
         Match: {
             /** Format: int64 */
             end: number;
@@ -3698,6 +3829,19 @@ export interface components {
             readonly $schema?: string;
             /** @description True pauses the connection: its sync and reconcile runs stop, and its content stays visible. False resumes it and queues a sync and a reconciliation. */
             paused: boolean;
+        };
+        PollStatus: {
+            /** @description The error of the last poll. Empty after a good poll. */
+            lastError: string;
+            /** Format: date-time */
+            lastErrorAt: string | null;
+            /** Format: date-time */
+            lastStartedAt: string | null;
+            /**
+             * Format: date-time
+             * @description The end of the last good poll.
+             */
+            lastSuccessAt: string | null;
         };
         Precision: {
             /** Format: int64 */
@@ -4076,6 +4220,31 @@ export interface components {
             readonly $schema?: string;
             runs: components["schemas"]["RunRecord"][];
         };
+        SSOStatus: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SSOStatus.json
+             */
+            readonly $schema?: string;
+            /** @description True when an enabled admin has a linked SSO account. */
+            adminLinked: boolean;
+            /** @description The redirect URI to register at the identity provider. */
+            callbackUrl: string;
+            directory: components["schemas"]["PollStatus"];
+            directoryOn: boolean;
+            /** @description The configuration after the environment variables. */
+            effective: components["schemas"]["SignInConfig"];
+            /** @description The fields that an environment variable sets, with the variable name. */
+            locks: {
+                [key: string]: string;
+            };
+            /** @description True when password sign-in is served now. */
+            passwordOn: boolean;
+            /** @description True when the issuer, the client ID and the client secret are set. */
+            ready: boolean;
+            secretSet: boolean;
+        };
         SavedEdit: {
             /**
              * Format: uri
@@ -4113,6 +4282,16 @@ export interface components {
              */
             readonly $schema?: string;
             scopes: components["schemas"]["Scope"][];
+        };
+        SecretInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SecretInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description An empty value removes the secret. */
+            secret: string;
         };
         SectionEdit: {
             /**
@@ -4186,6 +4365,35 @@ export interface components {
             name: string;
             password: string;
             token: string;
+        };
+        SignInConfig: {
+            /** @description The IdP group ID whose members can sign in. Empty lets every IdP user sign in. */
+            accessGroup: string;
+            accessGroupName: string;
+            /** @description The label of the SSO button. Empty uses the default label. */
+            buttonLabel: string;
+            clientId: string;
+            /** @enum {string} */
+            directory: "none" | "entra";
+            /** Format: int64 */
+            intervalMinutes: number;
+            /** @description The OpenID Connect issuer URL. Empty turns SSO off. */
+            issuer: string;
+            passwordSignIn: boolean;
+        };
+        SignInOptions: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SignInOptions.json
+             */
+            readonly $schema?: string;
+            /** @description The label of the SSO button. Empty means the default label. */
+            label: string;
+            /** @description True when password sign-in is served. */
+            password: boolean;
+            /** @description True when SSO sign-in is configured. */
+            sso: boolean;
         };
         Skip: {
             id: string;
@@ -7063,6 +7271,68 @@ export interface operations {
             };
         };
     };
+    setGroupMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MappingInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteGroupMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listGroupMembers: {
         parameters: {
             query?: never;
@@ -8442,6 +8712,127 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserRecord"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSignInOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSSOStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SSOStatus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDirectoryGroups: {
+        parameters: {
+            query?: {
+                /** @description The start of the group name. */
+                prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setSSOSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

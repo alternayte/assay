@@ -28,6 +28,9 @@ type Def struct {
 	Default     any
 	// Check decodes and validates a value.
 	Check func(json.RawMessage) error
+	// Guard, when set, checks a change against the database in the
+	// transaction of the change. An *api.Error selects the response.
+	Guard func(ctx context.Context, db DBTX, value json.RawMessage) error
 }
 
 // Define returns a setting of type T. check validates a decoded value; it can
@@ -202,6 +205,11 @@ func (s *Service) Register(a huma.API) {
 			if cur.Revision != in.Body.Revision {
 				return api.Problem(http.StatusConflict, "stale_revision",
 					fmt.Sprintf("The setting changed. The current revision is %d. Reload and try again.", cur.Revision))
+			}
+			if d.Guard != nil {
+				if err := d.Guard(ctx, tx, compact.Bytes()); err != nil {
+					return err
+				}
 			}
 			if err := q.Update(ctx, UpdateParams{Key: in.Key, Value: compact.Bytes(), UpdatedBy: &caller, UpdatedAt: now}); err != nil {
 				return err

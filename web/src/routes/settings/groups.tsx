@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import { DirectoryPicker } from "@/components/directory-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -50,6 +51,11 @@ export function GroupsPage() {
                       {g.builtin && (
                         <Badge className="ml-2" tone="neutral">
                           {t("groups.builtin")}
+                        </Badge>
+                      )}
+                      {g.mapping && (
+                        <Badge className="ml-2" tone="accent">
+                          {t("groups.mapped")}
                         </Badge>
                       )}
                     </span>
@@ -128,6 +134,93 @@ function NameDialog({ mode, group }: { mode: "create" | "rename"; group?: Group 
   );
 }
 
+function MapDialog({ group }: { group: Group }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [externalId, setExternalId] = useState("");
+  const [externalName, setExternalName] = useState("");
+  const [error, setError] = useState<string>();
+  const status = useQuery({
+    queryKey: ["sso"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/sso")),
+    enabled: open,
+  });
+  const save = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.PUT("/api/v1/groups/{id}/mapping", {
+          params: { path: { id: group.id } },
+          body: { externalId, externalName },
+        }),
+      ),
+    onSuccess: () => {
+      setOpen(false);
+      qc.invalidateQueries({ queryKey: ["groups"] });
+    },
+    onError: (e) =>
+      setError(
+        e instanceof ApiError
+          ? e.code === "mapping_taken"
+            ? t("groups.mappingTaken")
+            : e.message
+          : t("errors.network"),
+      ),
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setError(undefined);
+    save.mutate();
+  };
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button size="sm" onClick={() => setOpen(true)}>
+        {t("groups.map")}
+      </Button>
+      <DialogContent title={t("groups.map")} closeLabel={t("groups.cancel")}>
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <p className="text-base text-ink-muted">{t("groups.mapBody")}</p>
+          {error && <Notice tone="danger">{error}</Notice>}
+          {status.data?.directoryOn && (
+            <DirectoryPicker
+              onPick={(g) => {
+                setExternalId(g.id);
+                setExternalName(g.name);
+              }}
+            />
+          )}
+          <Field label={t("groups.externalId")} hint={t("groups.externalIdHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                maxLength={200}
+                className="font-mono"
+                value={externalId}
+                onChange={(e) => setExternalId(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("groups.externalName")}>
+            {(p) => (
+              <Input
+                {...p}
+                maxLength={300}
+                value={externalName}
+                onChange={(e) => setExternalName(e.target.value)}
+              />
+            )}
+          </Field>
+          <div className="flex justify-end">
+            <Button type="submit" variant="primary" disabled={!externalId || save.isPending}>
+              {t("groups.mapSave")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MembersSheet({ group }: { group: Group }) {
   const qc = useQueryClient();
   const members = useQuery({
@@ -138,7 +231,7 @@ function MembersSheet({ group }: { group: Group }) {
   const users = useQuery({
     queryKey: ["users"],
     queryFn: async () => unwrap(await api.GET("/api/v1/users")).users,
-    enabled: !group.builtin,
+    enabled: !group.builtin && !group.mapping,
   });
   const [pick, setPick] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -163,6 +256,12 @@ function MembersSheet({ group }: { group: Group }) {
       ),
     onSuccess: refresh,
   });
+  const unmap = useMutation({
+    mutationFn: async () =>
+      unwrap(await api.DELETE("/api/v1/groups/{id}/mapping", { params: { path: { id: group.id } } })),
+    onSuccess: refresh,
+  });
+  const editable = !group.builtin && !group.mapping;
   const del = useMutation({
     mutationFn: async () =>
       unwrap(await api.DELETE("/api/v1/groups/{id}", { params: { path: { id: group.id } } })),
@@ -178,11 +277,24 @@ function MembersSheet({ group }: { group: Group }) {
   return (
     <Sheet
       title={`${t("groups.members")}: ${group.name}`}
-      description={group.builtin ? t("groups.everyoneHelp") : undefined}
+      description={
+        group.builtin
+          ? t("groups.everyoneHelp")
+          : group.mapping
+            ? t("groups.mappedTo", { name: group.mapping.externalName })
+            : undefined
+      }
       actions={
         !group.builtin && (
           <>
             <NameDialog key={group.id} mode="rename" group={group} />
+            {group.mapping ? (
+              <Button size="sm" onClick={() => unmap.mutate()} disabled={unmap.isPending}>
+                {t("groups.unmap")}
+              </Button>
+            ) : (
+              <MapDialog key={`map-${group.id}`} group={group} />
+            )}
             <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>
               {t("groups.delete")}
             </Button>
@@ -190,7 +302,12 @@ function MembersSheet({ group }: { group: Group }) {
         )
       }
     >
-      {!group.builtin && (
+      {group.mapping && (
+        <div className="mb-4">
+          <Notice tone="info">{t("groups.mappedHelp")}</Notice>
+        </div>
+      )}
+      {editable && (
         <form
           className="mb-4 flex flex-wrap items-end gap-2"
           onSubmit={(e) => {
@@ -227,7 +344,7 @@ function MembersSheet({ group }: { group: Group }) {
             <tr>
               <Th>{t("users.colUser")}</Th>
               <Th>{t("users.colStatus")}</Th>
-              {!group.builtin && (
+              {editable && (
                 <Th>
                   <span className="sr-only">{t("users.colActions")}</span>
                 </Th>
@@ -248,7 +365,7 @@ function MembersSheet({ group }: { group: Group }) {
                     <Badge tone="stale">{t("users.deactivated")}</Badge>
                   )}
                 </Td>
-                {!group.builtin && (
+                {editable && (
                   <Td className="text-right">
                     <Button size="sm" variant="ghost" onClick={() => remove.mutate(m.id)}>
                       {t("groups.remove")}

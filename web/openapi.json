@@ -2005,6 +2005,23 @@
         ],
         "type": "object"
       },
+      "DirectoryGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The IdP group ID.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "Domain": {
         "additionalProperties": false,
         "properties": {
@@ -2930,6 +2947,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "mapping": {
+            "$ref": "#/components/schemas/Mapping"
+          },
           "memberCount": {
             "format": "int64",
             "type": "integer"
@@ -2969,6 +2989,30 @@
           "name",
           "builtin",
           "confirmedAt"
+        ],
+        "type": "object"
+      },
+      "GroupsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/GroupsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryGroup"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
         ],
         "type": "object"
       },
@@ -3856,6 +3900,51 @@
         ],
         "type": "object"
       },
+      "Mapping": {
+        "additionalProperties": false,
+        "properties": {
+          "externalId": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "externalName"
+        ],
+        "type": "object"
+      },
+      "MappingInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/MappingInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "externalId": {
+            "description": "The IdP group ID. Entra ID uses the object ID.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "externalName": {
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "externalName"
+        ],
+        "type": "object"
+      },
       "Match": {
         "additionalProperties": false,
         "properties": {
@@ -4738,6 +4827,44 @@
         },
         "required": [
           "paused"
+        ],
+        "type": "object"
+      },
+      "PollStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "lastError": {
+            "description": "The error of the last poll. Empty after a good poll.",
+            "type": "string"
+          },
+          "lastErrorAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastStartedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSuccessAt": {
+            "description": "The end of the last good poll.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "lastStartedAt",
+          "lastSuccessAt",
+          "lastErrorAt",
+          "lastError"
         ],
         "type": "object"
       },
@@ -5824,6 +5951,68 @@
         ],
         "type": "object"
       },
+      "SSOStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SSOStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "adminLinked": {
+            "description": "True when an enabled admin has a linked SSO account.",
+            "type": "boolean"
+          },
+          "callbackUrl": {
+            "description": "The redirect URI to register at the identity provider.",
+            "type": "string"
+          },
+          "directory": {
+            "$ref": "#/components/schemas/PollStatus"
+          },
+          "directoryOn": {
+            "type": "boolean"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/SignInConfig",
+            "description": "The configuration after the environment variables."
+          },
+          "locks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The fields that an environment variable sets, with the variable name.",
+            "type": "object"
+          },
+          "passwordOn": {
+            "description": "True when password sign-in is served now.",
+            "type": "boolean"
+          },
+          "ready": {
+            "description": "True when the issuer, the client ID and the client secret are set.",
+            "type": "boolean"
+          },
+          "secretSet": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "effective",
+          "locks",
+          "secretSet",
+          "callbackUrl",
+          "ready",
+          "adminLinked",
+          "passwordOn",
+          "directoryOn",
+          "directory"
+        ],
+        "type": "object"
+      },
       "SavedEdit": {
         "additionalProperties": false,
         "properties": {
@@ -5913,6 +6102,29 @@
         },
         "required": [
           "scopes"
+        ],
+        "type": "object"
+      },
+      "SecretInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SecretInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "secret": {
+            "description": "An empty value removes the secret.",
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret"
         ],
         "type": "object"
       },
@@ -6127,6 +6339,86 @@
           "token",
           "email",
           "name",
+          "password"
+        ],
+        "type": "object"
+      },
+      "SignInConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "accessGroup": {
+            "description": "The IdP group ID whose members can sign in. Empty lets every IdP user sign in.",
+            "type": "string"
+          },
+          "accessGroupName": {
+            "type": "string"
+          },
+          "buttonLabel": {
+            "description": "The label of the SSO button. Empty uses the default label.",
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "directory": {
+            "enum": [
+              "none",
+              "entra"
+            ],
+            "type": "string"
+          },
+          "intervalMinutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "issuer": {
+            "description": "The OpenID Connect issuer URL. Empty turns SSO off.",
+            "type": "string"
+          },
+          "passwordSignIn": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "buttonLabel",
+          "passwordSignIn",
+          "accessGroup",
+          "accessGroupName",
+          "directory",
+          "intervalMinutes"
+        ],
+        "type": "object"
+      },
+      "SignInOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SignInOptions.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "label": {
+            "description": "The label of the SSO button. Empty means the default label.",
+            "type": "string"
+          },
+          "password": {
+            "description": "True when password sign-in is served.",
+            "type": "boolean"
+          },
+          "sso": {
+            "description": "True when SSO sign-in is configured.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sso",
+          "label",
           "password"
         ],
         "type": "object"
@@ -10935,6 +11227,86 @@
         ]
       }
     },
+    "/api/v1/groups/{id}/mapping": {
+      "delete": {
+        "description": "The members stay, and admins change them again.",
+        "operationId": "deleteGroupMapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove the IdP mapping of a group",
+        "tags": [
+          "groups"
+        ]
+      },
+      "put": {
+        "description": "The IdP then sets the members. The current members are removed, and sign-in and the directory poll add the IdP members.",
+        "operationId": "setGroupMapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Map an IdP group to a group",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
     "/api/v1/groups/{id}/members": {
       "get": {
         "operationId": "listGroupMembers",
@@ -12779,6 +13151,149 @@
         "summary": "Create the first admin",
         "tags": [
           "setup"
+        ]
+      }
+    },
+    "/api/v1/sign-in/options": {
+      "get": {
+        "description": "The sign-in page calls it before sign-in.",
+        "operationId": "getSignInOptions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptions"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the sign-in methods",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso": {
+      "get": {
+        "operationId": "getSSOStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the state of SSO and the directory sync",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso/directory/groups": {
+      "get": {
+        "description": "Reads the groups of the directory for the group picker.",
+        "operationId": "listDirectoryGroups",
+        "parameters": [
+          {
+            "description": "The start of the group name.",
+            "explode": false,
+            "in": "query",
+            "name": "prefix",
+            "schema": {
+              "description": "The start of the group name.",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List directory groups",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso/secret": {
+      "put": {
+        "description": "The secret is write-only.",
+        "operationId": "setSSOSecret",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set the client secret",
+        "tags": [
+          "sign-in"
         ]
       }
     },

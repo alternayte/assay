@@ -38,6 +38,13 @@ sql:
         package: users
         out: internal/users
   - <<: *pkg
+    queries: internal/sso/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: sso
+        out: internal/sso
+  - <<: *pkg
     queries: internal/settings/queries.sql
     gen:
       go:

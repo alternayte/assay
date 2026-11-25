@@ -10,8 +10,12 @@ github.com/agnivade/levenshtein v1.2.1 h1:EHBY3UOn1gwdy/VbFwgo4cxecRznFk7fKWN1KO
 github.com/agnivade/levenshtein v1.2.1/go.mod h1:QVVI16kDrtSuwcpd0p1+xMC6Z/VfhtCyDIjcwga4/DU=
 github.com/alternayte/auth-all v0.7.0 h1:/SEx7+r1MuX3Cl3txV4JC00B8L8wu1J9YVzYVJ4AThM=
 github.com/alternayte/auth-all v0.7.0/go.mod h1:R0cqJZoxuzllxbONfiPNNNXvHJoHS7efm8pA0/JEplE=
+github.com/alternayte/auth-all v0.9.0 h1:VhvBcOTyMrMt+J7O3OjYe0oKJLTU+r4TMADUYMRmQGw=
+github.com/alternayte/auth-all v0.9.0/go.mod h1:gA+Z0whDJCfwWpPxbNLfOm7cgC4/G1KC/ilqNuOtIQg=
 github.com/alternayte/auth-all/humaauth v0.3.0 h1:V+sVpyWvS88S/4x1yPS8I3nvfv3XRCCrsXXLOqB4h2Y=
 github.com/alternayte/auth-all/humaauth v0.3.0/go.mod h1:Ne04axGVMrX9b6TzrNf53wcvAgG2s3lRFlXm1sOzBlQ=
+github.com/alternayte/auth-all/humaauth v0.5.0 h1:/R/KrOMKAW2tcEz7HlkNEej7Fsw77f9ZY9lD78OUUIQ=
+github.com/alternayte/auth-all/humaauth v0.5.0/go.mod h1:C+7zjJ88onI5WTHPRdQbfP8WylOldI94ChPFHfHJneU=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/bmatcuk/doublestar/v4 v4.9.1 h1:X8jg9rRZmJd4yRy7ZeNDRnM+T3ZfHv15JiBJ/avrEXE=

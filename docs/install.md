@@ -124,9 +124,23 @@ Jobs run on six queues. Each queue has its own workers in each worker process, s
 | `extract` | Extraction. Extraction for an answer or a page runs before the jobs of an admin extraction. | `ASSAY_EXTRACT_WORKERS`, 4 by default |
 | `design` | Design page builds and section regeneration. | `ASSAY_DESIGN_WORKERS`, 2 by default |
 | `resolve` | Resolution of mentions, merges and conflicts. | Always 1. Two runs would make the same card twice. |
-| `default` | Term drafts, the chunk hash fill and retention. | `ASSAY_JOB_WORKERS`, 10 by default |
+| `default` | Term drafts, the chunk hash fill, retention and the directory sync. | `ASSAY_JOB_WORKERS`, 10 by default |
 
 Each value is a number from 1 to 100. To change one, add the line to `.env` and run the install script again. The speed of one part comes from the rate settings of its connection, not from the worker count. More extract workers make an admin extraction faster only up to the rate limit of the model provider.
+
+## Sign-in with SSO
+
+Users can sign in with the company identity provider through OpenID Connect. Entra ID is the first identity provider, and any OpenID Connect issuer works.
+
+1. Register an app at the identity provider. Set the redirect URI to `<ASSAY_BASE_URL>/api/auth/oauth/sso/callback`.
+2. For Entra ID, turn on the groups claim with group IDs. For the directory sync, give the app the application permissions User.Read.All and GroupMember.Read.All.
+3. In Settings, Sign-in, set the issuer URL, the client ID and the client secret. For Entra ID, the issuer is `https://login.microsoftonline.com/<tenant ID>/v2.0`.
+4. Optionally, set an access group. Only its members can sign in.
+5. In Settings, Groups, map IdP groups to Assay groups. The identity provider then sets the members.
+6. Set the directory to Entra ID. A job reads the directory every 15 minutes by default. It deactivates leavers and sets the members of mapped groups.
+7. Sign in with SSO as a user, and give that user the admin role. Then you can turn off password sign-in.
+
+Each field has an environment variable: `ASSAY_OIDC_ISSUER`, `ASSAY_OIDC_CLIENT_ID`, `ASSAY_OIDC_CLIENT_SECRET`, `ASSAY_OIDC_BUTTON_LABEL`, `ASSAY_OIDC_ACCESS_GROUP`, `ASSAY_PASSWORD_SIGNIN`, `ASSAY_DIRECTORY_PROVIDER` and `ASSAY_DIRECTORY_INTERVAL`. A set variable wins, and Settings shows the field as locked. `ASSAY_DIRECTORY_GRAPH_URL` replaces the Microsoft Graph URL for a national cloud.
 
 ## Rotate the secret key
 

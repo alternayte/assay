@@ -137,7 +137,7 @@ export interface paths {
         put?: never;
         /**
          * Ask a question
-         * @description Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.
+         * @description Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice. The thread of another user gives 404.
          */
         post: operations["ask"];
         delete?: never;
@@ -679,6 +679,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagnostics/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the questions to improve
+         * @description Questions of all users of the last 90 days with no evidence or a not-helpful mark, grouped by the first thing that each names. A question shows only when all connections of its answer are visible to the caller. No row names the asker or holds the answer.
+         */
+        get: operations["listQuestionsToImprove"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/domains": {
         parameters: {
             query?: never;
@@ -1055,6 +1075,26 @@ export interface paths {
          * @description A sync does not change the type again. A current claim that does not take the type refuses the change with 409, and the message names its predicates. A reviewer's edit applies at once (204). A member's edit becomes an entity_edit card (202).
          */
         put: operations["setEntityType"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/feedback/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the rated questions for an evaluation set
+         * @description assay eval --from-feedback reads it. Each question has a mark, and all connections of its answer are visible to the caller. An up-marked answer gives the titles of its cited items. No row names the asker.
+         */
+        get: operations["listFeedbackQuestions"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1540,8 +1580,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List your questions
-         * @description The history is private. Each user sees only their own questions.
+         * List your question threads
+         * @description The history is private. Each user sees only their own questions. Each row is one thread.
          */
         get: operations["listQuestions"];
         put?: never;
@@ -1560,11 +1600,31 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get one of your questions with its answer
-         * @description The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.
+         * Get the thread of one of your questions
+         * @description Any turn gives the whole thread. The question of another user gives 404. When a source of a turn is no longer visible, the answer of that turn is hidden.
          */
         get: operations["getQuestion"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark one of your answers as helpful or not helpful
+         * @description One mark per answer. A new mark replaces the old one. Only a down mark keeps the reason and the wrong-citation flag. The question of another user gives 404.
+         */
+        put: operations["setFeedback"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2060,17 +2120,12 @@ export interface components {
             isName: boolean;
         };
         Answer: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/v1/schemas/Answer.json
-             */
-            readonly $schema?: string;
             cited: string[];
             claims: components["schemas"]["ContextClaim"][];
             conflicts: components["schemas"]["ConflictBlock"][];
             /** Format: date-time */
             createdAt: string;
+            feedback?: components["schemas"]["Feedback"];
             links: components["schemas"]["Linked"];
             lint: components["schemas"]["Finding"][];
             /** @description Markers such as [S1] link to sources and claims. */
@@ -2078,10 +2133,23 @@ export interface components {
             noEvidence: boolean;
             notice?: components["schemas"]["Notice"];
             question: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 when Assay refused the question and did not store it.
+             */
             questionId: number;
             results: components["schemas"]["Result"][];
             sources: components["schemas"]["Source"][];
+            /**
+             * Format: int64
+             * @description The ID of the first question of the thread.
+             */
+            threadId: number;
+            /**
+             * Format: int64
+             * @description The position in the thread, from 1.
+             */
+            turn: number;
             /** @description Sentences without a valid citation. */
             uncited: string[];
             unknowns: string[];
@@ -2105,6 +2173,11 @@ export interface components {
              */
             readonly $schema?: string;
             question: string;
+            /**
+             * Format: int64
+             * @description A thread of the caller. The question is a follow-up in it. A full thread starts a new thread.
+             */
+            threadId?: number;
         };
         AuthResponse: {
             emailVerificationRequired?: boolean;
@@ -2876,6 +2949,32 @@ export interface components {
             /** @enum {string} */
             rule: "sentence_length" | "summary_length" | "banned_word" | "deprecated_term" | "uncited";
         };
+        Feedback: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Feedback.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            reason: string;
+            wrongCitation: boolean;
+        };
+        FeedbackInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/FeedbackInBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            /** @description Only a down mark keeps it. */
+            reason?: string;
+            /** @description A citation of the answer is wrong. Only a down mark keeps it. */
+            wrongCitation?: boolean;
+        };
         FieldError: {
             location: string;
             message: string;
@@ -3032,6 +3131,35 @@ export interface components {
             unchanged: number;
             /** Format: int64 */
             updated: number;
+        };
+        ImproveGroup: {
+            entityKey: string;
+            entityName: string;
+            questions: components["schemas"]["ImproveQuestion"][];
+        };
+        ImproveOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImproveOutBody.json
+             */
+            readonly $schema?: string;
+            groups: components["schemas"]["ImproveGroup"][];
+        };
+        ImproveQuestion: {
+            /** Format: date-time */
+            askedAt: string;
+            /** Format: int64 */
+            id: number;
+            noEvidence: boolean;
+            /**
+             * @description Empty without a mark.
+             * @enum {string}
+             */
+            rating: "" | "up" | "down";
+            reason: string;
+            text: string;
+            wrongCitation: boolean;
         };
         Invite: {
             /** Format: date-time */
@@ -3389,7 +3517,7 @@ export interface components {
         };
         Notice: {
             /** @enum {string} */
-            code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden";
+            code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden" | "thread_hidden";
             message: string;
         };
         OutBody: {
@@ -3680,11 +3808,39 @@ export interface components {
             value: unknown;
         };
         QuestionSummary: {
-            /** Format: date-time */
-            createdAt: string;
+            /**
+             * Format: int64
+             * @description The thread ID: the ID of the first question.
+             */
+            id: number;
+            /**
+             * Format: date-time
+             * @description The time of the last turn.
+             */
+            lastAt: string;
+            /** @description The first question of the thread. */
+            text: string;
+            /** Format: int64 */
+            turns: number;
+        };
+        RatedOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RatedOutBody.json
+             */
+            readonly $schema?: string;
+            questions: components["schemas"]["RatedQuestion"][];
+        };
+        RatedQuestion: {
             /** Format: int64 */
             id: number;
-            text: string;
+            noEvidence: boolean;
+            question: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            /** @description The titles of the cited items of an up-marked answer, as the reader sees them. */
+            sources: string[];
         };
         Record: {
             action: string;
@@ -4264,6 +4420,17 @@ export interface components {
             relations?: components["schemas"]["RecordRelation"][];
             /** @description An entity type other than term. */
             type: string;
+        };
+        Thread: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Thread.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            threadId: number;
+            turns: components["schemas"]["Answer"][];
         };
         Token: {
             /** Format: date-time */
@@ -5845,6 +6012,35 @@ export interface operations {
             };
         };
     };
+    listQuestionsToImprove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImproveOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listDomains: {
         parameters: {
             query?: never;
@@ -6611,6 +6807,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EditOutBody"];
+                };
+            };
+        };
+    };
+    listFeedbackQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
         };
@@ -7619,7 +7844,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Answer"];
+                    "application/json": components["schemas"]["Thread"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Feedback"];
                 };
             };
             /** @description Error */

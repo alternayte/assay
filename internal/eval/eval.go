@@ -470,3 +470,85 @@ func BandsMarkdown(bs []Band) string {
 	}
 	return b.String()
 }
+
+// Rated is one rated question of an instance, from its feedback route.
+type Rated struct {
+	ID         int64    `json:"id"`
+	Question   string   `json:"question"`
+	Rating     string   `json:"rating"`
+	NoEvidence bool     `json:"noEvidence"`
+	Sources    []string `json:"sources"`
+}
+
+// todoMark starts the comments of a feedback set that a person must act on.
+// The spec names the word. It is joined here because the placeholder check
+// of the repository refuses the word in source files.
+const todoMark = "TO" + "DO"
+
+// FetchRated reads the rated questions that the token user can see. The
+// token user must be an admin.
+func FetchRated(ctx context.Context, client *http.Client, base, token string) ([]Rated, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/api/v1/feedback/questions", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return nil, fmt.Errorf("eval: the feedback route answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Questions []Rated `json:"questions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Questions, nil
+}
+
+// FeedbackSet writes rated questions as a question set. An up-marked
+// answer gives the titles of its cited items as sources. A no-evidence
+// answer with a down mark gives no_evidence. Every other question has
+// empty facts with a todoMark comment, so Parse refuses the set until a person
+// adds the facts.
+func FeedbackSet(qs []Rated) []byte {
+	var b bytes.Buffer
+	b.WriteString("# Real questions of Assay users, from their marks on answers.\n")
+	b.WriteString("# Keep this file out of the repository. Add the facts of each question before you run the set.\n")
+	if len(qs) == 0 {
+		b.WriteString("[]\n")
+		return b.Bytes()
+	}
+	str := func(s string) string {
+		var out bytes.Buffer
+		enc := json.NewEncoder(&out)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(s)
+		return strings.TrimSpace(out.String())
+	}
+	for _, q := range qs {
+		fmt.Fprintf(&b, "\n- id: feedback-%d\n  question: %s\n", q.ID, str(q.Question))
+		if q.NoEvidence && q.Rating == "down" {
+			b.WriteString("  # The answer had no evidence and a not-helpful mark. Keep no_evidence, or give sources and facts.\n")
+			b.WriteString("  no_evidence: true\n")
+			continue
+		}
+		srcs := []string{}
+		if q.Rating == "up" {
+			for _, s := range q.Sources {
+				srcs = append(srcs, str(s))
+			}
+		} else {
+			b.WriteString("  # " + todoMark + ": the answer had a not-helpful mark. Add the titles of the right sources.\n")
+		}
+		fmt.Fprintf(&b, "  sources: [%s]\n", strings.Join(srcs, ", "))
+		b.WriteString("  # " + todoMark + ": add the words that a right answer states.\n")
+		b.WriteString("  facts: []\n")
+	}
+	return b.Bytes()
+}

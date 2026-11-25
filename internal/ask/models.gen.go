@@ -17,4 +17,6 @@ type Question struct {
 	Citations json.RawMessage
 	Flags     json.RawMessage
 	CreatedAt time.Time
+	ThreadID  int64
+	Turn      int32
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -49,6 +50,11 @@ Commands:
                          --url, --token, --file, optional --out (default
                          stdout), --title and --labels (a labels file or the
                          fixture manifest URL, for the decision bands).
+  eval --from-feedback   Write the rated questions to a question file:
+                         --url, --token of an admin and --out outside a
+                         repository. The file holds real questions.
+  eval --from-feedback   Write the rated questions to a question file: --url,
+                         --token of an admin, --out outside a repository.
   demo remove            Purge the Acme demo connections with their data.
                          Data that people added stays.
   version                Print the version.
@@ -317,11 +323,15 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	out := fs.String("out", "", "the report file; empty writes to stdout")
 	title := fs.String("title", "Assay evaluation", "the report title")
 	labels := fs.String("labels", "", "a labels file or the manifest URL of the fixture server; adds the precision and recall per decision band")
+	fromFeedback := fs.Bool("from-feedback", false, "write the rated questions of the instance to --out as a question set")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *token == "" {
 		*token = os.Getenv("ASSAY_TOKEN")
+	}
+	if *fromFeedback {
+		return exportFeedback(*base, *token, *out, stdout, stderr)
 	}
 	if *base == "" || *token == "" || *file == "" {
 		fmt.Fprintln(stderr, "assay eval: give --url, --token and --file")
@@ -359,4 +369,49 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "assay eval: %d questions, report in %s\n", len(qs), *out)
 	return 0
+}
+
+// exportFeedback writes the rated questions of an instance to a question
+// file outside any repository. The file holds real questions of users.
+func exportFeedback(base, token, out string, stdout, stderr io.Writer) int {
+	if base == "" || token == "" || out == "" {
+		fmt.Fprintln(stderr, "assay eval --from-feedback: give --url, --token and --out")
+		return 2
+	}
+	abs, err := filepath.Abs(out)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay eval: %v\n", err)
+		return 1
+	}
+	if repo := repositoryOf(filepath.Dir(abs)); repo != "" {
+		fmt.Fprintf(stderr, "assay eval: %s is inside the repository %s. The file holds real questions. Write it outside a repository.\n", out, repo)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	qs, err := eval.FetchRated(ctx, &http.Client{Timeout: 2 * time.Minute}, base, token)
+	if err != nil {
+		fmt.Fprintf(stderr, "assay eval: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(abs, eval.FeedbackSet(qs), 0o600); err != nil {
+		fmt.Fprintf(stderr, "assay eval: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "assay eval: wrote %d rated questions to %s. The file holds real questions of your users. Keep it private. "+
+		"Add the facts of each question before you run it with --file.\n", len(qs), out)
+	return 0
+}
+
+// repositoryOf returns the root of the git working tree that holds dir, or
+// "" when there is none.
+func repositoryOf(dir string) string {
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+		if filepath.Dir(d) == d {
+			return ""
+		}
+	}
 }

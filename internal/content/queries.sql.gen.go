@@ -403,7 +403,7 @@ func (q *Queries) FillChunkHashes(ctx context.Context) (int64, error) {
 }
 
 const getItemByExternalID = `-- name: GetItemByExternalID :one
-SELECT id, content_hash, revision, index_hash FROM source_items
+SELECT id, content_hash, revision, index_hash, part FROM source_items
 WHERE connection_id = $1 AND external_id = $2
 `
 
@@ -417,6 +417,7 @@ type GetItemByExternalIDRow struct {
 	ContentHash []byte
 	Revision    string
 	IndexHash   []byte
+	Part        string
 }
 
 // vis:system
@@ -428,6 +429,7 @@ func (q *Queries) GetItemByExternalID(ctx context.Context, arg GetItemByExternal
 		&i.ContentHash,
 		&i.Revision,
 		&i.IndexHash,
+		&i.Part,
 	)
 	return i, err
 }
@@ -553,9 +555,9 @@ func (q *Queries) InsertChunks(ctx context.Context, arg InsertChunksParams) erro
 
 const insertItem = `-- name: InsertItem :one
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision, index_hash)
+                          revision, index_hash, part)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10, $11)
+        $10, $11, $12)
 RETURNING id
 `
 
@@ -571,6 +573,7 @@ type InsertItemParams struct {
 	ContentHash     []byte
 	Revision        string
 	IndexHash       []byte
+	Part            string
 }
 
 // vis:system
@@ -587,6 +590,7 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (int64, 
 		arg.ContentHash,
 		arg.Revision,
 		arg.IndexHash,
+		arg.Part,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -913,17 +917,18 @@ func (q *Queries) SetPassagesVersion(ctx context.Context, arg SetPassagesVersion
 }
 
 const setRevision = `-- name: SetRevision :exec
-UPDATE source_items SET revision = $1 WHERE id = $2
+UPDATE source_items SET revision = $1, part = $2 WHERE id = $3
 `
 
 type SetRevisionParams struct {
 	Revision string
+	Part     string
 	ID       int64
 }
 
 // vis:system
 func (q *Queries) SetRevision(ctx context.Context, arg SetRevisionParams) error {
-	_, err := q.db.Exec(ctx, setRevision, arg.Revision, arg.ID)
+	_, err := q.db.Exec(ctx, setRevision, arg.Revision, arg.Part, arg.ID)
 	return err
 }
 
@@ -940,8 +945,8 @@ const updateItem = `-- name: UpdateItem :exec
 UPDATE source_items
 SET kind = $1, title = $2, url = $3, author = $4, source_created_at = $5,
     source_updated_at = $6, content_hash = $7, version_id = $8, revision = $9,
-    index_hash = $10, updated_at = now()
-WHERE id = $11
+    index_hash = $10, part = $11, updated_at = now()
+WHERE id = $12
 `
 
 type UpdateItemParams struct {
@@ -955,6 +960,7 @@ type UpdateItemParams struct {
 	VersionID       *int64
 	Revision        string
 	IndexHash       []byte
+	Part            string
 	ID              int64
 }
 
@@ -971,6 +977,7 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) error {
 		arg.VersionID,
 		arg.Revision,
 		arg.IndexHash,
+		arg.Part,
 		arg.ID,
 	)
 	return err

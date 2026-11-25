@@ -155,6 +155,8 @@ detail=""
 [ "$code" -eq 0 ] || detail="second run failed: $out"
 [ "$sum1" = "$sum2" ] || detail="$detail .env changed"
 [ "$started1" != "$started2" ] || detail="$detail the container did not restart"
+workers=$(docker compose --project-directory "$dir" -f "$dir/compose.yaml" ps -q worker 2>/dev/null | wc -l | tr -d ' ')
+[ "$workers" = 1 ] || detail="$detail $workers worker containers run, want 1"
 signin || detail="$detail the admin cannot sign in"
 sh "$root/scripts/install.sh" --dir "$dir" --down >/dev/null 2>&1 || detail="$detail --down failed"
 running=$(docker compose --project-directory "$dir" -f "$dir/compose.yaml" ps -q 2>/dev/null | wc -l | tr -d ' ')

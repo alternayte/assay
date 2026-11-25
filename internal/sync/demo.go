@@ -35,7 +35,7 @@ func (s *Service) Demo(ctx context.Context, ownerID, base string) error {
 	for _, c := range conns {
 		c.body.Token = fixtures.SourceToken
 		c.body.Options = map[string]any{"demo": true}
-		c.body.SyncMinutes, c.body.ReconcileHours, c.body.RateConcurrency, c.body.RatePerSecond = 30, 24, 4, 50
+		c.body.SyncMinutes, c.body.ReconcileHours, c.body.RateConcurrency, c.body.RatePerSecond, c.body.ParallelParts = 30, 24, 4, 50, 4
 		id, err := s.create(ctx, ownerID, c.body)
 		if err != nil {
 			return err

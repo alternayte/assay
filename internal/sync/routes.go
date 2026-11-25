@@ -49,6 +49,7 @@ type ConnectionRecord struct {
 	ReconcileHours       int32          `json:"reconcileHours"`
 	RateConcurrency      int32          `json:"rateConcurrency"`
 	RatePerSecond        float64        `json:"ratePerSecond"`
+	ParallelParts        int32          `json:"parallelParts" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	OwnerID              *string        `json:"ownerId"`
 	OwnerEmail           string         `json:"ownerEmail"`
 	Status               string         `json:"status" enum:"active,paused"`
@@ -64,22 +65,39 @@ type ConnectionRecord struct {
 	CreatedAt            time.Time      `json:"createdAt"`
 }
 
-// RunRecord is one sync run.
-type RunRecord struct {
-	ID         int64      `json:"id"`
-	Kind       string     `json:"kind" enum:"sync,reconcile"`
-	Trigger    string     `json:"trigger" enum:"schedule,manual"`
+// PartRecord is one part of a sync run: a space, a project, a repository
+// or the catalog.
+type PartRecord struct {
+	Part       string     `json:"part"`
 	Status     string     `json:"status" enum:"queued,running,succeeded,failed"`
+	Host       string     `json:"host" doc:"The worker process that ran the part."`
 	Seen       int32      `json:"seen"`
 	Created    int32      `json:"created"`
 	Updated    int32      `json:"updated"`
 	Unchanged  int32      `json:"unchanged"`
 	Deleted    int32      `json:"deleted"`
-	Skipped    []Skip     `json:"skipped"`
 	Error      string     `json:"error"`
-	QueuedAt   time.Time  `json:"queuedAt"`
 	StartedAt  *time.Time `json:"startedAt"`
 	FinishedAt *time.Time `json:"finishedAt"`
+}
+
+// RunRecord is one sync run.
+type RunRecord struct {
+	ID         int64        `json:"id"`
+	Kind       string       `json:"kind" enum:"sync,reconcile"`
+	Trigger    string       `json:"trigger" enum:"schedule,manual"`
+	Status     string       `json:"status" enum:"queued,running,succeeded,failed"`
+	Seen       int32        `json:"seen"`
+	Created    int32        `json:"created"`
+	Updated    int32        `json:"updated"`
+	Unchanged  int32        `json:"unchanged"`
+	Deleted    int32        `json:"deleted"`
+	Skipped    []Skip       `json:"skipped"`
+	Error      string       `json:"error"`
+	QueuedAt   time.Time    `json:"queuedAt"`
+	StartedAt  *time.Time   `json:"startedAt"`
+	FinishedAt *time.Time   `json:"finishedAt"`
+	Parts      []PartRecord `json:"parts"`
 }
 
 // sourceBody is the source part of a connection: what the test and the
@@ -110,6 +128,7 @@ type connectionBody struct {
 	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
 	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
 	RatePerSecond   float64        `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
+	ParallelParts   int32          `json:"parallelParts,omitempty" minimum:"1" maximum:"32" default:"4" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
 }
 
@@ -172,8 +191,10 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 			return source{}, err
 		}
 		// The stored token goes only to the host that it belongs to (SI-04).
+		// The requests then share the rate of the stored connection.
 		if stored.Kind == src.Kind && stored.BaseURL == src.BaseURL {
-			src.Token = stored.Token
+			src.Token, src.ConnectionID = stored.Token, stored.ConnectionID
+			src.Concurrency, src.PerSecond = stored.Concurrency, stored.PerSecond
 		}
 	}
 	if src.Token == "" {
@@ -343,7 +364,7 @@ func (s *Service) Register(a huma.API) {
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: codeGlobs(b.CodeGlobs),
-				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
+				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond, ParallelParts: b.ParallelParts,
 				DefaultDomainID: b.DefaultDomainID}); err != nil {
 				return dbError(err)
 			}
@@ -435,7 +456,9 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "pauseConnection", Method: http.MethodPut, Path: "/api/v1/connections/{id}/paused", Tags: tags,
 		Summary: "Pause or resume a connection", DefaultStatus: http.StatusNoContent, Middlewares: admins,
 	}, func(ctx context.Context, in *pauseIn) (*struct{}, error) {
+		var halted []int64
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			halted = nil
 			q := New(tx)
 			c, err := q.GetConnection(ctx, in.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -453,8 +476,15 @@ func (s *Service) Register(a huma.API) {
 					return nil
 				}
 				status, reason, action = "active", "", "connections.resume"
-			} else if err := q.FailQueuedRuns(ctx, FailQueuedRunsParams{ConnectionID: in.ID, Now: ptr(s.now()), Error: pausedReason}); err != nil {
-				return err
+			} else {
+				if err := q.FailQueuedRuns(ctx, FailQueuedRunsParams{ConnectionID: in.ID, Now: ptr(s.now()), Error: pausedReason}); err != nil {
+					return err
+				}
+				// The parts that wait for a worker fail now. A running
+				// part ends when the cancel of its job reaches it.
+				if halted, err = q.FailQueuedParts(ctx, FailQueuedPartsParams{Error: pausedReason, Now: ptr(s.now()), ConnectionID: in.ID}); err != nil {
+					return err
+				}
 			}
 			if _, err := q.SetStatus(ctx, SetStatusParams{ID: in.ID, Status: status, Reason: reason}); err != nil {
 				return err
@@ -466,6 +496,9 @@ func (s *Service) Register(a huma.API) {
 		}
 		if in.Body.Paused {
 			if err := s.cancelRuns(ctx, in.ID); err != nil {
+				return nil, api.Internal(err)
+			}
+			if err := s.settleAll(ctx, halted); err != nil {
 				return nil, api.Internal(err)
 			}
 			return nil, nil
@@ -529,16 +562,33 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "listConnectionRuns", Method: http.MethodGet, Path: "/api/v1/connections/{id}/runs", Tags: tags,
 		Summary: "List the sync runs of a connection", Middlewares: admins,
 	}, func(ctx context.Context, in *idIn) (*runsOut, error) {
-		rows, err := New(s.Pool).ListRuns(ctx, ListRunsParams{ConnectionID: in.ID, Lim: 50})
+		q := New(s.Pool)
+		rows, err := q.ListRuns(ctx, ListRunsParams{ConnectionID: in.ID, Lim: 50})
 		if err != nil {
 			return nil, api.Internal(err)
+		}
+		ids := make([]int64, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.ID)
+		}
+		parts, err := q.ListRunParts(ctx, ids)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		byRun := map[int64][]PartRecord{}
+		for _, p := range parts {
+			var c counts
+			_ = json.Unmarshal(p.Stats, &c)
+			byRun[p.RunID] = append(byRun[p.RunID], PartRecord{Part: p.Part, Status: p.Status, Host: p.Host, Seen: c.Seen,
+				Created: c.Created, Updated: c.Updated, Unchanged: c.Unchanged, Deleted: c.Deleted, Error: p.Error,
+				StartedAt: p.StartedAt, FinishedAt: p.FinishedAt})
 		}
 		out := &runsOut{}
 		out.Body.Runs = []RunRecord{}
 		for _, r := range rows {
 			rec := RunRecord{ID: r.ID, Kind: r.Kind, Trigger: r.Trigger, Status: r.Status, Seen: r.Seen, Created: r.Created,
 				Updated: r.Updated, Unchanged: r.Unchanged, Deleted: r.Deleted, Error: r.Error, QueuedAt: r.QueuedAt,
-				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}}
+				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}, Parts: orEmpty(byRun[r.ID])}
 			_ = json.Unmarshal(r.Skipped, &rec.Skipped)
 			out.Body.Runs = append(out.Body.Runs, rec)
 		}
@@ -581,7 +631,7 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
 			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: code, SyncMinutes: b.SyncMinutes,
-			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
+			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond, ParallelParts: b.ParallelParts,
 			OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
 		if err != nil {
 			return dbError(err)
@@ -731,7 +781,7 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 	for _, r := range rows {
 		rec := ConnectionRecord{ID: r.ID, Kind: r.Kind, Name: r.Name, BaseURL: r.BaseUrl, HasToken: r.SecretID != nil,
 			Scope: object(r.Scope), Options: object(r.Options), IncludeGlobs: orStrings(r.IncludeGlobs), ExcludeGlobs: orStrings(r.ExcludeGlobs),
-			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond,
+			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond, ParallelParts: r.ParallelParts,
 			OwnerID: r.OwnerID, OwnerEmail: r.OwnerEmail, Status: r.Status, StatusReason: r.StatusReason, DefaultDomainID: r.DefaultDomainID,
 			Items: r.Items, LastSyncAt: r.LastSyncAt, LastReconcileAt: r.LastReconcileAt, PermissionsCheckedAt: r.PermissionsCheckedAt,
 			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}}

@@ -38,12 +38,12 @@ ENV
 
 compose --profile demo down -v >/dev/null 2>&1 || true
 compose up -d --wait db >/dev/null
-compose --profile demo up -d fixtures assay >/dev/null
+compose --profile demo up -d fixtures assay worker >/dev/null
 i=0
 until curl -fsS "http://localhost:$port/readyz" >/dev/null 2>&1; do
 	i=$((i + 1))
 	if [ "$i" -ge 60 ]; then
-		compose logs assay >&2
+		compose logs assay worker >&2
 		exit 1
 	fi
 	sleep 1
@@ -52,5 +52,5 @@ done
 cd "$root/web"
 status=0
 ASSAY_REPORTS="$reports" E2E_FIXTURES_URL=http://fixtures:8090 E2E_FIXTURES_CONTROL=http://127.0.0.1:18090 E2E_DB_CONTAINER="$(compose ps -q db)" E2E_BASE_URL="http://localhost:$port" E2E_SETUP_TOKEN=e2e-setup-token bunx playwright test || status=$?
-[ "$status" -eq 0 ] || compose logs --tail 100 assay >&2
+[ "$status" -eq 0 ] || compose logs --tail 100 assay worker >&2
 exit "$status"

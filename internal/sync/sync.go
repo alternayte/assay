@@ -124,6 +124,10 @@ type source struct {
 	Code        []string
 	Concurrency int
 	PerSecond   float64
+	// ConnectionID is the stored connection of the source. Its requests
+	// share the rate of the connection across processes. Zero for a
+	// source that is not stored.
+	ConnectionID int64
 }
 
 // open returns the connector of a source.
@@ -139,7 +143,7 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
 	}
 	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization,
-		Concurrency: src.Concurrency, PerSecond: src.PerSecond})
+		Concurrency: src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID})
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +180,7 @@ func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id)
 // sourceOf returns the source of a stored connection with its token.
 func (s *Service) sourceOf(ctx context.Context, c Connection) (source, error) {
 	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options, Include: c.IncludeGlobs, Exclude: c.ExcludeGlobs, Code: c.CodeGlobs,
-		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond}
+		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond, ConnectionID: c.ID}
 	if c.SecretID != nil {
 		tok, err := s.Secrets.GetByID(ctx, s.Pool, *c.SecretID)
 		if err != nil {

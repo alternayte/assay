@@ -15,8 +15,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	gosync "sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/outbound"
@@ -78,19 +79,31 @@ type Scope struct {
 	Name string `json:"name"`
 }
 
+// Part is one scope unit of a connection, such as a space, a project or a
+// repository. It is the largest piece of a sync that needs no shared state:
+// each part has its own cursor and runs as its own job.
+type Part struct {
+	// Key is stable in the source: a space key, a project key or the full
+	// name of a repository.
+	Key string
+}
+
 // Connector reads one source system. It never writes to it.
 type Connector interface {
 	// Validate checks the token and counts the items in scope.
 	Validate(ctx context.Context) (Validation, error)
 	// Scopes lists the scope options, such as spaces or projects.
 	Scopes(ctx context.Context) ([]Scope, error)
-	// Changed calls fn for each item in scope updated at or after since,
+	// Parts lists the scope units of the connection. A connector with one
+	// unit returns one part.
+	Parts(ctx context.Context) ([]Part, error)
+	// Changed calls fn for each item of a part updated at or after since,
 	// oldest first. A repository connector calls fn for every file with
 	// its blob ID as the version. Sync stores items inside fn, so a
 	// connector that lists page by page holds one page at a time.
-	Changed(ctx context.Context, since time.Time, fn func(Ref) error) error
-	// ListIDs calls fn for each item ID in scope.
-	ListIDs(ctx context.Context, fn func(id string) error) error
+	Changed(ctx context.Context, part Part, since time.Time, fn func(Ref) error) error
+	// ListIDs calls fn for each item ID of a part.
+	ListIDs(ctx context.Context, part Part, fn func(id string) error) error
 	// Fetch returns one item. It returns ErrNotFound on a 404.
 	Fetch(ctx context.Context, id string) (*content.Item, error)
 }
@@ -121,13 +134,14 @@ type SkipLister interface {
 // only to the connection host, and follows no redirect to another host. It
 // keeps the concurrency and rate limits of the connection, and retries rate
 // limit and 5xx responses with Retry-After, the rate limit reset or
-// exponential backoff with jitter.
+// exponential backoff with jitter. The rate of a stored connection holds
+// across all clients of all processes.
 type Client struct {
-	http    *http.Client
-	base    *url.URL
-	auth    string
-	sem     chan struct{}
-	limiter *limiter
+	http *http.Client
+	base *url.URL
+	auth string
+	sem  chan struct{}
+	pace *pace
 	// Backoff is the first retry delay without Retry-After.
 	Backoff time.Duration
 	// Retries is the number of retries after the first attempt.
@@ -140,6 +154,11 @@ type ClientOptions struct {
 	Authorization string // the Authorization header value
 	Concurrency   int
 	PerSecond     float64
+	// Pool and ConnectionID share the rate of a stored connection: each
+	// request reserves a slot in PostgreSQL. A client without them, for a
+	// source that is not stored yet, spaces only its own requests.
+	Pool         *pgxpool.Pool
+	ConnectionID int64
 }
 
 // NewClient returns the client of a connection.
@@ -158,7 +177,7 @@ func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
 	return &Client{
 		http: h, base: u, auth: o.Authorization,
 		sem:     make(chan struct{}, o.Concurrency),
-		limiter: &limiter{every: time.Duration(float64(time.Second) / o.PerSecond)},
+		pace:    newPace(o.Pool, o.ConnectionID, time.Duration(float64(time.Second)/o.PerSecond)),
 		Backoff: time.Second, Retries: 4,
 	}, nil
 }
@@ -201,12 +220,17 @@ func (c *Client) Get(ctx context.Context, path string, q url.Values, accept stri
 		if retry < 0 {
 			return nil, err
 		}
-		wait := retry
-		if wait == 0 {
-			wait = c.Backoff << attempt
-			wait += time.Duration(rand.Int64N(int64(wait)/2 + 1)) //nolint:gosec // Jitter needs no secure source.
+		if retry > 0 {
+			// The source named the time to wait. Every request of the
+			// connection waits for it, in every process. The next attempt
+			// waits in its reservation.
+			if err := c.pace.hold(ctx, retry); err != nil {
+				return nil, err
+			}
+			continue
 		}
-		c.limiter.pause(wait)
+		wait := c.Backoff << attempt
+		wait += time.Duration(rand.Int64N(int64(wait)/2 + 1)) //nolint:gosec // Jitter needs no secure source.
 		if err := sleep(ctx, wait); err != nil {
 			return nil, err
 		}
@@ -223,9 +247,6 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 		return nil, -1, ctx.Err()
 	}
 	defer func() { <-c.sem }()
-	if err := c.limiter.wait(ctx); err != nil {
-		return nil, -1, err
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL(path, q), nil)
 	if err != nil {
 		return nil, -1, err
@@ -233,6 +254,9 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	req.Header.Set("Accept", accept)
 	resp, err := c.Do(req)
 	if err != nil {
+		if errors.Is(err, errPace) {
+			return nil, -1, err
+		}
 		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) || isCertificate(err) {
 			return nil, -1, err
 		}
@@ -264,9 +288,13 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	return b, 0, nil
 }
 
-// Do sends a request with the connection credentials. The guard refuses
-// every method except GET and HEAD before anything is sent.
+// Do sends a request with the connection credentials in the next request
+// slot of the connection. The guard refuses every method except GET and HEAD
+// before anything is sent.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	if err := c.pace.wait(req.Context()); err != nil {
+		return nil, err
+	}
 	if c.auth != "" {
 		req.Header.Set("Authorization", c.auth)
 	}
@@ -322,34 +350,6 @@ func sleep(ctx context.Context, d time.Duration) error {
 		return ctx.Err()
 	case <-t.C:
 		return nil
-	}
-}
-
-// limiter spaces requests evenly at the rate of the connection.
-type limiter struct {
-	mu    gosync.Mutex
-	next  time.Time
-	every time.Duration
-}
-
-func (l *limiter) wait(ctx context.Context) error {
-	l.mu.Lock()
-	now := time.Now()
-	at := l.next
-	if at.Before(now) {
-		at = now
-	}
-	l.next = at.Add(l.every)
-	l.mu.Unlock()
-	return sleep(ctx, time.Until(at))
-}
-
-// pause holds every request of the client for d.
-func (l *limiter) pause(d time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if at := time.Now().Add(d); at.After(l.next) {
-		l.next = at
 	}
 }
 

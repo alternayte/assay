@@ -1,0 +1,11 @@
+apiVersion: v2
+name: assay
+description: Assay, the self-hosted company intelligence platform. A web Deployment and a worker Deployment on an external PostgreSQL.
+type: application
+# The release workflow packages the chart with the version of the release:
+# version without the v, appVersion with it, as the image tags have it.
+version: 0.0.0
+appVersion: "latest"
+home: https://github.com/alternayte/assay
+sources:
+  - https://github.com/alternayte/assay

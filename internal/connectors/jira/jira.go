@@ -52,11 +52,16 @@ func parseTime(s string) time.Time {
 	return t
 }
 
-func (k *Connector) jql() string {
+// jql is the query of the issues in scope. projects narrows it to the
+// project of one part; nil means the projects of the scope.
+func (k *Connector) jql(projects []string) string {
+	if projects == nil {
+		projects = k.scope.Projects
+	}
 	var parts []string
-	if len(k.scope.Projects) > 0 {
-		q := make([]string, len(k.scope.Projects))
-		for i, p := range k.scope.Projects {
+	if len(projects) > 0 {
+		q := make([]string, len(projects))
+		for i, p := range projects {
 			q[i] = strconv.Quote(p)
 		}
 		parts = append(parts, "project in ("+strings.Join(q, ",")+")")
@@ -87,7 +92,7 @@ func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error)
 		return connectors.Validation{}, err
 	}
 	var p searchPage
-	if err := k.c.GetJSON(ctx, "/rest/api/2/search", url.Values{"jql": {k.jql()}, "maxResults": {"0"}}, &p); err != nil {
+	if err := k.c.GetJSON(ctx, "/rest/api/2/search", url.Values{"jql": {k.jql(nil)}, "maxResults": {"0"}}, &p); err != nil {
 		return connectors.Validation{}, err
 	}
 	name := u.DisplayName
@@ -113,6 +118,26 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	return out, nil
 }
 
+// Parts are the projects of the scope, one part per project. A scope
+// without projects reads every project of the token, narrowed by the JQL.
+func (k *Connector) Parts(ctx context.Context) ([]connectors.Part, error) {
+	keys := k.scope.Projects
+	if len(keys) == 0 {
+		projects, err := k.Scopes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range projects {
+			keys = append(keys, p.ID)
+		}
+	}
+	out := make([]connectors.Part, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, connectors.Part{Key: key})
+	}
+	return out, nil
+}
+
 func (k *Connector) search(ctx context.Context, jql, fields string, fn func(key, updated string) error) error {
 	const limit = 100
 	for start := 0; ; start += limit {
@@ -132,10 +157,11 @@ func (k *Connector) search(ctx context.Context, jql, fields string, fn func(key,
 	}
 }
 
-// Changed lists the issues updated at or after since. JQL dates use the
-// time zone of the token user, so the query starts Overlap earlier.
-func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connectors.Ref) error) error {
-	jql := k.jql()
+// Changed lists the issues of a project updated at or after since. JQL
+// dates use the time zone of the token user, so the query starts Overlap
+// earlier.
+func (k *Connector) Changed(ctx context.Context, part connectors.Part, since time.Time, fn func(connectors.Ref) error) error {
+	jql := k.jql([]string{part.Key})
 	if !since.IsZero() {
 		cond := fmt.Sprintf(`updated >= "%s"`, since.Add(-connectors.Overlap).UTC().Format("2006/01/02 15:04"))
 		if jql == "" {
@@ -150,9 +176,9 @@ func (k *Connector) Changed(ctx context.Context, since time.Time, fn func(connec
 	})
 }
 
-// ListIDs lists all issue keys in scope.
-func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.search(ctx, k.jql(), "key", func(key, _ string) error { return fn(key) })
+// ListIDs lists all issue keys of a project in scope.
+func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(string) error) error {
+	return k.search(ctx, k.jql([]string{part.Key}), "key", func(key, _ string) error { return fn(key) })
 }
 
 type user struct {

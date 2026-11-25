@@ -19,6 +19,10 @@ type Item struct {
 	// Revision is the version of the item in its source, such as the blob
 	// ID of a repository file. Sync skips a file whose revision is stored.
 	Revision string
+	// Part is the scope unit of the connection that lists the item, such as
+	// a space or a repository. Reconciliation of a part tombstones only the
+	// items of that part.
+	Part     string
 	Metadata map[string]any
 	// Entity is the thing that the item is, such as an issue or a
 	// decision. Nil when the item is only a document.

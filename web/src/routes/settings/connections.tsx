@@ -191,6 +191,7 @@ type Schedule = {
   reconcileHours: number;
   rateConcurrency: number;
   ratePerSecond: number;
+  parallelParts: number;
   defaultDomainId?: number | null;
 };
 
@@ -199,6 +200,7 @@ const defaultSchedule: Schedule = {
   reconcileHours: 24,
   rateConcurrency: 4,
   ratePerSecond: 5,
+  parallelParts: 4,
 };
 
 function scopeList(kind: Kind, scope: Scope): string[] {
@@ -548,6 +550,7 @@ function ScheduleFields({ value, onChange }: { value: Schedule; onChange: (s: Sc
       {num("reconcileHours", "connections.reconcileHours", 1, 720)}
       {num("rateConcurrency", "connections.concurrency", 1, 32)}
       {num("ratePerSecond", "connections.perSecond", 0.1, 100, 0.1)}
+      {num("parallelParts", "connections.parallelParts", 1, 32)}
       <Field label={t("connections.domain")} hint={t("connections.domainHint")}>
         {(p) => (
           <Select
@@ -1009,6 +1012,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     reconcileHours: c.reconcileHours,
     rateConcurrency: c.rateConcurrency,
     ratePerSecond: c.ratePerSecond,
+    parallelParts: c.parallelParts,
     defaultDomainId: c.defaultDomainId ?? null,
   });
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
@@ -1135,6 +1139,25 @@ function RunsSheet({ c }: { c: Connection }) {
                       unchanged: r.unchanged,
                       deleted: r.deleted,
                     })}
+                    {r.parts.length > 1 && (
+                      <details className="mt-1" data-testid="run-parts">
+                        <summary className="cursor-pointer">
+                          {t("connections.parts", { count: r.parts.length })}
+                        </summary>
+                        <ul>
+                          {r.parts.map((p) => (
+                            <li key={p.part}>
+                              {t("connections.part", {
+                                part: p.part,
+                                status: t(`connections.run.${p.status}` as CopyKey),
+                                host: p.host || t("connections.partNoHost"),
+                              })}
+                              {p.error && <span className="text-danger"> {p.error}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     {r.skipped.length > 0 && (
                       <details className="mt-1">
                         <summary className="cursor-pointer">

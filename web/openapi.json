@@ -964,6 +964,14 @@
             "additionalProperties": {},
             "type": "object"
           },
+          "parallelParts": {
+            "default": 4,
+            "description": "The parts of a run, such as spaces or repositories, that run at once across all worker processes.",
+            "format": "int32",
+            "maximum": 32,
+            "minimum": 1,
+            "type": "integer"
+          },
           "rateConcurrency": {
             "default": 4,
             "format": "int32",
@@ -1120,6 +1128,11 @@
               "null"
             ]
           },
+          "parallelParts": {
+            "description": "The parts of a run, such as spaces or repositories, that run at once across all worker processes.",
+            "format": "int32",
+            "type": "integer"
+          },
           "permissionsCheckedAt": {
             "format": "date-time",
             "type": [
@@ -1179,6 +1192,7 @@
           "reconcileHours",
           "rateConcurrency",
           "ratePerSecond",
+          "parallelParts",
           "ownerId",
           "ownerEmail",
           "status",
@@ -4578,6 +4592,78 @@
         ],
         "type": "object"
       },
+      "PartRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "deleted": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "description": "The worker process that ran the part.",
+            "type": "string"
+          },
+          "part": {
+            "type": "string"
+          },
+          "seen": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "unchanged": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "updated": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part",
+          "status",
+          "host",
+          "seen",
+          "created",
+          "updated",
+          "unchanged",
+          "deleted",
+          "error",
+          "startedAt",
+          "finishedAt"
+        ],
+        "type": "object"
+      },
       "PassageRecord": {
         "additionalProperties": false,
         "properties": {
@@ -5643,6 +5729,12 @@
             ],
             "type": "string"
           },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartRecord"
+            },
+            "type": "array"
+          },
           "queuedAt": {
             "format": "date-time",
             "type": "string"
@@ -5703,7 +5795,8 @@
           "error",
           "queuedAt",
           "startedAt",
-          "finishedAt"
+          "finishedAt",
+          "parts"
         ],
         "type": "object"
       },

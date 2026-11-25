@@ -150,6 +150,15 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	return out, nil
 }
 
+// CatalogPart is the key of the one part of a Backstage connection: the
+// catalog query has no unit that needs no shared state.
+const CatalogPart = "catalog"
+
+// Parts is the catalog as one part.
+func (k *Connector) Parts(context.Context) ([]connectors.Part, error) {
+	return []connectors.Part{{Key: CatalogPart}}, nil
+}
+
 // head is the identity of a catalog entity.
 type head struct {
 	Kind     string `json:"kind"`
@@ -175,7 +184,7 @@ func (h head) ref() string {
 // Changed lists every entity in scope with its item. The catalog has no
 // updated-since filter: the etag is the revision, so sync skips the
 // entities whose etag is stored.
-func (k *Connector) Changed(ctx context.Context, _ time.Time, fn func(connectors.Ref) error) error {
+func (k *Connector) Changed(ctx context.Context, _ connectors.Part, _ time.Time, fn func(connectors.Ref) error) error {
 	_, err := k.query(ctx, "", pageSize, func(raw json.RawMessage) error {
 		var h head
 		if err := json.Unmarshal(raw, &h); err != nil {
@@ -197,7 +206,7 @@ func (k *Connector) Changed(ctx context.Context, _ time.Time, fn func(connectors
 }
 
 // ListIDs lists the entity refs in scope.
-func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
+func (k *Connector) ListIDs(ctx context.Context, _ connectors.Part, fn func(string) error) error {
 	_, err := k.query(ctx, "kind,metadata.namespace,metadata.name", pageSize, func(raw json.RawMessage) error {
 		var h head
 		if err := json.Unmarshal(raw, &h); err != nil {

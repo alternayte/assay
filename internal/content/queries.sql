@@ -1,14 +1,14 @@
 -- name: GetItemByExternalID :one
 -- vis:system
-SELECT id, content_hash, revision, index_hash FROM source_items
+SELECT id, content_hash, revision, index_hash, part FROM source_items
 WHERE connection_id = @connection_id AND external_id = @external_id;
 
 -- name: InsertItem :one
 -- vis:system
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision, index_hash)
+                          revision, index_hash, part)
 VALUES (@connection_id, @external_id, @kind, @title, @url, @author, @source_created_at, @source_updated_at, @content_hash,
-        @revision, @index_hash)
+        @revision, @index_hash, @part)
 RETURNING id;
 
 -- name: UpdateItem :exec
@@ -16,7 +16,7 @@ RETURNING id;
 UPDATE source_items
 SET kind = @kind, title = @title, url = @url, author = @author, source_created_at = @source_created_at,
     source_updated_at = @source_updated_at, content_hash = @content_hash, version_id = @version_id, revision = @revision,
-    index_hash = @index_hash, updated_at = now()
+    index_hash = @index_hash, part = @part, updated_at = now()
 WHERE id = @id;
 
 -- name: SetItemEntity :exec
@@ -25,7 +25,7 @@ UPDATE source_items SET entity_id = @entity_id WHERE id = @id;
 
 -- name: SetRevision :exec
 -- vis:system
-UPDATE source_items SET revision = @revision WHERE id = @id;
+UPDATE source_items SET revision = @revision, part = @part WHERE id = @id;
 
 -- name: InsertVersion :one
 INSERT INTO source_versions (item_id, connection_id, content_hash, title, body, metadata, edited_by, source_updated_at)

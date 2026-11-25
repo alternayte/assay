@@ -73,6 +73,13 @@ sql:
         package: content
         out: internal/content
   - <<: *pkg
+    queries: internal/connectors/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: connectors
+        out: internal/connectors
+  - <<: *pkg
     queries: internal/sync/queries.sql
     gen:
       go:

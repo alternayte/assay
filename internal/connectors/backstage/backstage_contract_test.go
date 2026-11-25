@@ -31,8 +31,12 @@ func TestSCN_CON_011_BackstageReadsTheCatalog(t *testing.T) {
 	if err != nil || len(scopes) != 1 || scopes[0].ID != "default" {
 		t.Fatalf("scopes %+v, %v", scopes, err)
 	}
+	parts, err := k.Parts(ctx)
+	if err != nil || len(parts) != 1 || parts[0].Key != backstage.CatalogPart {
+		t.Fatalf("parts %+v, %v", parts, err)
+	}
 	var refs []connectors.Ref
-	if err := k.Changed(ctx, time.Time{}, func(r connectors.Ref) error { refs = append(refs, r); return nil }); err != nil {
+	if err := k.Changed(ctx, parts[0], time.Time{}, func(r connectors.Ref) error { refs = append(refs, r); return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if len(refs) != 10 {
@@ -69,7 +73,7 @@ func TestSCN_CON_011_BackstageReadsTheCatalog(t *testing.T) {
 		t.Fatalf("user item %+v", user)
 	}
 	var ids []string
-	if err := k.ListIDs(ctx, func(id string) error { ids = append(ids, id); return nil }); err != nil || len(ids) != 10 {
+	if err := k.ListIDs(ctx, parts[0], func(id string) error { ids = append(ids, id); return nil }); err != nil || len(ids) != 10 {
 		t.Fatalf("ids %v, %v", ids, err)
 	}
 	it, err := k.Fetch(ctx, "component:default/payments-api")

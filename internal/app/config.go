@@ -37,12 +37,16 @@ type Config struct {
 	DemoURL  string
 	LogLevel slog.Level
 	Outbound outbound.Settings
-	// The job workers of the default, sync, extract and design queues.
+	// The job workers of the default, sync, extract, design and embed
+	// queues of this process. The sync workers work the parts of runs.
 	JobWorkers     int
 	SyncWorkers    int
 	ExtractWorkers int
 	DesignWorkers  int
 	EmbedWorkers   int
+	// EmbedShards is the number of embed shards of the whole cluster. More
+	// worker processes then add embed parallelism.
+	EmbedShards int
 }
 
 var knownVars = map[string]bool{
@@ -62,6 +66,8 @@ var knownVars = map[string]bool{
 	"ASSAY_SYNC_WORKERS":    true,
 	"ASSAY_EXTRACT_WORKERS": true,
 	"ASSAY_DESIGN_WORKERS":  true,
+	"ASSAY_EMBED_WORKERS":   true,
+	"ASSAY_EMBED_SHARDS":    true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -131,7 +137,7 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		out  *int
 	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers},
 		{"ASSAY_EXTRACT_WORKERS", 4, &cfg.ExtractWorkers}, {"ASSAY_DESIGN_WORKERS", 2, &cfg.DesignWorkers},
-		{"ASSAY_EMBED_WORKERS", 4, &cfg.EmbedWorkers}} {
+		{"ASSAY_EMBED_WORKERS", 4, &cfg.EmbedWorkers}, {"ASSAY_EMBED_SHARDS", 4, &cfg.EmbedShards}} {
 		n, err := strconv.Atoi(valueOr(env[w.name], strconv.Itoa(w.def)))
 		if err != nil || n < 1 || n > 100 {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))

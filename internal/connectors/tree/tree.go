@@ -200,40 +200,50 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	return out, nil
 }
 
-// Changed lists every matching file with its blob ID as the version. A
-// tree has no update times, so since is not used. Sync fetches only the
-// files whose stored revision differs. Files past the file limit stay in
-// the list, so that the run shows them as skipped.
-func (k *Connector) Changed(ctx context.Context, _ time.Time, fn func(connectors.Ref) error) error {
-	return k.each(ctx, false, func(id string, e Entry) error { return fn(connectors.Ref{ID: id, Version: e.Blob}) })
-}
-
-// ListIDs lists the matching files up to the file limit. Reconciliation
-// tombstones a stored file past the limit, because sync no longer updates
-// it.
-func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.each(ctx, true, func(id string, _ Entry) error { return fn(id) })
-}
-
-// each calls fn for the files of each selected repository. A repository
-// that the host no longer has gives no files, so that reconciliation
-// tombstones its files and the other repositories still sync.
-func (k *Connector) each(ctx context.Context, limit bool, fn func(string, Entry) error) error {
+// Parts are the selected repositories, one part per repository.
+func (k *Connector) Parts(context.Context) ([]connectors.Part, error) {
+	out := make([]connectors.Part, 0, len(k.repos))
 	for _, id := range k.repos {
-		l, err := k.list(ctx, id, true)
-		if errors.Is(err, connectors.ErrNotFound) {
+		out = append(out, connectors.Part{Key: id})
+	}
+	return out, nil
+}
+
+// Changed lists every matching file of a repository with its blob ID as the
+// version. A tree has no update times, so since is not used. Sync fetches
+// only the files whose stored revision differs. Files past the file limit
+// stay in the list, so that the run shows them as skipped.
+func (k *Connector) Changed(ctx context.Context, part connectors.Part, _ time.Time, fn func(connectors.Ref) error) error {
+	return k.each(ctx, part.Key, false, func(id string, e Entry) error { return fn(connectors.Ref{ID: id, Version: e.Blob}) })
+}
+
+// ListIDs lists the matching files of a repository up to the file limit.
+// Reconciliation tombstones a stored file past the limit, because sync no
+// longer updates it.
+func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(string) error) error {
+	return k.each(ctx, part.Key, true, func(id string, _ Entry) error { return fn(id) })
+}
+
+// each calls fn for the files of one selected repository. A repository that
+// the host no longer has gives no files, so that reconciliation tombstones
+// its files and the other repositories still sync.
+func (k *Connector) each(ctx context.Context, id string, limit bool, fn func(string, Entry) error) error {
+	if !slices.Contains(k.repos, id) {
+		return nil
+	}
+	l, err := k.list(ctx, id, true)
+	if errors.Is(err, connectors.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range l.files {
+		if limit && k.overLimit(l, e.Path) {
 			continue
 		}
-		if err != nil {
+		if err := fn(ItemID(id, e.Path), e); err != nil {
 			return err
-		}
-		for _, e := range l.files {
-			if limit && k.overLimit(l, e.Path) {
-				continue
-			}
-			if err := fn(ItemID(id, e.Path), e); err != nil {
-				return err
-			}
 		}
 	}
 	return nil

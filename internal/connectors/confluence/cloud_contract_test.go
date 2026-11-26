@@ -59,7 +59,7 @@ func portable(it *content.Item, host, id string) map[string]any {
 		"metadata": it.Metadata, "entity": ent, "entities": ents, "facts": facts}
 }
 
-func TestSCN_CON_013_ConfluenceCloudMatchesDataCenter(t *testing.T) {
+func TestSCN_CON_017_ConfluenceCloudMatchesDataCenter(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	ctx := context.Background()
 	scope := []byte(`{"spaces":["ENG"]}`)

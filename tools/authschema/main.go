@@ -35,7 +35,7 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
-	a, err := auth.New(pool, "http://localhost:8080", slog.New(slog.DiscardHandler), auth.Options{})
+	a, err := auth.New(pool, "http://localhost:8080", make([]byte, 32), slog.New(slog.DiscardHandler), auth.Options{})
 	if err != nil {
 		return err
 	}

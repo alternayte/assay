@@ -20,6 +20,7 @@ export const navItems: NavItem[] = [
   { to: "/settings/sign-in", label: "settings.signIn", role: "admin", group: "settings" },
   { to: "/settings/connections", label: "settings.connections", role: "admin", group: "settings" },
   { to: "/settings/domains", label: "settings.domains", role: "admin", group: "settings" },
+  { to: "/settings/agents", label: "settings.agents", role: "admin", group: "settings" },
   { to: "/settings/decisions", label: "settings.decisions", role: "admin", group: "settings" },
   { to: "/settings/general", label: "settings.general", role: "admin", group: "settings" },
   { to: "/settings/models", label: "settings.models", role: "admin", group: "settings" },

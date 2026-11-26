@@ -33,7 +33,92 @@ export function ProfilePage() {
       </Sheet>
       <PasswordSheet />
       <SessionsSheet />
+      <AppsSheet />
     </div>
+  );
+}
+
+/** The copy key of each scope of an OAuth grant. */
+const scopeLabel: Record<string, "tokens.read" | "tokens.propose"> = {
+  read: "tokens.read",
+  propose: "tokens.propose",
+};
+
+/** Connected apps: the MCP clients that the user approved, with Disconnect. */
+function AppsSheet() {
+  const qc = useQueryClient();
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
+  const apps = useQuery({
+    queryKey: ["connected-apps"],
+    queryFn: async () => unwrap(await api.GET("/api/v1/connected-apps")).apps,
+  });
+  const disconnect = useMutation({
+    mutationFn: async (clientID: string) =>
+      unwrap(await api.DELETE("/api/auth/oauth2/consents/{clientID}", { params: { path: { clientID } } })),
+    onSuccess: () => {
+      setMsg({ tone: "success", text: t("profile.disconnected") });
+      qc.invalidateQueries({ queryKey: ["connected-apps"] });
+    },
+    onError: () => setMsg({ tone: "danger", text: t("errors.generic") }),
+  });
+  return (
+    <Sheet title={t("profile.appsTitle")} description={t("profile.appsBody")}>
+      <div className="flex flex-col gap-3">
+        {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        {apps.isPending ? (
+          <SkeletonRows label={t("app.loading")} rows={2} />
+        ) : apps.isError ? (
+          <Notice tone="danger">{t("app.error")}</Notice>
+        ) : apps.data.length === 0 ? (
+          <p className="text-base text-ink-muted">{t("profile.appsEmpty")}</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>{t("profile.colApp")}</Th>
+                <Th>{t("profile.colHost")}</Th>
+                <Th>{t("profile.colScopes")}</Th>
+                <Th>{t("profile.colConnected")}</Th>
+                <Th>
+                  <span className="sr-only">{t("users.colActions")}</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {apps.data.map((a) => (
+                <tr key={a.clientId} data-testid="connected-app">
+                  <Td>{a.name}</Td>
+                  <Td className="font-mono text-sm break-all">{a.host}</Td>
+                  <Td>
+                    {a.scopes
+                      .flatMap((s) => {
+                        const label = scopeLabel[s];
+                        return label ? [t(label)] : [];
+                      })
+                      .join(", ")}
+                  </Td>
+                  <Td className="font-mono text-sm">{formatTime(a.connectedAt)}</Td>
+                  <Td className="text-right">
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      aria-label={t("profile.disconnectName", { name: a.name })}
+                      disabled={disconnect.isPending}
+                      onClick={() => {
+                        setMsg(undefined);
+                        disconnect.mutate(a.clientId);
+                      }}
+                    >
+                      {t("profile.disconnect")}
+                    </Button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
+    </Sheet>
   );
 }
 

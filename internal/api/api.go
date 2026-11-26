@@ -141,7 +141,8 @@ func AtLeast(ctx context.Context, min string) bool {
 }
 
 // Require returns a huma middleware that admits a caller with role min or
-// higher. A user who must change the password reaches no route.
+// higher. A user who must change the password reaches no route. An OAuth
+// access token opens only /mcp, so it reaches no route here.
 func Require(min string) func(huma.Context, func(huma.Context)) {
 	if rank[min] == 0 {
 		panic("api: unknown role " + min)
@@ -149,7 +150,7 @@ func Require(min string) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		p := Caller(ctx.Context())
 		switch {
-		case p == nil:
+		case p == nil, p.OAuth != nil:
 			WriteError(ctx, ErrUnauthorized)
 		case p.User.MustChangePassword:
 			WriteError(ctx, Problem(http.StatusForbidden, "password_change_required", "Change your password to continue."))

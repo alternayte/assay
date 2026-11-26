@@ -1,6 +1,7 @@
-// Package agents serves MCP at /mcp for AI agents with an access token
-// (REQ-AGT-001). Each tool reads with the visible set of the token user, and
-// source text appears only in excerpt and quote fields (REQ-AGT-004).
+// Package agents serves MCP at /mcp for AI agents with an access token or an
+// OAuth grant (REQ-AGT-001). Each tool reads with the visible set of the token
+// user, and source text appears only in excerpt and quote fields
+// (REQ-AGT-004).
 package agents
 
 import (
@@ -48,27 +49,24 @@ type Service struct {
 	Design   *design.Service
 	Vocab    *vocab.Service
 	Review   *review.Service
-	BaseURL  string
-	Version  string
+	// Auth holds the OAuth provider and the /mcp resource.
+	Auth    *auth.Auth
+	BaseURL string
+	Version string
+	// OAuthEnv is the value of EnvOAuth. Empty means not set.
+	OAuthEnv string
 	Log      *slog.Logger
+	Now      func() time.Time
 }
 
-// Handler returns the MCP endpoint. Only a request with a valid access token
-// reaches it; every other request gets 401.
+// Handler returns the MCP endpoint. Only a request with a valid access token,
+// or an OAuth access token for /mcp, reaches it; every other request gets
+// 401.
 func (s *Service) Handler() http.Handler {
 	srv := s.server()
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
 		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, Logger: s.Log})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if p := authall.PrincipalFrom(r.Context()); p == nil || p.APIKey == nil {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="assay"`)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"code":"unauthorized","message":"Send an access token as a bearer token."}` + "\n"))
-			return
-		}
-		h.ServeHTTP(w, r)
-	})
+	return s.protect(h)
 }
 
 func (s *Service) server() *mcp.Server {
@@ -103,6 +101,10 @@ func add[In, Out any](s *Service, srv *mcp.Server, scope, name, desc string, fn 
 			err = &userError{"The access token does not have the " + scope + " scope."}
 		}
 		details := map[string]any{"tool": name, "input": auditInput(in)}
+		if p := authall.PrincipalFrom(ctx); p != nil && p.OAuth != nil {
+			details["client"] = p.OAuth.ClientID
+			details["clientHost"] = s.clientHost(ctx, p.OAuth.ClientID)
+		}
 		if err != nil {
 			details["error"] = err.Error()
 		}

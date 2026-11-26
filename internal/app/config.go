@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/sso"
 )
@@ -52,6 +53,9 @@ type Config struct {
 	// SSO holds the set variables of the sign-in settings. Each one wins
 	// over the stored setting.
 	SSO map[string]string
+	// MCPOAuth is the value of ASSAY_MCP_OAUTH. Empty means not set, and
+	// the agents setting decides.
+	MCPOAuth string
 }
 
 var knownVars = map[string]bool{
@@ -73,6 +77,7 @@ var knownVars = map[string]bool{
 	"ASSAY_DESIGN_WORKERS":  true,
 	"ASSAY_EMBED_WORKERS":   true,
 	"ASSAY_EMBED_SHARDS":    true,
+	agents.EnvOAuth:         true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -106,6 +111,7 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
 		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
 		DemoURL:     valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+		MCPOAuth:    env[agents.EnvOAuth],
 	}
 	cfg.SSO = map[string]string{}
 	for _, name := range sso.EnvVars {
@@ -155,6 +161,9 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))
 		}
 		*w.out = n
+	}
+	if err := agents.CheckEnv(cfg.MCPOAuth); err != nil {
+		errs = append(errs, err)
 	}
 	if err := sso.CheckEnv(cfg.SSO); err != nil {
 		errs = append(errs, err)

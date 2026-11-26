@@ -66,7 +66,12 @@ function ssoError(code: string): string {
 
 export function SignInPage() {
   const qc = useQueryClient();
-  const search = useSearch({ strict: false }) as { next?: string; error?: string };
+  const search = useSearch({ strict: false }) as { next?: string; error?: string; request_id?: string };
+  // An MCP client sends the user here with the authorization request. After
+  // sign-in, the consent page asks for approval.
+  const next = search.request_id
+    ? `/oauth/consent?request_id=${encodeURIComponent(search.request_id)}`
+    : search.next;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -83,7 +88,7 @@ export function SignInPage() {
     try {
       unwrap(await api.POST("/api/auth/sign-in/email", { body: { email, password } }));
       await qc.invalidateQueries();
-      window.location.assign(nextPath(search.next, "/"));
+      window.location.assign(nextPath(next, "/"));
     } catch (err) {
       setError(
         errorText(err, {
@@ -104,7 +109,7 @@ export function SignInPage() {
   }
   const sso = options.data?.sso ?? false;
   const passwordOn = options.data?.password ?? true;
-  const ssoHref = `/api/auth/oauth/sso?redirect_to=${encodeURIComponent(nextPath(search.next, "/explore"))}`;
+  const ssoHref = `/api/auth/oauth/sso?redirect_to=${encodeURIComponent(nextPath(next, "/explore"))}`;
 
   return (
     <PublicPage title={t("auth.signInTitle")} body={sso ? t("auth.signInBodySSO") : t("auth.signInBody")}>

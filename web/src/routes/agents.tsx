@@ -282,25 +282,52 @@ export function ConnectPage() {
         <h1 className="text-3xl font-semibold tracking-tight">{t("connect.title")}</h1>
         <p className="text-base text-ink-muted">{t("connect.body")}</p>
       </header>
-      <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
-        <li>
-          {t("connect.step1")}{" "}
-          <Link to="/tokens" className="text-accent underline underline-offset-2">
-            {t("connect.step1Link")}
-          </Link>
-        </li>
-        <li>{t("connect.step2")}</li>
-      </ol>
       <Sheet
-        title={t("connect.config")}
+        title={t("connect.hostedTitle")}
+        description={t("connect.hostedBody")}
+        actions={
+          c.oauth && <CopyButton text={c.mcpUrl} label={t("connect.copyUrl")} done={t("connect.copied")} />
+        }
+      >
+        {c.oauth ? (
+          <div className="flex flex-col gap-3">
+            <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
+              <li>{t("connect.hostedStep1")}</li>
+              <li>{t("connect.hostedStep2")}</li>
+            </ol>
+            <p
+              className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm break-all"
+              data-testid="mcp-url"
+            >
+              {c.mcpUrl}
+            </p>
+          </div>
+        ) : (
+          <p className="text-base text-ink-muted">{t("connect.hostedOff")}</p>
+        )}
+      </Sheet>
+      <Sheet
+        title={t("connect.localTitle")}
+        description={t("connect.localBody")}
         actions={<CopyButton text={config} label={t("connect.copy")} done={t("connect.copied")} />}
       >
-        <pre
-          className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm whitespace-pre-wrap break-all"
-          data-testid="mcp-config"
-        >
-          {config}
-        </pre>
+        <div className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
+            <li>
+              {t("connect.step1")}{" "}
+              <Link to="/tokens" className="text-accent underline underline-offset-2">
+                {t("connect.step1Link")}
+              </Link>
+            </li>
+            <li>{t("connect.step2")}</li>
+          </ol>
+          <pre
+            className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm whitespace-pre-wrap break-all"
+            data-testid="mcp-config"
+          >
+            {config}
+          </pre>
+        </div>
       </Sheet>
       <Sheet title={t("connect.urls")}>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">

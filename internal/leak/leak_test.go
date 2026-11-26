@@ -398,3 +398,66 @@ func TestSCN_VIS_001_AdminGetsNoRestrictedContent(t *testing.T) {
 	}
 
 }
+
+func TestSCN_VIS_013_TwoUsersOfOneOAuthClientReadOwnVisibleSet(t *testing.T) {
+	w := start(t, true)
+	values := w.ids(t)
+	// One MCP client, such as a Claude connector, that both users connect.
+	client := w.env.RegisterOAuthClient("Acme agent")
+	owner := w.oauthSession(t, w.env.OAuthToken(w.owner, client, "read offline_access"))
+	member := w.oauthSession(t, w.env.OAuthToken(w.member, client, "read offline_access"))
+
+	var items []int64
+	rows, err := w.env.Server.Pool().Query(context.Background(), `SELECT id FROM source_items ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, id)
+	}
+	rows.Close()
+	calls := func(s *mcp.ClientSession) map[string]string {
+		out := mcpCalls(t, s, values["key"])
+		for _, id := range items {
+			r, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_item", Arguments: map[string]any{"item_id": id}})
+			if err != nil {
+				t.Fatalf("get_item %d: %v", id, err)
+			}
+			b, _ := json.Marshal(r)
+			out[fmt.Sprintf("get_item %d", id)] = string(b)
+		}
+		return out
+	}
+
+	// The owner reads the restricted space through the client, so the
+	// calls reach real data.
+	seen := false
+	for _, body := range calls(owner) {
+		seen = seen || strings.Contains(strings.ToLower(body), canary)
+	}
+	if !seen {
+		t.Fatal("the owner gets no canary through the OAuth client")
+	}
+	for name, body := range calls(member) {
+		if strings.Contains(strings.ToLower(body), canary) {
+			t.Errorf("member through the OAuth client: MCP %s shows the canary", name)
+		}
+	}
+}
+
+// oauthSession opens an MCP session with an OAuth access token.
+func (w *world) oauthSession(t *testing.T, token string) *mcp.ClientSession {
+	t.Helper()
+	c := mcp.NewClient(&mcp.Implementation{Name: "leak-oauth", Version: "1"}, nil)
+	s, err := c.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: w.env.HTTP.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: bearer(token)}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}

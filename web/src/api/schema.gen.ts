@@ -4,6 +4,177 @@
  */
 
 export interface paths {
+    "/api/auth/oauth2/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Start the authorization code flow */
+        get: operations["oauthProviderAuthorize"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the standing consents of the user */
+        get: operations["oauthProviderConsents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/consents/{clientID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Withdraw the consent of one client */
+        delete: operations["oauthProviderWithdrawConsent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or deny one authorization request */
+        post: operations["oauthProviderDecide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/jwks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the published key set */
+        get: operations["oauthProviderJWKS"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register one client */
+        post: operations["oauthProviderRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one authorization request */
+        get: operations["oauthProviderRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke one token */
+        post: operations["oauthProviderRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a code, a refresh token, or client credentials */
+        post: operations["oauthProviderToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/userinfo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the claims of an access token */
+        get: operations["oauthProviderUserInfo"];
+        put?: never;
+        /** Read the claims of an access token */
+        post: operations["oauthProviderUserInfoPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password/change": {
         parameters: {
             query?: never;
@@ -355,6 +526,26 @@ export interface paths {
          * @description The MCP endpoint, the glossary Markdown, the OpenAPI document and the API reference.
          */
         get: operations["getConnect"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the MCP clients that you approved
+         * @description Disconnect a client with the withdraw route of the OAuth provider.
+         */
+        get: operations["listConnectedApps"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1329,6 +1520,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mcp/oauth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the state of OAuth sign-in of MCP clients */
+        get: operations["getMCPOAuth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me": {
         parameters: {
             query?: never;
@@ -2266,6 +2474,15 @@ export interface components {
             /** Format: int64 */
             tokensOut: number;
         };
+        AppsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AppsOutBody.json
+             */
+            readonly $schema?: string;
+            apps: components["schemas"]["ConnectedApp"][];
+        };
         AskInBody: {
             /**
              * Format: uri
@@ -2483,7 +2700,26 @@ export interface components {
             docsUrl: string;
             glossaryUrl: string;
             mcpUrl: string;
+            /** @description True when a hosted MCP client can sign in with OAuth at the MCP URL. */
+            oauth: boolean;
             openapiUrl: string;
+        };
+        ConnectedApp: {
+            clientId: string;
+            /**
+             * Format: date-time
+             * @description The time of the last approval.
+             */
+            connectedAt: string;
+            /** @description The host of the client. A client cannot fake it. */
+            host: string;
+            /**
+             * @description static is verified by Assay. dynamic and cimd registered themselves.
+             * @enum {string}
+             */
+            kind: "static" | "dynamic" | "cimd";
+            name: string;
+            scopes: string[];
         };
         ConnectionBody: {
             /**
@@ -3661,6 +3897,17 @@ export interface components {
             /** @enum {string} */
             code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden" | "thread_hidden";
             message: string;
+        };
+        OAuthStatus: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/OAuthStatus.json
+             */
+            readonly $schema?: string;
+            /** @description The environment variable that sets the field. Empty when none does. */
+            lockedBy: string;
+            on: boolean;
         };
         OutBody: {
             /**
@@ -4852,6 +5099,263 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    oauthProviderAuthorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The consents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        consents: {
+                            clientId: string;
+                            clientName: string;
+                            resources?: string[];
+                            scopes: string[];
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderWithdrawConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client. */
+                clientID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The withdrawal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        withdrawn: boolean;
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderDecide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    approve: boolean;
+                    requestId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The redirect target. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirectTo: string;
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderJWKS: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderRequest: {
+        parameters: {
+            query: {
+                /** @description The authorization request. */
+                request_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The authorization request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        clientHost: string;
+                        clientId: string;
+                        /** @enum {string} */
+                        clientKind: "static" | "dynamic" | "cimd";
+                        clientName: string;
+                        consentGranted: boolean;
+                        firstParty: boolean;
+                        logoUri?: string;
+                        needsSignIn: boolean;
+                        requestId: string;
+                        resources?: string[];
+                        scopes: string[];
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderRevoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderUserInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderUserInfoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     passwordChange: {
         parameters: {
             query?: never;
@@ -5583,6 +6087,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Connect"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listConnectedApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppsOutBody"];
                 };
             };
             /** @description Error */
@@ -7599,6 +8132,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMCPOAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthStatus"];
                 };
             };
             /** @description Error */

@@ -11,7 +11,7 @@ import (
 
 // EntityTypes are the entity types (REQ-ENT-001).
 var EntityTypes = []string{"person", "team", "service", "api", "system", "resource", "repository", "project",
-	"initiative", "issue", "document", "decision", "environment", "term", "operation", "event", "data_model"}
+	"initiative", "issue", "document", "decision", "environment", "term", "operation", "event", "data_model", "change"}
 
 // Object kinds that are not entity types.
 const (
@@ -57,7 +57,7 @@ func init() {
 			Priority: []string{"registry", "catalog", "others", "decision"}},
 		{Name: "consumes_api", Subjects: []string{"service", "repository"}, Objects: []string{"api"}, Multi: true,
 			Priority: []string{"registry", "catalog", "others", "decision"}},
-		{Name: "implements", Subjects: []string{"repository"}, Objects: []string{"service", "api"}, Multi: true,
+		{Name: "implements", Subjects: []string{"repository", "change"}, Objects: []string{"service", "api", "issue", "initiative"}, Multi: true,
 			Priority: []string{"catalog", "registry", "others", "decision"}},
 		{Name: "deployed_to", Subjects: []string{"service"}, Objects: []string{"environment"}, Multi: true, Priority: []string{"repository", "others"}},
 		{Name: "blocks", Subjects: []string{"issue", "initiative"}, Objects: []string{"issue", "initiative"}, Multi: true, Priority: []string{"jira", "others"}},

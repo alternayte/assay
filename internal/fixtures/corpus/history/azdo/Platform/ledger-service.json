@@ -1,0 +1,32 @@
+{
+  "pulls": [
+    {
+      "number": 101,
+      "state": "completed",
+      "age": 10,
+      "title": "Post entries in one transaction",
+      "author": "priya.acme",
+      "files": ["src/Ledger.cs"],
+      "body": "Entries post in one transaction because a partial post left the ledger out of balance.",
+      "workItems": [7],
+      "reviewComments": [
+        {"author": "sam.acme", "age": 11, "path": "src/Ledger.cs", "body": "Keep the lock order the same in both post methods."}
+      ],
+      "comments": [
+        {"author": "jo.acme", "age": 10, "body": "Approved after the balance check passed."}
+      ]
+    },
+    {
+      "number": 102,
+      "state": "active",
+      "age": 2,
+      "title": "Add a reversal endpoint",
+      "author": "sam.acme",
+      "files": ["src/Ledger.Api/EntriesController.cs"],
+      "body": "A reversal posts the opposite entry."
+    }
+  ],
+  "commits": {
+    "src/Ledger.cs": "Post entries in one transaction (!101)"
+  }
+}

@@ -1,5 +1,10 @@
 // Package azdo reads Git repositories on Azure DevOps Server through the
-// items API with Basic authentication and a personal access token. The
+// items API with Basic authentication and a personal access token, and
+// inside the history window their completed pull requests and the work
+// items of their projects, and the project wiki pages. Every request is a
+// GET: work items come from the reporting revisions and the work items
+// list, not from WIQL, and wiki pages from the page tree, not from
+// pagesbatch. The
 // base URL is the collection URL, such as https://ado.acme.test/tfs/Acme.
 package azdo
 
@@ -8,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/alternayte/assay/internal/connectors"
@@ -34,8 +40,9 @@ type Host struct {
 }
 
 // New returns a connector. scope and options are the JSON scope and
-// options of the connection.
-func New(c *connectors.Client, scope, options json.RawMessage, g tree.Globs, limits connectors.Limits) (*tree.Connector, error) {
+// options of the connection, and hist selects the history that it reads
+// besides the files.
+func New(c *connectors.Client, scope, options json.RawMessage, g tree.Globs, limits connectors.Limits, hist connectors.History) (*Connector, error) {
 	var s Scope
 	if len(scope) > 0 {
 		if err := json.Unmarshal(scope, &s); err != nil {
@@ -51,7 +58,16 @@ func New(c *connectors.Client, scope, options json.RawMessage, g tree.Globs, lim
 	if o.APIVersion = strings.TrimSpace(o.APIVersion); o.APIVersion == "" {
 		o.APIVersion = DefaultAPIVersion
 	}
-	return tree.New(&Host{c: c, version: o.APIVersion}, s.Repositories, g, limits), nil
+	h := &Host{c: c, version: o.APIVersion}
+	t := tree.New(h, s.Repositories, g, limits)
+	t.LastChange = hist.ReadsLastChange()
+	var projects []string
+	for _, r := range s.Repositories {
+		if p, _, ok := strings.Cut(r, "/"); ok && p != "" && !slices.Contains(projects, p) {
+			projects = append(projects, p)
+		}
+	}
+	return &Connector{Connector: t, h: h, repos: s.Repositories, projects: projects, hist: hist, wikis: map[string]*wikiListing{}}, nil
 }
 
 func (h *Host) query(extra url.Values) url.Values {

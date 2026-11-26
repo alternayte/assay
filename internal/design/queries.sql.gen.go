@@ -538,7 +538,7 @@ SELECT i.id, i.external_id, i.kind, i.title, i.url, split_part(i.external_id, ':
        substr(i.external_id, length(split_part(i.external_id, ':', 1)) + 2)::text AS path,
        (SELECT count(*) FROM passages p WHERE p.item_id = i.id AND p.connection_id = ANY($1::bigint[]))::integer AS passages
 FROM source_items i
-WHERE i.connection_id = ANY($1::bigint[]) AND i.connection_id = $2
+WHERE i.connection_id = ANY($1::bigint[]) AND i.connection_id = $2 AND i.kind IN ('file', 'code')
 ORDER BY i.external_id
 `
 
@@ -611,6 +611,55 @@ func (q *Queries) RepositoryLinks(ctx context.Context, entities []int64) ([]Repo
 	for rows.Next() {
 		var i RepositoryLinksRow
 		if err := rows.Scan(&i.EntityID, &i.ConnectionID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const repositoryPullRequests = `-- name: RepositoryPullRequests :many
+SELECT i.id, i.title, i.url, coalesce(v.metadata -> 'changedPaths', '[]'::jsonb)::jsonb AS changed_paths
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = ANY($1::bigint[]) AND i.connection_id = $2 AND i.kind = 'pull_request'
+  AND left(i.external_id, length($3::text) + 4) = $3::text || '#pr/'
+ORDER BY coalesce(v.metadata ->> 'mergedAt', v.metadata ->> 'completedAt', '') DESC, i.id DESC
+`
+
+type RepositoryPullRequestsParams struct {
+	Visible      []int64
+	ConnectionID int64
+	Repo         string
+}
+
+type RepositoryPullRequestsRow struct {
+	ID           int64
+	Title        string
+	Url          string
+	ChangedPaths json.RawMessage
+}
+
+// The merged pull requests of a repository in a connection, the newest
+// merge first, with the paths that they changed.
+func (q *Queries) RepositoryPullRequests(ctx context.Context, arg RepositoryPullRequestsParams) ([]RepositoryPullRequestsRow, error) {
+	rows, err := q.db.Query(ctx, repositoryPullRequests, arg.Visible, arg.ConnectionID, arg.Repo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RepositoryPullRequestsRow
+	for rows.Next() {
+		var i RepositoryPullRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Url,
+			&i.ChangedPaths,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

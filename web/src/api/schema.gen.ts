@@ -2402,6 +2402,7 @@ export interface components {
             /** @enum {string} */
             kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
             name: string;
+            /** @description Options of the kind. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). */
             options?: {
                 [key: string]: unknown;
             };

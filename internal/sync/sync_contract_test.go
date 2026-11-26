@@ -461,7 +461,8 @@ func TestSCN_CON_004_SyncFetchesOnlyChangedBlobs(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
 		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
-	want := src.RepoItems("github", "acme/payments-api")
+	// The files and the pull requests and issues of the history window.
+	want := src.RepoItems("github", "acme/payments-api") + src.HistoryItems("github", "acme/payments-api")
 
 	first := env.RunNow(admin, conn, "sync")
 	if first.Status != "succeeded" || first.Created != want {
@@ -479,7 +480,9 @@ func TestSCN_CON_004_SyncFetchesOnlyChangedBlobs(t *testing.T) {
 
 	mark := len(src.Hits())
 	second := env.RunNow(admin, conn, "sync")
-	if second.Status != "succeeded" || second.Created != 0 || second.Updated != 0 || second.Unchanged != want {
+	// The second sync lists every file and, of the history, only the newest
+	// issue: it is inside the overlap of the cursor.
+	if second.Status != "succeeded" || second.Created != 0 || second.Updated != 0 || second.Unchanged != src.RepoItems("github", "acme/payments-api")+1 {
 		t.Fatalf("second sync %+v", second)
 	}
 	if n := blobHits(src, mark); n != 0 {
@@ -524,6 +527,9 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 		t.Fatalf("test %+v, want %d files", v, want)
 	}
 
+	// The files, the completed pull requests, and the work items and wiki
+	// pages of the project.
+	want += src.HistoryItems("azdo", "Platform/ledger-service") + src.ProjectItems("Platform")
 	run := env.RunNow(admin, conn, "sync")
 	if run.Status != "succeeded" || run.Created != want || len(run.Skipped) != 0 {
 		t.Fatalf("sync %+v, want %d new", run, want)
@@ -554,7 +560,7 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 		if h.Auth != "Basic" {
 			t.Fatalf("%s %s has auth %q", h.Method, h.Path, h.Auth)
 		}
-		if strings.Contains(h.Path, "/_apis/git/") && !strings.Contains(h.Query, "api-version=7.1") {
+		if strings.Contains(h.Path, "/_apis/") && !strings.Contains(h.Path, "/_apis/connectionData") && !strings.Contains(h.Query, "api-version=7.1") {
 			t.Fatalf("%s?%s has no api-version=7.1", h.Path, h.Query)
 		}
 	}

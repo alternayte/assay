@@ -208,6 +208,9 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 		writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
 		return
 	}
+	if len(parts) > 2 && s.githubHistory(w, r, rp, strings.Split(strings.Join(parts[2:], "/"), "/"), web) {
+		return
+	}
 	switch {
 	case len(parts) == 2:
 		writeJSON(w, http.StatusOK, repoJSON(rp))
@@ -258,7 +261,7 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/azdo/"+AzdoCollection)
 	q := r.URL.Query()
-	if strings.Contains(p, "/_apis/git/") && q.Get("api-version") == "" {
+	if (strings.Contains(p, "/_apis/git/") || strings.Contains(p, "/_apis/wit/") || strings.Contains(p, "/_apis/wiki/")) && q.Get("api-version") == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "No api-version was supplied for the request."})
 		return
 	}
@@ -281,10 +284,18 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"count": len(out), "value": out})
 		return
 	}
+	if project, rest, ok := strings.Cut(strings.TrimPrefix(p, "/"), "/_apis/"); ok && s.azdoProject(w, r, project, rest) {
+		return
+	}
 	project, rest, ok := strings.Cut(strings.TrimPrefix(p, "/"), "/_apis/git/repositories/")
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+	if all := strings.Split(rest, "/"); len(all) > 1 {
+		if rp, ok := s.repos["azdo:"+project+"/"+all[0]]; ok && s.azdoPulls(w, r, rp, all[1:]) {
+			return
+		}
 	}
 	parts := strings.SplitN(rest, "/", 3)
 	rp, ok := s.repos["azdo:"+project+"/"+parts[0]]
@@ -311,6 +322,15 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 	case parts[1] == "commits":
 		if q.Get("searchCriteria.itemVersion.version") != rp.Branch {
 			writeJSON(w, http.StatusNotFound, map[string]any{"message": "The branch does not exist."})
+			return
+		}
+		if file := strings.TrimPrefix(q.Get("searchCriteria.itemPath"), "/"); file != "" {
+			if rp.Files[file] == nil {
+				writeJSON(w, http.StatusOK, map[string]any{"count": 0, "value": []any{}})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"count": 1, "value": []map[string]any{{"commitId": rp.commit(),
+				"comment": s.history["azdo:"+rp.ID].commit(file)}}})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"count": 1, "value": []map[string]any{{"commitId": rp.commit()}}})

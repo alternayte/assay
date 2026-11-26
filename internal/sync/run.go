@@ -944,11 +944,22 @@ func (s *Service) reconcile(ctx context.Context, conn Connection, k connectors.C
 	}
 	known := map[string]bool{}
 	var gone []int64
+	keeper, _ := k.(connectors.Keeper)
 	for _, it := range stored {
 		known[it.ExternalID] = true
-		if !inScope[it.ExternalID] {
-			gone = append(gone, it.ID)
+		if inScope[it.ExternalID] {
+			continue
 		}
+		// A pull request that left the history window still exists in the
+		// source, and stays.
+		var updated time.Time
+		if it.SourceUpdatedAt != nil {
+			updated = *it.SourceUpdatedAt
+		}
+		if keeper != nil && keeper.Keep(it.ExternalID, updated) {
+			continue
+		}
+		gone = append(gone, it.ID)
 	}
 	var missing []connectors.Ref
 	for id := range inScope {

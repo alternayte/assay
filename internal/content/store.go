@@ -322,7 +322,13 @@ func (in *ingest) entity(ctx context.Context, e EntityRef) (int64, error) {
 	if err := entities.CheckRef(e.Type, e.Key); err != nil {
 		return 0, fmt.Errorf("%w: %w", errBadEntity, err)
 	}
-	id, err := in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID})
+	var id int64
+	var err error
+	if e.KeepType {
+		id, err = in.q.UpsertEntityKeepType(ctx, UpsertEntityKeepTypeParams{Type: e.Type, Key: e.Key, DomainID: in.domainID})
+	} else {
+		id, err = in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID})
+	}
 	if err != nil {
 		return 0, err
 	}

@@ -518,6 +518,13 @@
     "namespaces": "Namespaces",
     "apiVersion": "API version",
     "apiVersionHint": "Assay sends this api-version with each request.",
+    "history": "History",
+    "historyMonths": "Months of history",
+    "historyMonthsHint": "Assay reads the pull requests, issues and work items of this number of months. Enter 0 to read no history.",
+    "historyPullRequests": "Read merged pull requests",
+    "historyIssues": "Read issues",
+    "historyWorkItems": "Read work items",
+    "historyWiki": "Read wiki pages",
     "repositories": "Repositories",
     "includeGlobs": "Files to read",
     "includeGlobsHint": "Write one glob on each line. Assay reads only files that match a glob.",
@@ -625,7 +632,8 @@
     "term": "Term",
     "operation": "Operation",
     "event": "Event",
-    "data_model": "Data model"
+    "data_model": "Data model",
+    "change": "Change"
   },
   "explore": {
     "title": "Explore",

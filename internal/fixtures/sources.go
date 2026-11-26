@@ -104,6 +104,13 @@ type Sources struct {
 	// catalog holds the Backstage catalog entities by ref.
 	catalog      map[string]map[string]any
 	catalogOrder []string
+	// history holds the pull requests, issues and commit messages of the
+	// repositories by host:id, and azdoProjects the work items and wikis
+	// of the Azure DevOps projects. Their times count back from
+	// historyBase, so that they stay inside the history window.
+	history      map[string]*RepoHistory
+	azdoProjects map[string]*ProjectHistory
+	historyBase  time.Time
 }
 
 // NewSources loads the Acme corpus.
@@ -154,6 +161,8 @@ func NewSources() *Sources {
 		return nil
 	})
 	s.loadRepos()
+	s.historyBase = time.Now().UTC().Truncate(time.Hour)
+	s.loadHistory()
 	return s
 }
 

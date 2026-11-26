@@ -1,0 +1,85 @@
+{
+  "pulls": [
+    {
+      "number": 5,
+      "state": "merged",
+      "age": 900,
+      "title": "Settle payments in nightly batches",
+      "author": "alex.acme",
+      "files": ["internal/payments/service.go"],
+      "body": "The service settles payments in one nightly batch."
+    },
+    {
+      "number": 14,
+      "state": "merged",
+      "age": 20,
+      "title": "Retry captures with an idempotency key",
+      "author": "priya.acme",
+      "files": ["internal/payments/handler.go", "internal/payments/service.go"],
+      "body": "Closes #12. Tracks PAY-2.\n\nThe capture handler retries a capture once because the card network drops about one capture in a thousand after a timeout. Each retry sends the same idempotency key, so that the network charges the card only once.",
+      "reviews": [
+        {"author": "alex.acme", "age": 21, "body": "Approved. The retry window matches the ledger contract."}
+      ],
+      "reviewComments": [
+        {"author": "sam.acme", "age": 21, "path": "internal/payments/handler.go", "body": "A replayed capture must return the first response, not a new one."}
+      ],
+      "comments": [
+        {"author": "jo.acme", "age": 20, "body": "The runbook needs a line about the retry."}
+      ]
+    },
+    {
+      "number": 15,
+      "state": "closed",
+      "age": 15,
+      "title": "Try a second capture retry",
+      "author": "sam.acme",
+      "files": ["internal/payments/handler.go"],
+      "body": "A second retry did not help. Closes #12."
+    },
+    {
+      "number": 16,
+      "state": "merged",
+      "age": 4,
+      "title": "Store the idempotency key with the payment",
+      "author": "sam.acme",
+      "files": ["internal/store/store.go"],
+      "body": "The store keeps each idempotency key for 24 hours.",
+      "crossRefs": [13]
+    }
+  ],
+  "issues": [
+    {
+      "number": 9,
+      "state": "closed",
+      "age": 800,
+      "title": "Settle payments faster",
+      "author": "alex.acme",
+      "body": "Settlement takes a full day."
+    },
+    {
+      "number": 12,
+      "state": "closed",
+      "age": 19,
+      "title": "Captures fail after a card network timeout",
+      "author": "priya.acme",
+      "labels": ["bug"],
+      "body": "The card network drops some captures after a timeout. The payment then stays pending.",
+      "comments": [
+        {"author": "sam.acme", "age": 25, "body": "The capture handler does not retry. A retry needs a key, so that the network does not charge the card twice."}
+      ]
+    },
+    {
+      "number": 13,
+      "state": "open",
+      "age": 3,
+      "title": "Document the capture retry",
+      "author": "jo.acme",
+      "labels": ["docs"],
+      "body": "The runbook does not say how the capture retry works. See #16 for the key store."
+    }
+  ],
+  "commits": {
+    "internal/payments/handler.go": "Retry captures with an idempotency key (#14)\n\nThe card network drops some captures after a timeout.",
+    "internal/store/store.go": "Store the idempotency key with the payment (#16)"
+  }
+}

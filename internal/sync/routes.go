@@ -119,7 +119,7 @@ type connectionBody struct {
 	BaseURL         string         `json:"baseUrl" format:"uri"`
 	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
-	Options         map[string]any `json:"options,omitempty"`
+	Options         map[string]any `json:"options,omitempty" doc:"Options of the kind. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default)."`
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
 	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
 	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
@@ -130,6 +130,18 @@ type connectionBody struct {
 	RatePerSecond   float64        `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
 	ParallelParts   int32          `json:"parallelParts,omitempty" minimum:"1" maximum:"32" default:"4" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
+}
+
+// checkOptions validates the history options of a repository connection.
+func checkOptions(kind string, options map[string]any) error {
+	if kind != "github" && kind != "azdo" {
+		return nil
+	}
+	if _, err := connectors.ParseHistory(rawJSON(options)); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_options",
+			"The history options are not valid. historyMonths is a whole number of 0 or more, and pullRequests, issues and wiki are true or false.")
+	}
+	return nil
 }
 
 func checkURL(raw string) error {
@@ -319,6 +331,9 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
+		if err := checkOptions(b.Kind, b.Options); err != nil {
+			return nil, err
+		}
 		if b.Token == "" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 		}
@@ -339,6 +354,9 @@ func (s *Service) Register(a huma.API) {
 	}, func(ctx context.Context, in *updateIn) (*struct{}, error) {
 		b := in.Body
 		if err := checkURL(b.BaseURL); err != nil {
+			return nil, err
+		}
+		if err := checkOptions(b.Kind, b.Options); err != nil {
 			return nil, err
 		}
 		reconcile := false

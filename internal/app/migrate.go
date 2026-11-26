@@ -51,16 +51,21 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, a *auth.Auth, log *slog.Lo
 	if err != nil {
 		return err
 	}
+	// A new auth-all plugin brings units with versions older than units that
+	// an existing database has, such as the OAuth provider units of v0.10.0.
+	// Each unit owns its tables, so the auth-all set applies out of order.
 	sets := []struct {
-		name  string
-		fsys  fs.FS
-		table string
+		name       string
+		fsys       fs.FS
+		table      string
+		outOfOrder bool
 	}{
-		{"auth-all", authFS, authallVersionTable},
-		{"assay", assayMigrations(), goose.DefaultTablename},
+		{"auth-all", authFS, authallVersionTable, true},
+		{"assay", assayMigrations(), goose.DefaultTablename, false},
 	}
 	for _, set := range sets {
-		p, err := goose.NewProvider(goose.DialectPostgres, db, set.fsys, goose.WithTableName(set.table))
+		p, err := goose.NewProvider(goose.DialectPostgres, db, set.fsys, goose.WithTableName(set.table),
+			goose.WithAllowOutofOrder(set.outOfOrder))
 		if err != nil {
 			return fmt.Errorf("migrate %s: %w", set.name, err)
 		}

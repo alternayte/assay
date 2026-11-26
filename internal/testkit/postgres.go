@@ -44,7 +44,7 @@ func migrate(ctx context.Context, u string) error {
 	}
 	defer pool.Close()
 	log := slog.New(slog.DiscardHandler)
-	a, err := auth.New(pool, "http://localhost:8080", log, auth.Options{})
+	a, err := auth.New(pool, "http://localhost:8080", make([]byte, 32), log, auth.Options{})
 	if err != nil {
 		return err
 	}

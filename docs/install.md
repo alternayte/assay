@@ -165,6 +165,8 @@ docker compose up -d --force-recreate assay worker
 
 Keep a backup of the new `.env`.
 
+A new key also gives a new OAuth signing key. Every MCP client that connected with OAuth must connect again.
+
 ## Kubernetes with Helm
 
 The chart in `deploy/helm/assay` installs the same image on Kubernetes. It has a web Deployment with a Service and an optional Ingress, and a worker Deployment. The chart has no database. Assay needs PostgreSQL with the extensions pgvector, pg_trgm and unaccent.

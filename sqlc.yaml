@@ -170,3 +170,10 @@ sql:
         <<: *go
         package: design
         out: internal/design
+  - <<: *pkg
+    queries: internal/agents/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: agents
+        out: internal/agents

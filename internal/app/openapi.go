@@ -23,7 +23,7 @@ func OpenAPIDocument() ([]byte, error) {
 	defer pool.Close()
 	log := slog.New(slog.DiscardHandler)
 	cfg := Config{SecretKey: bytes.Repeat([]byte{0}, 32), BaseURL: "http://localhost:8080"}
-	a, err := auth.New(pool, cfg.BaseURL, log, auth.Options{})
+	a, err := auth.New(pool, cfg.BaseURL, cfg.SecretKey, log, auth.Options{})
 	if err != nil {
 		return nil, err
 	}

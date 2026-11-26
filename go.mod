@@ -4,7 +4,7 @@ go 1.26.2
 
 require (
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
-	github.com/alternayte/auth-all v0.9.0
+	github.com/alternayte/auth-all v0.10.0
 	github.com/alternayte/auth-all/humaauth v0.5.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/bufbuild/protocompile v0.14.1

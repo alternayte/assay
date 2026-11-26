@@ -115,7 +115,17 @@
     "lastSeen": "Last seen",
     "revoke": "Sign out",
     "revokeOthers": "Sign out all other sessions",
-    "revoked": "The session ended."
+    "revoked": "The session ended.",
+    "appsTitle": "Connected apps",
+    "appsBody": "These MCP clients read Assay as you, with your permissions.",
+    "appsEmpty": "No MCP client is connected.",
+    "colApp": "App",
+    "colHost": "Host",
+    "colScopes": "Scopes",
+    "colConnected": "Approved",
+    "disconnect": "Disconnect",
+    "disconnectName": "Disconnect {name}",
+    "disconnected": "The app is disconnected. Its next request fails."
   },
   "settings": {
     "title": "Settings",
@@ -130,7 +140,8 @@
     "connections": "Connections",
     "domains": "Domains",
     "decisions": "Decisions",
-    "signIn": "Sign-in"
+    "signIn": "Sign-in",
+    "agents": "Agents"
   },
   "users": {
     "title": "Users",
@@ -1126,11 +1137,10 @@
   },
   "connect": {
     "title": "Connect an agent",
-    "body": "Add Assay to an MCP client. The agent reads with your token and your permissions.",
+    "body": "Add Assay to an MCP client. The agent reads with your permissions.",
     "step1": "Create an access token.",
     "step1Link": "Open Access tokens",
     "step2": "Copy the configuration into your MCP client. Replace the token text with your token.",
-    "config": "MCP client configuration",
     "copy": "Copy",
     "copied": "Copied.",
     "urls": "Other URLs",
@@ -1138,7 +1148,15 @@
     "glossary": "Glossary as Markdown",
     "openapi": "OpenAPI document",
     "docs": "REST reference",
-    "tokenText": "YOUR_TOKEN"
+    "tokenText": "YOUR_TOKEN",
+    "hostedTitle": "Hosted clients",
+    "hostedBody": "Use this for Claude, ChatGPT and other clients that sign in with OAuth.",
+    "hostedStep1": "Add a custom connector in the client. Use the MCP URL below.",
+    "hostedStep2": "Sign in to Assay and approve the client.",
+    "hostedOff": "An admin turned off OAuth sign-in. Use an access token.",
+    "copyUrl": "Copy URL",
+    "localTitle": "Local clients",
+    "localBody": "Use this for a client on your computer that sends an access token."
   },
   "design": {
     "repositoryBody": "Assay writes this page from the code and the documents of the repository. Each sentence and each diagram line has a source.",
@@ -1328,5 +1346,35 @@
     "searchAction": "Search",
     "noGroups": "No groups found.",
     "choose": "Choose"
+  },
+  "agentsSettings": {
+    "title": "MCP clients",
+    "body": "A hosted MCP client, such as Claude or ChatGPT, connects with OAuth. Each user signs in and approves the client.",
+    "oauthOn": "Allow MCP clients to sign in with OAuth",
+    "oauthHint": "When this is off, only access tokens work on the MCP endpoint.",
+    "locked": "Set by {name}",
+    "save": "Save",
+    "saved": "Saved as revision {revision}."
+  },
+  "consent": {
+    "title": "Connect {name}",
+    "body": "This app asks to read Assay as you.",
+    "app": "App",
+    "host": "Host",
+    "hostHint": "Make sure that you know this host.",
+    "noHost": "No host",
+    "kind": "Registration",
+    "verified": "Verified by Assay",
+    "selfRegistered": "Self-registered",
+    "selfRegisteredHint": "No admin checked this app. Approve only an app that you trust.",
+    "scopes": "The app can",
+    "scopeRead": "Search and read the sources that you can read.",
+    "scopePropose": "Send findings to review.",
+    "scopeOffline": "Stay connected until you disconnect it on your profile page.",
+    "approve": "Approve",
+    "deny": "Deny",
+    "working": "Returning to the app",
+    "expired": "This request is not valid. Start the connection in the app again.",
+    "loading": "Loading the request"
   }
 }

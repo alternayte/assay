@@ -249,6 +249,30 @@
         ],
         "type": "object"
       },
+      "AppsOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppsOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectedApp"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "apps"
+        ],
+        "type": "object"
+      },
       "AskInBody": {
         "additionalProperties": false,
         "properties": {
@@ -894,6 +918,10 @@
           "mcpUrl": {
             "type": "string"
           },
+          "oauth": {
+            "description": "True when a hosted MCP client can sign in with OAuth at the MCP URL.",
+            "type": "boolean"
+          },
           "openapiUrl": {
             "type": "string"
           }
@@ -902,7 +930,52 @@
           "mcpUrl",
           "glossaryUrl",
           "openapiUrl",
-          "docsUrl"
+          "docsUrl",
+          "oauth"
+        ],
+        "type": "object"
+      },
+      "ConnectedApp": {
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "connectedAt": {
+            "description": "The time of the last approval.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "host": {
+            "description": "The host of the client. A client cannot fake it.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "static is verified by Assay. dynamic and cimd registered themselves.",
+            "enum": [
+              "static",
+              "dynamic",
+              "cimd"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "clientId",
+          "name",
+          "host",
+          "kind",
+          "scopes",
+          "connectedAt"
         ],
         "type": "object"
       },
@@ -4281,6 +4354,32 @@
         "required": [
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "OAuthStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OAuthStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lockedBy": {
+            "description": "The environment variable that sets the field. Empty when none does.",
+            "type": "string"
+          },
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on",
+          "lockedBy"
         ],
         "type": "object"
       },
@@ -7840,6 +7939,388 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/auth/oauth2/authorize": {
+      "get": {
+        "operationId": "oauthProviderAuthorize",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Start the authorization code flow",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/consents": {
+      "get": {
+        "operationId": "oauthProviderConsents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "consents": {
+                      "items": {
+                        "properties": {
+                          "clientId": {
+                            "type": "string"
+                          },
+                          "clientName": {
+                            "type": "string"
+                          },
+                          "resources": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "scopes": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "clientId",
+                          "clientName",
+                          "scopes"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "consents"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The consents."
+          }
+        },
+        "summary": "List the standing consents of the user",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/consents/{clientID}": {
+      "delete": {
+        "operationId": "oauthProviderWithdrawConsent",
+        "parameters": [
+          {
+            "description": "The client.",
+            "in": "path",
+            "name": "clientID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "withdrawn": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "withdrawn"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The withdrawal."
+          }
+        },
+        "summary": "Withdraw the consent of one client",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/decide": {
+      "post": {
+        "operationId": "oauthProviderDecide",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approve": {
+                    "type": "boolean"
+                  },
+                  "requestId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "approve"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "redirectTo": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "redirectTo"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The redirect target."
+          }
+        },
+        "summary": "Approve or deny one authorization request",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/jwks": {
+      "get": {
+        "operationId": "oauthProviderJWKS",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the published key set",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/register": {
+      "post": {
+        "operationId": "oauthProviderRegister",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Register one client",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/request": {
+      "get": {
+        "operationId": "oauthProviderRequest",
+        "parameters": [
+          {
+            "description": "The authorization request.",
+            "in": "query",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "clientHost": {
+                      "type": "string"
+                    },
+                    "clientId": {
+                      "type": "string"
+                    },
+                    "clientKind": {
+                      "enum": [
+                        "static",
+                        "dynamic",
+                        "cimd"
+                      ],
+                      "type": "string"
+                    },
+                    "clientName": {
+                      "type": "string"
+                    },
+                    "consentGranted": {
+                      "type": "boolean"
+                    },
+                    "firstParty": {
+                      "type": "boolean"
+                    },
+                    "logoUri": {
+                      "type": "string"
+                    },
+                    "needsSignIn": {
+                      "type": "boolean"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "resources": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "scopes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "requestId",
+                    "clientId",
+                    "clientName",
+                    "scopes",
+                    "firstParty",
+                    "clientKind",
+                    "clientHost",
+                    "needsSignIn",
+                    "consentGranted"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The authorization request."
+          }
+        },
+        "summary": "Read one authorization request",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/revoke": {
+      "post": {
+        "operationId": "oauthProviderRevoke",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Revoke one token",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/token": {
+      "post": {
+        "operationId": "oauthProviderToken",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Exchange a code, a refresh token, or client credentials",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/userinfo": {
+      "get": {
+        "operationId": "oauthProviderUserInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the claims of an access token",
+        "tags": [
+          "oauth-provider"
+        ]
+      },
+      "post": {
+        "operationId": "oauthProviderUserInfoPost",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the claims of an access token",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
     "/api/auth/password/change": {
       "post": {
         "operationId": "passwordChange",
@@ -8994,6 +9475,38 @@
           }
         },
         "summary": "Get the agent URLs of this instance",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/v1/connected-apps": {
+      "get": {
+        "description": "Disconnect a client with the withdraw route of the OAuth provider.",
+        "operationId": "listConnectedApps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppsOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the MCP clients that you approved",
         "tags": [
           "agents"
         ]
@@ -11858,6 +12371,37 @@
         "summary": "Get a source item with its passages",
         "tags": [
           "items"
+        ]
+      }
+    },
+    "/api/v1/mcp/oauth": {
+      "get": {
+        "operationId": "getMCPOAuth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the state of OAuth sign-in of MCP clients",
+        "tags": [
+          "agents"
         ]
       }
     },

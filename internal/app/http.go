@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/alternayte/auth-all/humaauth"
+	"github.com/alternayte/auth-all/plugins/oauthprovider"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
@@ -28,14 +29,35 @@ var authRoutes = map[string]bool{
 	// Sign-in with the identity provider. The provider ID is fixed.
 	"GET /oauth/sso":          true,
 	"GET /oauth/sso/callback": true,
+	// The OAuth authorization server of MCP clients. The routes of owned
+	// clients and of RFC 7592 client management stay closed.
+	"GET " + oauthprovider.PathAuthorize: true,
+	"POST " + oauthprovider.PathToken:    true,
+	"POST " + oauthprovider.PathRevoke:   true,
+	"POST " + oauthprovider.PathRegister: true,
+	"GET " + oauthprovider.PathJWKS:      true,
+	"GET " + oauthprovider.PathUserInfo:  true,
+	"POST " + oauthprovider.PathUserInfo: true,
+	"GET " + oauthprovider.PathRequest:   true,
+	"POST " + oauthprovider.PathDecide:   true,
+	"GET " + oauthprovider.PathConsents:  true,
 }
 
+// authRouteAllowed reports whether Assay serves the auth-all route. path is
+// the escaped path under the base path, so that an escaped slash stays in
+// its segment.
 func authRouteAllowed(method, path string) bool {
 	if authRoutes[method+" "+path] {
 		return true
 	}
-	if method == http.MethodDelete && strings.HasPrefix(path, "/sessions/") && !strings.Contains(path[len("/sessions/"):], "/") {
-		return true
+	if method != http.MethodDelete {
+		return false
+	}
+	// Sign out one session, and withdraw the consent of one client.
+	for _, prefix := range []string{"/sessions/", oauthprovider.PathConsents + "/"} {
+		if rest, ok := strings.CutPrefix(path, prefix); ok && rest != "" && !strings.Contains(rest, "/") {
+			return true
+		}
 	}
 	return false
 }
@@ -83,8 +105,12 @@ func (s *Server) authHandler() http.Handler {
 	base := s.auth.BasePath()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, base)
-		if !authRouteAllowed(r.Method, rel) {
+		if !authRouteAllowed(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), base)) {
 			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(rel, "/oauth2/") {
+			s.agents.ServeAuthRoute(w, r, rel, h)
 			return
 		}
 		// With password sign-in off, the password route does not exist.

@@ -107,7 +107,7 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger, opts auth.Options) 
 		pool.Close()
 		return nil, nil, fmt.Errorf("database: %w", err)
 	}
-	a, err := auth.New(pool, cfg.BaseURL, log, opts)
+	a, err := auth.New(pool, cfg.BaseURL, cfg.SecretKey, log, opts)
 	if err != nil {
 		pool.Close()
 		return nil, nil, err
@@ -156,8 +156,12 @@ func (s *Server) services() error {
 		Log: s.log, Now: s.now}
 	signIn := sso.Setting
 	signIn.Guard = s.sso.Guard
+	s.agents = &agents.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, Version: Version, OAuthEnv: s.cfg.MCPOAuth, Log: s.log,
+		Now: s.now}
+	agentsSetting := agents.OAuthSetting
+	agentsSetting.Guard = s.agents.Guard
 	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting,
-		pages.Setting, design.Setting, signIn}}
+		pages.Setting, design.Setting, signIn, agentsSetting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send,
 		AdminStatus: s.sso.AdminStatus}
@@ -192,8 +196,8 @@ func (s *Server) services() error {
 	s.entities.Edited = s.pages.Invalidate
 	s.ask = &ask.Service{Pool: s.pool, Models: s.models, Search: s.search, Extract: s.extract, Vocab: s.vocab, Log: s.log, Now: s.now,
 		Orientation: s.pages.Orientation}
-	s.agents = &agents.Service{Pool: s.pool, Ask: s.ask, Entities: s.entities, Pages: s.pages, Design: s.design, Vocab: s.vocab, Review: s.review,
-		BaseURL: s.cfg.BaseURL, Version: Version, Log: s.log}
+	s.agents.Ask, s.agents.Entities, s.agents.Pages, s.agents.Design = s.ask, s.entities, s.pages, s.design
+	s.agents.Vocab, s.agents.Review = s.vocab, s.review
 	if s.cfg.Demo {
 		s.users.OnSetup = func(ctx context.Context, adminID string) error { return s.sync.Demo(ctx, adminID, s.cfg.DemoURL) }
 	}
@@ -291,6 +295,9 @@ func (s *Server) SSO() *sso.Service { return s.sso }
 // Sync runs the connections.
 func (s *Server) Sync() *syncer.Service { return s.sync }
 
+// Auth is the auth-all instance.
+func (s *Server) Auth() *auth.Auth { return s.auth }
+
 // Pool is the database pool.
 func (s *Server) Pool() *pgxpool.Pool { return s.pool }
 
@@ -317,6 +324,15 @@ func (s *Server) routes() (http.Handler, error) {
 		return r, nil
 	}
 	r.Handle(s.auth.BasePath()+"/*", s.authHandler())
+	// RFC 8414 and RFC 9728 put the OAuth metadata at the origin root.
+	metadata := s.agents.MetadataHandler()
+	r.Handle("/.well-known/oauth-authorization-server", metadata)
+	r.Handle("/.well-known/oauth-authorization-server/*", metadata)
+	r.Handle("/.well-known/openid-configuration", metadata)
+	r.Handle("/.well-known/openid-configuration/*", metadata)
+	resource := s.agents.ProtectedResourceHandler()
+	r.Handle("/.well-known/oauth-protected-resource", resource)
+	r.Handle("/.well-known/oauth-protected-resource/*", resource)
 
 	spa, err := s.spa(web.Dist())
 	if err != nil {
@@ -337,7 +353,8 @@ func (s *Server) routes() (http.Handler, error) {
 		s.registerAPI(a)
 		g.Handle(JobsPath, http.RedirectHandler(JobsPath+"/", http.StatusMovedPermanently))
 		g.Handle(JobsPath+"/*", adminOnly(s.jobsUI))
-		// MCP for agents with an access token (REQ-AGT-001).
+		// MCP for agents with an access token or an OAuth grant
+		// (REQ-AGT-001).
 		g.Handle("/mcp", s.agents.Handler())
 		g.Get(pages.GlossaryPath, func(w http.ResponseWriter, req *http.Request) {
 			r2 := req.Clone(context.WithValue(req.Context(), chi.RouteCtxKey, nil))

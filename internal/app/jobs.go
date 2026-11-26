@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/content"
@@ -94,6 +95,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
 	river.AddWorker(workers, &sso.Worker{S: s.sso})
+	river.AddWorker(workers, &agents.KeyWorker{S: s.agents})
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
 	river.AddWorker(workers, &content.ChunkHashWorker{Pool: s.pool})
@@ -138,6 +140,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, content.ChunkHashJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.resolve.PeriodicJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sso.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.agents.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
 }

@@ -14,7 +14,7 @@ import (
 
 // The token client is the one client that may POST to a source host. It
 // must refuse every URL but the token URL, and every method but POST.
-func TestSCN_CON_012_TokenClientSendsOnlyToTheTokenURL(t *testing.T) {
+func TestSCN_CON_014_TokenClientSendsOnlyToTheTokenURL(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)

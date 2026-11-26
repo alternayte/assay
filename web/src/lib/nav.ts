@@ -17,6 +17,7 @@ export const navItems: NavItem[] = [
   { to: "/connect", label: "nav.connect", role: "member", group: "pages" },
   { to: "/settings/users", label: "settings.users", role: "admin", group: "settings" },
   { to: "/settings/groups", label: "settings.groups", role: "admin", group: "settings" },
+  { to: "/settings/sign-in", label: "settings.signIn", role: "admin", group: "settings" },
   { to: "/settings/connections", label: "settings.connections", role: "admin", group: "settings" },
   { to: "/settings/domains", label: "settings.domains", role: "admin", group: "settings" },
   { to: "/settings/decisions", label: "settings.decisions", role: "admin", group: "settings" },

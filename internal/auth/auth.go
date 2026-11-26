@@ -1,15 +1,17 @@
 // Package auth configures auth-all for Assay: email and password sign-in,
-// database sessions, access tokens, the role hierarchy, user administration
-// and sign-in rate limits.
+// sign-in with the identity provider, database sessions, access tokens, the
+// role hierarchy, user administration and sign-in rate limits.
 package auth
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/roles"
@@ -60,7 +62,14 @@ const MaxTokenTTL = 365 * 24 * time.Hour
 // Options change the defaults for tests.
 type Options struct {
 	SignInRules []ratelimit.Rule
+	// Providers returns the OAuth providers of a request. The SSO
+	// settings set it.
+	Providers func(ctx context.Context) ([]oauth.Provider, error)
 }
+
+// SignInPath is the SPA page that a failed provider sign-in returns to with
+// the error code.
+const SignInPath = "/sign-in"
 
 // New builds the instance over pool. baseURL decides the Secure flag of the
 // session cookie.
@@ -82,7 +91,7 @@ func New(pool *pgxpool.Pool, baseURL string, log *slog.Logger, opts Options) (*A
 	keys := apikeys.New(apikeys.Prefix(TokenPrefix), apikeys.MaxTTL(MaxTokenTTL), apikeys.AdminRole(RoleAdmin),
 		apikeys.Scopes(ScopeRead, ScopePropose), apikeys.DefaultScopes(ScopeRead))
 	secure := strings.HasPrefix(baseURL, "https://")
-	a, err := authall.New(
+	options := []authall.Option{
 		authall.WithStore(st),
 		authall.WithSchema(schema.Options{Prefix: schema.DefaultPrefix, IDType: schema.IDUUID}),
 		authall.WithSchemaCheck(authall.SchemaCheckCatalog),
@@ -92,7 +101,15 @@ func New(pool *pgxpool.Pool, baseURL string, log *slog.Logger, opts Options) (*A
 		authall.WithRateLimiter(limiter),
 		authall.WithLogger(log),
 		authall.WithPlugins(r, adm, keys),
-	)
+		authall.WithBrowserErrorRedirect(SignInPath),
+		// An existing user links to an IdP account only by a verified
+		// address on both sides.
+		authall.WithAccountLinking(authall.AccountLinkingOptions{AllowVerifiedEmailAutoLink: true}),
+	}
+	if opts.Providers != nil {
+		options = append(options, authall.WithProviderSource(opts.Providers))
+	}
+	a, err := authall.New(options...)
 	if err != nil {
 		return nil, err
 	}

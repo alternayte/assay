@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/alternayte/assay/internal/outbound"
+	"github.com/alternayte/assay/internal/sso"
 )
 
 // Role selects the parts of the process that run.
@@ -47,6 +49,9 @@ type Config struct {
 	// EmbedShards is the number of embed shards of the whole cluster. More
 	// worker processes then add embed parallelism.
 	EmbedShards int
+	// SSO holds the set variables of the sign-in settings. Each one wins
+	// over the stored setting.
+	SSO map[string]string
 }
 
 var knownVars = map[string]bool{
@@ -78,6 +83,7 @@ var knownVars = map[string]bool{
 // required variable is missing or invalid, and it warns about an unknown
 // ASSAY_ variable.
 func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
+	known := func(k string) bool { return knownVars[k] || slices.Contains(sso.EnvVars, k) }
 	env := map[string]string{}
 	for _, kv := range environ {
 		k, v, ok := strings.Cut(kv, "=")
@@ -85,7 +91,7 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 			continue
 		}
 		env[k] = v
-		if strings.HasPrefix(k, "ASSAY_") && !knownVars[k] {
+		if strings.HasPrefix(k, "ASSAY_") && !known(k) {
 			log.Warn("unknown variable is ignored", "variable", k)
 		}
 	}
@@ -100,6 +106,12 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
 		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
 		DemoURL:     valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+	}
+	cfg.SSO = map[string]string{}
+	for _, name := range sso.EnvVars {
+		if v := env[name]; v != "" {
+			cfg.SSO[name] = v
+		}
 	}
 	cfg.Outbound = outbound.Settings{
 		HTTPProxy:   valueOr(env["HTTP_PROXY"], env["http_proxy"]),
@@ -143,6 +155,9 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))
 		}
 		*w.out = n
+	}
+	if err := sso.CheckEnv(cfg.SSO); err != nil {
+		errs = append(errs, err)
 	}
 	if _, err := cfg.Outbound.RootCAs(); err != nil {
 		errs = append(errs, fmt.Errorf("the extra CA certificates are not valid: %w", err))

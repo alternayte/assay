@@ -510,7 +510,7 @@ function PrioritySheet() {
   );
 }
 
-function History({ settingKey }: { settingKey: string }) {
+export function History({ settingKey }: { settingKey: string }) {
   const history = useQuery({
     queryKey: ["settings", settingKey, "history"],
     queryFn: async () =>

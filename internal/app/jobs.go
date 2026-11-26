@@ -19,6 +19,7 @@ import (
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/resolve"
 	"github.com/alternayte/assay/internal/settings"
+	"github.com/alternayte/assay/internal/sso"
 	syncer "github.com/alternayte/assay/internal/sync"
 )
 
@@ -92,6 +93,7 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
+	river.AddWorker(workers, &sso.Worker{S: s.sso})
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
 	river.AddWorker(workers, &content.ChunkHashWorker{Pool: s.pool})
@@ -135,6 +137,7 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.embedder.PeriodicJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, content.ChunkHashJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.resolve.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sso.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
 }

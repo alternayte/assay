@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/alternayte/auth-all/oauth"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -36,6 +37,7 @@ import (
 	"github.com/alternayte/assay/internal/search"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
+	"github.com/alternayte/assay/internal/sso"
 	syncer "github.com/alternayte/assay/internal/sync"
 	"github.com/alternayte/assay/internal/tokens"
 	"github.com/alternayte/assay/internal/users"
@@ -51,6 +53,7 @@ type Server struct {
 	pool       *pgxpool.Pool
 	auth       *auth.Auth
 	users      *users.Service
+	sso        *sso.Service
 	settings   *settings.Service
 	secrets    *secrets.Store
 	mailer     *settings.Mailer
@@ -118,11 +121,20 @@ func Open(ctx context.Context, cfg Config, log *slog.Logger, opts auth.Options) 
 
 // New opens the database and builds the HTTP handler.
 func New(ctx context.Context, cfg Config, log *slog.Logger, opts Options) (*Server, error) {
-	pool, a, err := Open(ctx, cfg, log, opts.Auth)
+	// auth-all reads the SSO provider of each request from the settings.
+	var s *Server
+	authOpts := opts.Auth
+	authOpts.Providers = func(ctx context.Context) ([]oauth.Provider, error) {
+		if s == nil || s.sso == nil {
+			return nil, nil
+		}
+		return s.sso.Providers(ctx)
+	}
+	pool, a, err := Open(ctx, cfg, log, authOpts)
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{cfg: cfg, log: log, pool: pool, auth: a, now: opts.Now, opts: opts}
+	s = &Server{cfg: cfg, log: log, pool: pool, auth: a, now: opts.Now, opts: opts}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -140,10 +152,16 @@ func (s *Server) services() error {
 		return err
 	}
 	s.secrets = &secrets.Store{Pool: s.pool, Box: box}
+	s.sso = &sso.Service{Pool: s.pool, Secrets: s.secrets, Auth: s.auth, Outbound: s.cfg.Outbound, Env: s.cfg.SSO, BaseURL: s.cfg.BaseURL,
+		Log: s.log, Now: s.now}
+	signIn := sso.Setting
+	signIn.Guard = s.sso.Guard
 	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting,
-		pages.Setting, design.Setting}}
+		pages.Setting, design.Setting, signIn}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
-	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
+	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send,
+		AdminStatus: s.sso.AdminStatus}
+	s.sso.Install(s.auth)
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
 		DemoURL: s.cfg.DemoURL}
@@ -185,6 +203,7 @@ func (s *Server) services() error {
 // registerAPI adds the routes of every feature.
 func (s *Server) registerAPI(a huma.API) {
 	s.users.Register(a)
+	s.sso.Register(a)
 	s.settings.Register(a)
 	s.mailer.RegisterSMTP(a)
 	audit.Register(a, s.pool)
@@ -219,6 +238,7 @@ func (s *Server) build(ctx context.Context) error {
 		return err
 	}
 	s.sync.River = s.river
+	s.sso.River = s.river
 	s.extract.River = s.river
 	s.design.River = s.river
 	s.metrics = newMetrics(s.pool, append(s.sync.Metrics.Collectors(), s.extract.Metrics.Collectors()...)...)
@@ -263,6 +283,9 @@ func (s *Server) Embedder() *content.Embedder { return s.embedder }
 
 // Design builds the design pages.
 func (s *Server) Design() *design.Service { return s.design }
+
+// SSO serves sign-in with the identity provider and the directory sync.
+func (s *Server) SSO() *sso.Service { return s.sso }
 
 // Sync runs the connections.
 func (s *Server) Sync() *syncer.Service { return s.sync }

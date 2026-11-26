@@ -201,20 +201,26 @@ var ErrRunActive = errors.New("sync: a run of this kind is queued or running")
 func (s *Service) Queue(ctx context.Context, connectionID int64, kind, trigger string) (int64, error) {
 	var id int64
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		q := New(tx)
-		if _, err := q.ActiveRun(ctx, ActiveRunParams{ConnectionID: connectionID, Kind: kind}); err == nil {
-			return ErrRunActive
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
 		var err error
-		id, err = q.InsertRun(ctx, InsertRunParams{ConnectionID: connectionID, Kind: kind, Trigger: trigger, Now: s.now()})
-		if err != nil {
-			return err
-		}
-		_, err = s.River.InsertTx(ctx, tx, RunArgs{RunID: id}, nil)
+		id, err = s.queueTx(ctx, tx, connectionID, kind, trigger)
 		return err
 	})
+	return id, err
+}
+
+// queueTx creates a run and its job in tx.
+func (s *Service) queueTx(ctx context.Context, tx pgx.Tx, connectionID int64, kind, trigger string) (int64, error) {
+	q := New(tx)
+	if _, err := q.ActiveRun(ctx, ActiveRunParams{ConnectionID: connectionID, Kind: kind}); err == nil {
+		return 0, ErrRunActive
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	id, err := q.InsertRun(ctx, InsertRunParams{ConnectionID: connectionID, Kind: kind, Trigger: trigger, Now: s.now()})
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.River.InsertTx(ctx, tx, RunArgs{RunID: id}, nil)
 	return id, err
 }
 
@@ -230,6 +236,8 @@ type stats struct {
 	seen, created, updated, unchanged, delete int32
 	skipped                                   []Skip
 	failed                                    error
+	// rewrite counts the key rewrite of a run after a switch to Cloud.
+	rewrite *rewriteCounts
 }
 
 func (st *stats) add(o content.Outcome) {
@@ -288,13 +296,20 @@ type counts struct {
 	Unchanged int32  `json:"unchanged"`
 	Deleted   int32  `json:"deleted"`
 	Skipped   []Skip `json:"skipped"`
+	// Rewrite is set on the parts of a run after a switch to Cloud.
+	Rewrite *rewriteCounts `json:"rewrite,omitempty"`
 }
 
 func (st *stats) counts() counts {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return counts{Seen: st.seen, Created: st.created, Updated: st.updated, Unchanged: st.unchanged, Deleted: st.delete,
+	c := counts{Seen: st.seen, Created: st.created, Updated: st.updated, Unchanged: st.unchanged, Deleted: st.delete,
 		Skipped: orEmpty(st.skipped)}
+	if st.rewrite != nil {
+		rw := *st.rewrite
+		c.Rewrite = &rw
+	}
+	return c
 }
 
 func (c *counts) add(o counts) {
@@ -304,6 +319,12 @@ func (c *counts) add(o counts) {
 	c.Unchanged += o.Unchanged
 	c.Deleted += o.Deleted
 	c.Skipped = append(c.Skipped, o.Skipped...)
+	if o.Rewrite != nil {
+		if c.Rewrite == nil {
+			c.Rewrite = &rewriteCounts{}
+		}
+		c.Rewrite.add(o.Rewrite)
+	}
 }
 
 // Run works a whole run in this process: it splits the run and works each
@@ -359,6 +380,9 @@ func (s *Service) Split(ctx context.Context, runID int64) error {
 	if conn.Status == "paused" {
 		return s.endRun(ctx, runID, errPaused)
 	}
+	if run.Kind == "reconcile" && conn.RewriteFrom != "" {
+		return s.endRun(ctx, runID, errSwitching)
+	}
 	var parts []connectors.Part
 	src, err := s.sourceOf(ctx, conn)
 	if err != nil {
@@ -399,6 +423,20 @@ func (s *Service) Split(ctx context.Context, runID int64) error {
 	var done *ended
 	err = s.inTx(ctx, func(tx pgx.Tx) error {
 		done = nil
+		// The first sync after a switch to Cloud gives the entity keys
+		// the Cloud host before any part stores a Cloud item.
+		if run.Kind == "sync" && conn.RewriteFrom != "" {
+			rw := Rewrite{From: conn.RewriteFrom, To: hostOf(conn.BaseUrl)}
+			n, err := s.rewriteHosts(ctx, tx, conn, rw.From, rw.To)
+			if err != nil {
+				return err
+			}
+			rw.Entities = n
+			b, _ := json.Marshal(rw)
+			if err := New(tx).SetRunRewrite(ctx, SetRunRewriteParams{ID: runID, Rewrite: b}); err != nil {
+				return err
+			}
+		}
 		if err := New(tx).InsertParts(ctx, InsertPartsParams{RunID: runID, Parts: keys}); err != nil {
 			return err
 		}
@@ -496,7 +534,7 @@ func (s *Service) RunPart(ctx context.Context, runID int64, key string) error {
 	} else if run.Kind == "reconcile" {
 		gone = s.reconcile(ctx, conn, k, part, st)
 	} else {
-		cursor = s.sync(ctx, conn, k, part, st)
+		cursor = s.sync(ctx, conn, k, part, st, rewriteOf(run.Rewrite))
 	}
 	if stopped(ctx) {
 		// The process stops. The part goes back to the queue and starts
@@ -685,6 +723,20 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, runID int64, failed err
 	if failed != nil || msg != "" {
 		status = "failed"
 	}
+	if rw := rewriteOf(run.Rewrite); rw != nil && run.Kind == "sync" {
+		if sum.Rewrite != nil {
+			rw.Items, rw.People, rw.Unmatched = sum.Rewrite.Items, sum.Rewrite.People, sum.Rewrite.Unmatched
+		}
+		b, _ := json.Marshal(rw)
+		if err := q.SetRunRewrite(ctx, SetRunRewriteParams{ID: run.ID, Rewrite: b}); err != nil {
+			return nil, err
+		}
+		if status == "succeeded" {
+			if err := s.finishSwitch(ctx, tx, conn, rw); err != nil {
+				return nil, err
+			}
+		}
+	}
 	if status == "succeeded" {
 		switch run.Kind {
 		case "sync":
@@ -713,6 +765,25 @@ func (s *Service) settle(ctx context.Context, tx pgx.Tx, runID int64, failed err
 		}
 	}
 	return &ended{run: run, status: status, error: msg, counts: sum}, nil
+}
+
+// finishSwitch ends the switch of a connection to Cloud after its first
+// sync, in tx: the connection needs no more rewrite, one audit entry holds
+// the hosts and counts, and a reconciliation tombstones the items that
+// matched nothing.
+func (s *Service) finishSwitch(ctx context.Context, tx pgx.Tx, conn Connection, rw *Rewrite) error {
+	if err := New(tx).ClearRewrite(ctx, ClearRewriteParams{ID: conn.ID, RewriteFrom: rw.From}); err != nil {
+		return err
+	}
+	if err := audit.Write(ctx, tx, audit.Entry{Action: "connections.switch", Target: fmt.Sprintf("connection:%d", conn.ID),
+		Details: map[string]any{"from": rw.From, "to": rw.To, "items": rw.Items, "entities": rw.Entities, "people": rw.People,
+			"unmatched": rw.Unmatched}}); err != nil {
+		return err
+	}
+	if _, err := s.queueTx(ctx, tx, conn.ID, "reconcile", "manual"); err != nil && !errors.Is(err, ErrRunActive) {
+		return err
+	}
+	return nil
 }
 
 // tombstoneGone tombstones, after all parts of a reconciliation listed
@@ -804,7 +875,12 @@ const listBatch = 50
 // before the connector reads on, and the cursor then moves to the newest
 // update time of the batch, so that a part that stops continues from there.
 // It returns the new cursor: the newest update time it handled.
-func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connector, part connectors.Part, st *stats) string {
+//
+// The first sync after a switch to Cloud, with rw set, lists the whole
+// part and stores every item again: before each batch it fetches the
+// items, matches them with the stored items and people in one transaction,
+// and then stores them with their Cloud links and keys.
+func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connector, part connectors.Part, st *stats, rw *Rewrite) string {
 	cursor, err := New(s.Pool).PartCursor(ctx, PartCursorParams{ConnectionID: conn.ID, Part: part.Key})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		st.fail(err)
@@ -812,10 +888,24 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 	}
 	var since time.Time
 	newest := time.Time{}
-	if cursor != "" {
+	if cursor != "" && rw == nil {
 		if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
 			since = t.Add(-CursorOverlap)
 			newest = t
+		}
+	}
+	var cloudIDs []string
+	if rw != nil {
+		st.rewrite = &rewriteCounts{}
+		cursor = ""
+		if conn.Kind == "confluence" {
+			// A stored page matches a Cloud page only when its ID is not
+			// in Cloud.
+			cloudIDs = []string{}
+			if err := k.ListIDs(ctx, part, func(id string) error { cloudIDs = append(cloudIDs, id); return nil }); err != nil {
+				st.fail(err)
+				return ""
+			}
 		}
 	}
 	stored := &storedItems{}
@@ -827,11 +917,23 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		}
 		var work []connectors.Ref
 		for _, r := range batch {
-			if stored.has(r) {
+			if rw == nil && stored.has(r) {
 				st.add(content.Unchanged)
 				continue
 			}
 			work = append(work, r)
+		}
+		if rw != nil {
+			if err := s.prefetch(ctx, conn, k, work); err != nil {
+				return err
+			}
+			counts := &rewriteCounts{}
+			if err := s.rewriteBatch(ctx, conn, rw, part.Key, work, cloudIDs, counts); err != nil {
+				return err
+			}
+			st.mu.Lock()
+			st.rewrite.add(counts)
+			st.mu.Unlock()
 		}
 		s.fetchAll(ctx, conn, k, part, work, st)
 		if err := st.err(); err != nil {
@@ -874,6 +976,57 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		}
 	}
 	return cursor
+}
+
+// prefetch fetches the items of refs that do not carry them, with the
+// concurrency of the connection, so that the key rewrite sees their people.
+// A skipped item keeps its reason; an item that is gone stays without an
+// item, and its store tombstones it.
+func (s *Service) prefetch(ctx context.Context, conn Connection, k connectors.Connector, refs []connectors.Ref) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	sem := make(chan struct{}, max(1, int(conn.RateConcurrency)))
+	var wg gosync.WaitGroup
+	var mu gosync.Mutex
+	var first error
+	for i := range refs {
+		if refs[i].Item != nil || refs[i].Skip != "" {
+			continue
+		}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(r *connectors.Ref) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			it, err := k.Fetch(ctx, r.ID)
+			var skip *connectors.SkipError
+			switch {
+			case errors.As(err, &skip):
+				r.Skip = skip.Reason
+			case errors.Is(err, connectors.ErrNotFound):
+			case err != nil:
+				mu.Lock()
+				if first == nil {
+					first = err
+				}
+				mu.Unlock()
+				cancel()
+			default:
+				r.Item = it
+			}
+		}(&refs[i])
+	}
+	wg.Wait()
+	if first != nil {
+		return first
+	}
+	return ctx.Err()
 }
 
 // storedItems are the revisions and source update times of the stored

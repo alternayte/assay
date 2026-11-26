@@ -60,7 +60,10 @@
         "name": "Alex Acme",
         "aliases": [
           "alex.acme"
-        ]
+        ],
+        "metadata": {
+          "email": "alex.acme@acme.test"
+        }
       },
       "Text": "",
       "Quote": "Assignee: Alex Acme"

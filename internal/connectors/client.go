@@ -71,6 +71,9 @@ type Ref struct {
 type Validation struct {
 	User   string `json:"user" doc:"The source user of the token."`
 	Sample int    `json:"sample" doc:"The number of items in the scope, or in the source when no scope is set."`
+	// More is true when the source gives no total, such as Jira Cloud:
+	// Sample then counts one page, and the scope can hold more.
+	More bool `json:"more" doc:"True when the source gives no total. The scope then has sample items or more."`
 }
 
 // Scope is one option of a scope picker.
@@ -131,7 +134,9 @@ type SkipLister interface {
 }
 
 // Client is the HTTP client of one connection. It sends only GET and HEAD,
-// only to the connection host, and follows no redirect to another host. It
+// only to the connection host, and follows no redirect to another host. A
+// client with a site URL on another host, such as a scoped Atlassian Cloud
+// token that reads through api.atlassian.com, also sends to the site host. It
 // keeps the concurrency and rate limits of the connection, and retries rate
 // limit and 5xx responses with Retry-After, the rate limit reset or
 // exponential backoff with jitter. The rate of a stored connection holds
@@ -142,6 +147,7 @@ type Client struct {
 	// authHeader carries auth: Authorization, or another header such as
 	// PRIVATE-TOKEN for GitLab.
 	authHeader string
+	site       *url.URL
 	auth       string
 	sem        chan struct{}
 	pace       *pace
@@ -153,7 +159,10 @@ type Client struct {
 
 // ClientOptions configure a client.
 type ClientOptions struct {
-	BaseURL       string
+	BaseURL string
+	// SiteURL is the base of the links that people open, when it is not
+	// BaseURL. Entity keys use its host. Empty means BaseURL.
+	SiteURL       string
 	Authorization string // the Authorization header value
 	// AuthHeader is the name of the header that carries Authorization.
 	// Empty is Authorization.
@@ -169,11 +178,20 @@ type ClientOptions struct {
 
 // NewClient returns the client of a connection.
 func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
-	h, err := outbound.New(s, outbound.Options{BaseURL: o.BaseURL, Methods: []string{http.MethodGet, http.MethodHead}, Timeout: 60 * time.Second})
+	var also []string
+	if o.SiteURL != "" {
+		also = []string{o.SiteURL}
+	}
+	h, err := outbound.New(s, outbound.Options{BaseURL: o.BaseURL, AlsoURLs: also, Methods: []string{http.MethodGet, http.MethodHead},
+		Timeout: 60 * time.Second})
 	if err != nil {
 		return nil, err
 	}
 	u, _ := url.Parse(strings.TrimRight(o.BaseURL, "/"))
+	site := u
+	if o.SiteURL != "" {
+		site, _ = url.Parse(strings.TrimRight(o.SiteURL, "/"))
+	}
 	if o.Concurrency < 1 {
 		o.Concurrency = 1
 	}
@@ -184,7 +202,7 @@ func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
 		o.PerSecond = 5
 	}
 	return &Client{
-		http: h, base: u, auth: o.Authorization, authHeader: o.AuthHeader,
+		http: h, base: u, site: site, auth: o.Authorization, authHeader: o.AuthHeader,
 		sem:     make(chan struct{}, o.Concurrency),
 		pace:    newPace(o.Pool, o.ConnectionID, time.Duration(float64(time.Second)/o.PerSecond)),
 		Backoff: time.Second, Retries: 4,
@@ -206,8 +224,16 @@ func (c *Client) URL(path string, q url.Values) string {
 	return u.String()
 }
 
-// Host is the host of the base URL.
-func (c *Client) Host() string { return c.base.Host }
+// Link returns the absolute URL of a path below the site URL, for people.
+func (c *Client) Link(path string, q url.Values) string {
+	u := *c.site
+	u.Path = strings.TrimRight(u.Path, "/") + path
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// Host is the host of the site URL. Entity keys use it.
+func (c *Client) Host() string { return c.site.Host }
 
 // GetJSON sends a GET request and decodes the JSON answer into out.
 func (c *Client) GetJSON(ctx context.Context, path string, q url.Values, out any) error {

@@ -12,7 +12,8 @@ import (
 
 // Serve runs the fixture server until ctx ends. The fake model API answers
 // under /v1 and /api/alpha/decisions, the fake Confluence API under
-// /confluence, the fake Jira API under /jira, the fake Entra ID tenant
+// /confluence, the fake Jira API under /jira, the fake Atlassian Cloud site
+// under /cloud with its API host under /atlassian, the fake Entra ID tenant
 // under /entra and /graph, the corpus manifest at /manifest.json and the
 // test control routes under /control.
 func Serve(ctx context.Context, addr string, log *slog.Logger) error {
@@ -21,6 +22,8 @@ func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	sources := NewSources()
 	mux.Handle("/confluence/", sources)
 	mux.Handle("/jira/", sources)
+	mux.Handle(CloudSitePath+"/", sources)
+	mux.Handle(CloudAPIPath+"/", sources)
 	mux.Handle("/github/", sources)
 	mux.Handle("/ghes/", sources)
 	mux.Handle("/azdo/", sources)

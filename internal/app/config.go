@@ -36,9 +36,12 @@ type Config struct {
 	ExtraCAFile  string
 	Demo         bool
 	// DemoURL is the fixture server of the demo connections.
-	DemoURL  string
-	LogLevel slog.Level
-	Outbound outbound.Settings
+	DemoURL string
+	// AtlassianAPI is the API host of scoped Atlassian Cloud tokens. The
+	// fixture server stands for it in tests.
+	AtlassianAPI string
+	LogLevel     slog.Level
+	Outbound     outbound.Settings
 	// The job workers of the default, sync, extract, design and embed
 	// queues of this process. The sync workers work the parts of runs.
 	JobWorkers     int
@@ -55,24 +58,25 @@ type Config struct {
 }
 
 var knownVars = map[string]bool{
-	"ASSAY_DATABASE_URL":    true,
-	"ASSAY_SECRET_KEY":      true,
-	"ASSAY_SECRET_KEY_NEW":  true,
-	"ASSAY_BASE_URL":        true,
-	"ASSAY_LISTEN":          true,
-	"ASSAY_ROLE":            true,
-	"ASSAY_SETUP_TOKEN":     true,
-	"ASSAY_EXTRA_CA_PEM":    true,
-	"ASSAY_EXTRA_CA_FILE":   true,
-	"ASSAY_DEMO":            true,
-	"ASSAY_DEMO_URL":        true,
-	"ASSAY_LOG_LEVEL":       true,
-	"ASSAY_JOB_WORKERS":     true,
-	"ASSAY_SYNC_WORKERS":    true,
-	"ASSAY_EXTRACT_WORKERS": true,
-	"ASSAY_DESIGN_WORKERS":  true,
-	"ASSAY_EMBED_WORKERS":   true,
-	"ASSAY_EMBED_SHARDS":    true,
+	"ASSAY_DATABASE_URL":      true,
+	"ASSAY_SECRET_KEY":        true,
+	"ASSAY_SECRET_KEY_NEW":    true,
+	"ASSAY_BASE_URL":          true,
+	"ASSAY_LISTEN":            true,
+	"ASSAY_ROLE":              true,
+	"ASSAY_SETUP_TOKEN":       true,
+	"ASSAY_EXTRA_CA_PEM":      true,
+	"ASSAY_EXTRA_CA_FILE":     true,
+	"ASSAY_DEMO":              true,
+	"ASSAY_DEMO_URL":          true,
+	"ASSAY_ATLASSIAN_API_URL": true,
+	"ASSAY_LOG_LEVEL":         true,
+	"ASSAY_JOB_WORKERS":       true,
+	"ASSAY_SYNC_WORKERS":      true,
+	"ASSAY_EXTRACT_WORKERS":   true,
+	"ASSAY_DESIGN_WORKERS":    true,
+	"ASSAY_EMBED_WORKERS":     true,
+	"ASSAY_EMBED_SHARDS":      true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -97,15 +101,16 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 	}
 
 	cfg := Config{
-		DatabaseURL: env["ASSAY_DATABASE_URL"],
-		BaseURL:     strings.TrimRight(valueOr(env["ASSAY_BASE_URL"], "http://localhost:8080"), "/"),
-		Listen:      valueOr(env["ASSAY_LISTEN"], ":8080"),
-		Role:        Role(valueOr(env["ASSAY_ROLE"], string(RoleAll))),
-		SetupToken:  env["ASSAY_SETUP_TOKEN"],
-		ExtraCAPEM:  env["ASSAY_EXTRA_CA_PEM"],
-		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
-		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
-		DemoURL:     valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+		DatabaseURL:  env["ASSAY_DATABASE_URL"],
+		BaseURL:      strings.TrimRight(valueOr(env["ASSAY_BASE_URL"], "http://localhost:8080"), "/"),
+		Listen:       valueOr(env["ASSAY_LISTEN"], ":8080"),
+		Role:         Role(valueOr(env["ASSAY_ROLE"], string(RoleAll))),
+		SetupToken:   env["ASSAY_SETUP_TOKEN"],
+		ExtraCAPEM:   env["ASSAY_EXTRA_CA_PEM"],
+		ExtraCAFile:  env["ASSAY_EXTRA_CA_FILE"],
+		Demo:         env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
+		DemoURL:      valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+		AtlassianAPI: valueOr(env["ASSAY_ATLASSIAN_API_URL"], "https://api.atlassian.com"),
 	}
 	cfg.SSO = map[string]string{}
 	for _, name := range sso.EnvVars {

@@ -108,12 +108,17 @@ type Sources struct {
 	// noNextPageStart makes the Bitbucket file list omit nextPageStart, as
 	// Bitbucket before 7.14 does.
 	noNextPageStart bool
+	// hidden are the users whose email the Cloud answers leave out.
+	hidden map[string]bool
+	// adf holds the recorded Cloud ADF of the corpus issues.
+	adf map[string]*recordedADF
 }
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
 	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
-		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{}}
+		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{},
+		hidden: map[string]bool{}, adf: map[string]*recordedADF{}}
 	s.loadCatalog()
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
@@ -157,6 +162,7 @@ func NewSources() *Sources {
 		s.issues[is.Key] = is
 		return nil
 	})
+	s.loadADF()
 	s.loadRepos()
 	return s
 }
@@ -231,8 +237,9 @@ func token(h string) string {
 // ServeHTTP serves the Confluence API under /confluence, the Jira API under
 // /jira, the GitHub API under /github, the GitHub Enterprise Server API
 // under /ghes/api/v3, the Azure DevOps Server API under /azdo, the GitLab
-// API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket
-// and the Backstage catalog API under /backstage.
+// API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket,
+// the Backstage catalog API under /backstage, and the Atlassian Cloud site
+// under /cloud with its API host under /atlassian.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
@@ -259,6 +266,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.serveManifest(w, r)
 		return
 	}
+	if r.URL.Path == CloudSitePath+"/_edge/tenant_info" && r.Method == http.MethodGet {
+		tenantInfo(w)
+		return
+	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, `{"message":"read-only fixture"}`, http.StatusMethodNotAllowed)
 		return
@@ -283,6 +294,8 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.backstage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jira/"):
 		s.jira(w, r)
+	case strings.HasPrefix(r.URL.Path, CloudSitePath+"/"), strings.HasPrefix(r.URL.Path, CloudAPIPath+"/"):
+		s.cloud(w, r)
 	case strings.HasPrefix(r.URL.Path, "/github/"):
 		s.github(w, r, "/github", "/github")
 	case strings.HasPrefix(r.URL.Path, "/ghes/api/v3/"):

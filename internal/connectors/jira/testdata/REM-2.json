@@ -54,7 +54,10 @@
         "name": "Priya Acme",
         "aliases": [
           "priya.acme"
-        ]
+        ],
+        "metadata": {
+          "email": "priya.acme@acme.test"
+        }
       },
       "Text": "",
       "Quote": "Assignee: Priya Acme"

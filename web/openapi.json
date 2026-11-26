@@ -964,6 +964,7 @@
           },
           "options": {
             "additionalProperties": {},
+            "description": "For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud.",
             "type": "object"
           },
           "parallelParts": {
@@ -982,7 +983,7 @@
             "type": "integer"
           },
           "ratePerSecond": {
-            "default": 5,
+            "description": "Leave it out for the default: 5, or 10 on Atlassian Cloud.",
             "format": "double",
             "maximum": 100,
             "minimum": 0.1,
@@ -1007,7 +1008,7 @@
             "type": "integer"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -1018,8 +1019,7 @@
           "name",
           "syncMinutes",
           "reconcileHours",
-          "rateConcurrency",
-          "ratePerSecond"
+          "rateConcurrency"
         ],
         "type": "object"
       },
@@ -1055,6 +1055,14 @@
               "integer",
               "null"
             ]
+          },
+          "deployment": {
+            "description": "Data Center or Cloud, for Jira and Confluence.",
+            "enum": [
+              "dc",
+              "cloud"
+            ],
+            "type": "string"
           },
           "excludeGlobs": {
             "items": {
@@ -1170,6 +1178,10 @@
           "statusReason": {
             "type": "string"
           },
+          "switching": {
+            "description": "True from a switch to Cloud until a sync rewrote the keys.",
+            "type": "boolean"
+          },
           "syncMinutes": {
             "format": "int32",
             "type": "integer"
@@ -1189,6 +1201,7 @@
           "hasToken",
           "scope",
           "options",
+          "switching",
           "includeGlobs",
           "excludeGlobs",
           "codeGlobs",
@@ -5782,6 +5795,48 @@
         ],
         "type": "object"
       },
+      "Rewrite": {
+        "additionalProperties": false,
+        "properties": {
+          "entities": {
+            "description": "Entity keys that got the Cloud host.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "from": {
+            "description": "The Data Center host.",
+            "type": "string"
+          },
+          "items": {
+            "description": "Stored items that matched a Cloud item.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "people": {
+            "description": "Data Center people that matched a Cloud account by email.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "to": {
+            "description": "The Cloud host.",
+            "type": "string"
+          },
+          "unmatched": {
+            "description": "Cloud people that matched no person. Each is a new person entity.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "items",
+          "entities",
+          "people",
+          "unmatched"
+        ],
+        "type": "object"
+      },
       "RoleInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5871,6 +5926,10 @@
           "queuedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "rewrite": {
+            "$ref": "#/components/schemas/Rewrite",
+            "description": "The key rewrite of the first sync after a switch to Cloud."
           },
           "seen": {
             "format": "int32",
@@ -6574,6 +6633,7 @@
           },
           "options": {
             "additionalProperties": {},
+            "description": "For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default.",
             "type": "object"
           },
           "scope": {
@@ -6581,7 +6641,7 @@
             "type": "object"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -6873,6 +6933,70 @@
           "domain",
           "domainId",
           "changedAt"
+        ],
+        "type": "object"
+      },
+      "SwitchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SwitchBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "baseUrl": {
+            "description": "The Cloud site URL, such as https://acme.atlassian.net.",
+            "format": "uri",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email of the Atlassian account of the API token.",
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          },
+          "scoped": {
+            "description": "True for a scoped API token, which reads through api.atlassian.com.",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "An API token of the account. Write-only.",
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "email",
+          "token"
+        ],
+        "type": "object"
+      },
+      "SwitchOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SwitchOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "runId": {
+            "description": "The full sync that rewrites the keys.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runId"
         ],
         "type": "object"
       },
@@ -7583,6 +7707,10 @@
             "readOnly": true,
             "type": "string"
           },
+          "more": {
+            "description": "True when the source gives no total. The scope then has sample items or more.",
+            "type": "boolean"
+          },
           "sample": {
             "description": "The number of items in the scope, or in the source when no scope is set.",
             "format": "int64",
@@ -7595,7 +7723,8 @@
         },
         "required": [
           "user",
-          "sample"
+          "sample",
+          "more"
         ],
         "type": "object"
       },
@@ -9135,6 +9264,59 @@
           }
         },
         "summary": "Change a connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/cloud": {
+      "post": {
+        "description": "Validates the Cloud site, email and API token, saves the old host as previousHost and queues a full sync. The sync rewrites the keys of the items and entities of the connection, so claims, evidence, reviews and pages stay. A reconciliation after it tombstones the items that matched nothing.",
+        "operationId": "switchConnectionToCloud",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchOutBody"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Switch a Data Center connection to Cloud",
         "tags": [
           "connections"
         ]

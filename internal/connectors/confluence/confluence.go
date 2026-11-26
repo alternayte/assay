@@ -1,15 +1,18 @@
 // Package confluence reads Confluence Data Center through /rest/api/content
-// with a personal access token.
+// with a personal access token, and Confluence Cloud with an API token. On
+// Cloud, CQL search lists the pages and REST v2 reads one page.
 package confluence
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	gosync "sync"
 	"time"
 
 	"github.com/alternayte/assay/internal/connectors"
@@ -29,9 +32,21 @@ type Connector struct {
 	scope  Scope
 	rules  connectors.Rules
 	limits connectors.Limits
+	// cloud reads Confluence Cloud below /wiki. CQL search still lists the
+	// pages: REST v2 has no CQL and no filter by change time.
+	cloud bool
+	// The names that a Cloud page refers to by ID, read once per
+	// connector.
+	mu     gosync.Mutex
+	spaces map[string]spaceRef
+	users  map[string]string
+	titles map[string]string
 }
 
-// New returns a connector. scope is the JSON scope of the connection.
+type spaceRef struct{ Key, Name string }
+
+// New returns a connector for Confluence Data Center. scope is the JSON
+// scope of the connection.
 func New(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, limits connectors.Limits) (*Connector, error) {
 	var s Scope
 	if len(scope) > 0 {
@@ -40,6 +55,26 @@ func New(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, li
 		}
 	}
 	return &Connector{c: c, scope: s, rules: rules, limits: limits}, nil
+}
+
+// NewCloud returns a connector for Confluence Cloud. The client base URL is
+// the site URL or the API host of a scoped token, without /wiki.
+func NewCloud(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, limits connectors.Limits) (*Connector, error) {
+	k, err := New(c, scope, rules, limits)
+	if err != nil {
+		return nil, err
+	}
+	k.cloud = true
+	k.spaces, k.users, k.titles = map[string]spaceRef{}, map[string]string{}, map[string]string{}
+	return k, nil
+}
+
+// prefix is the path of Confluence below the base URL: /wiki on Cloud.
+func (k *Connector) prefix() string {
+	if k.cloud {
+		return "/wiki"
+	}
+	return ""
 }
 
 func quoted(vs []string) string {
@@ -88,16 +123,28 @@ func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error)
 		Username    string `json:"username"`
 		DisplayName string `json:"displayName"`
 	}
-	if err := k.c.GetJSON(ctx, "/rest/api/user/current", nil, &u); err != nil {
-		return connectors.Validation{}, err
-	}
-	var p searchPage
-	if err := k.c.GetJSON(ctx, "/rest/api/content/search", url.Values{"cql": {k.cql(nil)}, "limit": {"1"}}, &p); err != nil {
+	if err := k.c.GetJSON(ctx, k.prefix()+"/rest/api/user/current", nil, &u); err != nil {
 		return connectors.Validation{}, err
 	}
 	name := u.DisplayName
 	if name == "" {
 		name = u.Username
+	}
+	if k.cloud {
+		// The CQL search of Cloud can leave out the total. One page then
+		// gives the count, and the scope can hold more.
+		var p searchPage
+		if err := k.c.GetJSON(ctx, "/wiki/rest/api/content/search", url.Values{"cql": {k.cql(nil)}, "limit": {"100"}}, &p); err != nil {
+			return connectors.Validation{}, err
+		}
+		if p.TotalSize > 0 {
+			return connectors.Validation{User: name, Sample: p.TotalSize}, nil
+		}
+		return connectors.Validation{User: name, Sample: max(p.Size, len(p.Results)), More: p.Links.Next != ""}, nil
+	}
+	var p searchPage
+	if err := k.c.GetJSON(ctx, "/rest/api/content/search", url.Values{"cql": {k.cql(nil)}, "limit": {"1"}}, &p); err != nil {
+		return connectors.Validation{}, err
 	}
 	return connectors.Validation{User: name, Sample: max(p.TotalSize, p.Size)}, nil
 }
@@ -105,6 +152,24 @@ func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error)
 // Scopes lists the spaces.
 func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	out := []connectors.Scope{}
+	if k.cloud {
+		err := k.cursor(ctx, "/wiki/api/v2/spaces", url.Values{"limit": {"250"}}, func(raw json.RawMessage) error {
+			var sp struct {
+				ID   string `json:"id"`
+				Key  string `json:"key"`
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(raw, &sp); err != nil {
+				return err
+			}
+			k.mu.Lock()
+			k.spaces[sp.ID] = spaceRef{Key: sp.Key, Name: sp.Name}
+			k.mu.Unlock()
+			out = append(out, connectors.Scope{ID: sp.Key, Name: sp.Name})
+			return nil
+		})
+		return out, err
+	}
 	for start := 0; ; start += 100 {
 		var p struct {
 			Results []struct {
@@ -147,7 +212,7 @@ func (k *Connector) Parts(ctx context.Context) ([]connectors.Part, error) {
 // search calls fn for each page of a CQL query. It follows the next link
 // of each answer: the server can cap the page size below the limit.
 func (k *Connector) search(ctx context.Context, cql, expand string, limit int, fn func(*pageJSON) error) error {
-	path := "/rest/api/content/search"
+	path := k.prefix() + "/rest/api/content/search"
 	q := url.Values{"cql": {cql}, "limit": {strconv.Itoa(limit)}}
 	if expand != "" {
 		q.Set("expand", expand)
@@ -171,9 +236,47 @@ func (k *Connector) search(ctx context.Context, cql, expand string, limit int, f
 		}
 		path, q = next.Path, next.Query()
 		// The next link is relative to the base URL, which holds the
-		// context path. Some servers repeat the context path.
+		// context path. Some servers repeat the context path. On Cloud the
+		// context is /wiki, which the prefix adds again.
 		if p.Links.Context != "" {
 			path = strings.TrimPrefix(path, p.Links.Context)
+		}
+		path = k.prefix() + path
+	}
+}
+
+// cursor calls fn for each result of a REST v2 listing. It follows the
+// cursor in the next link of each answer.
+func (k *Connector) cursor(ctx context.Context, path string, q url.Values, fn func(json.RawMessage) error) error {
+	for {
+		var p struct {
+			Results []json.RawMessage `json:"results"`
+			Links   struct {
+				Next string `json:"next"`
+			} `json:"_links"`
+		}
+		if err := k.c.GetJSON(ctx, path, q, &p); err != nil {
+			return err
+		}
+		for _, r := range p.Results {
+			if err := fn(r); err != nil {
+				return err
+			}
+		}
+		if p.Links.Next == "" || len(p.Results) == 0 {
+			return nil
+		}
+		next, err := url.Parse(p.Links.Next)
+		if err != nil {
+			return fmt.Errorf("confluence: the next link %q is not valid: %w", p.Links.Next, err)
+		}
+		// The link starts at the site root with /wiki. A scoped token
+		// reads below /ex/confluence/<cloud ID>, which the base URL holds.
+		path, q = next.Path, next.Query()
+		if i := strings.Index(path, "/wiki/"); i >= 0 {
+			path = path[i:]
+		} else {
+			path = "/wiki" + path
 		}
 	}
 }
@@ -210,6 +313,7 @@ func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(s
 
 type person struct {
 	Username    string `json:"username"`
+	AccountID   string `json:"accountId"`
 	DisplayName string `json:"displayName"`
 }
 
@@ -259,6 +363,9 @@ type pageJSON struct {
 
 // Fetch reads one page.
 func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error) {
+	if k.cloud {
+		return k.fetchCloud(ctx, id)
+	}
 	var p pageJSON
 	q := url.Values{"expand": {pageExpand}}
 	if err := k.c.GetJSON(ctx, "/rest/api/content/"+url.PathEscape(id), q, &p); err != nil {
@@ -268,6 +375,158 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 		return nil, &connectors.SkipError{Reason: "too_large"}
 	}
 	return k.item(&p)
+}
+
+// pageV2 is a page of REST v2. It names its space, people and ancestors
+// by ID.
+type pageV2 struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	SpaceID   string `json:"spaceId"`
+	AuthorID  string `json:"authorId"`
+	CreatedAt string `json:"createdAt"`
+	Version   struct {
+		Number    int    `json:"number"`
+		CreatedAt string `json:"createdAt"`
+		AuthorID  string `json:"authorId"`
+	} `json:"version"`
+	Body struct {
+		Storage struct {
+			Value string `json:"value"`
+		} `json:"storage"`
+	} `json:"body"`
+	Links struct {
+		WebUI string `json:"webui"`
+	} `json:"_links"`
+}
+
+// fetchCloud reads one page through REST v2 with its storage body, and
+// the labels, ancestors, space and people that make the same item as the
+// CQL listing.
+func (k *Connector) fetchCloud(ctx context.Context, id string) (*content.Item, error) {
+	var v pageV2
+	if err := k.c.GetJSON(ctx, "/wiki/api/v2/pages/"+url.PathEscape(id), url.Values{"body-format": {"storage"}}, &v); err != nil {
+		return nil, err
+	}
+	if k.limits.MaxItemBytes > 0 && len(v.Body.Storage.Value) > k.limits.MaxItemBytes {
+		return nil, &connectors.SkipError{Reason: "too_large"}
+	}
+	p := pageJSON{ID: v.ID, Title: v.Title}
+	p.Body.Storage.Value = v.Body.Storage.Value
+	p.Links.WebUI = v.Links.WebUI
+	p.History.CreatedDate = v.CreatedAt
+	p.Version.Number, p.Version.When = v.Version.Number, v.Version.CreatedAt
+	sp, err := k.space(ctx, v.SpaceID)
+	if err != nil {
+		return nil, err
+	}
+	p.Space.Key, p.Space.Name = sp.Key, sp.Name
+	if p.History.CreatedBy.DisplayName, err = k.user(ctx, v.AuthorID); err != nil {
+		return nil, err
+	}
+	if p.Version.By.DisplayName, err = k.user(ctx, v.Version.AuthorID); err != nil {
+		return nil, err
+	}
+	err = k.cursor(ctx, "/wiki/api/v2/pages/"+url.PathEscape(id)+"/labels", url.Values{"limit": {"250"}}, func(raw json.RawMessage) error {
+		var l struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(raw, &l); err != nil {
+			return err
+		}
+		p.Metadata.Labels.Results = append(p.Metadata.Labels.Results, struct {
+			Name string `json:"name"`
+		}{l.Name})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The ancestors come root first, as in the CQL expansion.
+	err = k.cursor(ctx, "/wiki/api/v2/pages/"+url.PathEscape(id)+"/ancestors", url.Values{"limit": {"250"}}, func(raw json.RawMessage) error {
+		var a struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return err
+		}
+		title, err := k.title(ctx, a.ID)
+		if err != nil {
+			return err
+		}
+		p.Ancestors = append(p.Ancestors, struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}{a.ID, title})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return k.item(&p)
+}
+
+// space returns the key and name of a Cloud space by ID.
+func (k *Connector) space(ctx context.Context, id string) (spaceRef, error) {
+	k.mu.Lock()
+	sp, ok := k.spaces[id]
+	k.mu.Unlock()
+	if ok || id == "" {
+		return sp, nil
+	}
+	var v struct {
+		Key  string `json:"key"`
+		Name string `json:"name"`
+	}
+	if err := k.c.GetJSON(ctx, "/wiki/api/v2/spaces/"+url.PathEscape(id), nil, &v); err != nil {
+		return sp, err
+	}
+	sp = spaceRef{Key: v.Key, Name: v.Name}
+	k.mu.Lock()
+	k.spaces[id] = sp
+	k.mu.Unlock()
+	return sp, nil
+}
+
+// user returns the display name of a Cloud account. REST v2 names people
+// only by account ID.
+func (k *Connector) user(ctx context.Context, accountID string) (string, error) {
+	k.mu.Lock()
+	name, ok := k.users[accountID]
+	k.mu.Unlock()
+	if ok || accountID == "" {
+		return name, nil
+	}
+	var u person
+	err := k.c.GetJSON(ctx, "/wiki/rest/api/user", url.Values{"accountId": {accountID}}, &u)
+	if err != nil && !errors.Is(err, connectors.ErrNotFound) {
+		return "", err
+	}
+	name = u.DisplayName
+	k.mu.Lock()
+	k.users[accountID] = name
+	k.mu.Unlock()
+	return name, nil
+}
+
+// title returns the title of a Cloud page by ID.
+func (k *Connector) title(ctx context.Context, id string) (string, error) {
+	k.mu.Lock()
+	t, ok := k.titles[id]
+	k.mu.Unlock()
+	if ok {
+		return t, nil
+	}
+	var v struct {
+		Title string `json:"title"`
+	}
+	if err := k.c.GetJSON(ctx, "/wiki/api/v2/pages/"+url.PathEscape(id), nil, &v); err != nil {
+		return "", err
+	}
+	k.mu.Lock()
+	k.titles[id] = v.Title
+	k.mu.Unlock()
+	return v.Title, nil
 }
 
 func (k *Connector) item(p *pageJSON) (*content.Item, error) {
@@ -287,7 +546,7 @@ func (k *Connector) item(p *pageJSON) (*content.Item, error) {
 	updated, _ := time.Parse(time.RFC3339, p.Version.When)
 	it := &content.Item{
 		ExternalID: p.ID, Kind: "page", Title: p.Title,
-		URL:    k.c.URL(p.Links.WebUI, nil),
+		URL:    k.c.Link(k.prefix()+p.Links.WebUI, nil),
 		Author: p.History.CreatedBy.name(), EditedBy: p.Version.By.name(),
 		Created: created, Updated: updated, Body: body, Revision: revision(p.Version.Number),
 		Metadata: map[string]any{"space": p.Space.Key, "spaceName": p.Space.Name, "ancestors": ancestors,
@@ -297,7 +556,7 @@ func (k *Connector) item(p *pageJSON) (*content.Item, error) {
 		// The web UI link carries its own query.
 		u, err := url.Parse(p.Links.WebUI)
 		if err == nil {
-			it.URL = k.c.URL(u.Path, u.Query())
+			it.URL = k.c.Link(k.prefix()+u.Path, u.Query())
 		}
 	}
 	if slices.ContainsFunc(labels, func(l string) bool { return slices.Contains(k.rules.GlossaryLabels, l) }) {

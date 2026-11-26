@@ -26,6 +26,16 @@ function tokenHint(kind: Kind): string {
   if (kind === "gitlab" || kind === "bitbucket") return t(`connections.tokenHints.${kind}`);
   return t("connections.tokenHint");
 }
+const isAtlassian = (k: string) => k === "jira" || k === "confluence";
+type Deployment = "dc" | "cloud";
+/** A site on atlassian.net is Cloud unless the admin selects otherwise. */
+const deploymentFor = (baseUrl: string): Deployment => {
+  try {
+    return new URL(baseUrl.trim()).hostname.toLowerCase().endsWith(".atlassian.net") ? "cloud" : "dc";
+  } catch {
+    return "dc";
+  }
+};
 
 function messageOf(e: unknown): string {
   if (e instanceof ApiError) {
@@ -37,6 +47,12 @@ function messageOf(e: unknown): string {
 }
 
 const kindLabel = (k: string) => t(`connections.kinds.${k}` as CopyKey);
+
+/** The kind with the deployment of a Jira or Confluence connection. */
+const sourceLabel = (c: Pick<Connection, "kind" | "deployment">) =>
+  c.deployment
+    ? `${kindLabel(c.kind)}, ${t(`connections.deployments.${c.deployment}` as CopyKey)}`
+    : kindLabel(c.kind);
 
 function StatusBadge({ c }: { c: Pick<Connection, "status"> }) {
   const tone = c.status === "active" ? "supported" : "danger";
@@ -96,7 +112,7 @@ export function ConnectionsPage() {
                         >
                           {c.name}
                         </Link>
-                        <div className="font-mono text-xs text-ink-muted">{kindLabel(c.kind)}</div>
+                        <div className="font-mono text-xs text-ink-muted">{sourceLabel(c)}</div>
                       </Td>
                       <Td>
                         <StatusBadge c={c} />
@@ -183,7 +199,14 @@ type Source = {
   token: string;
   apiVersion?: string;
   frontendUrl?: string;
+  /** Jira and Confluence: Data Center or Cloud. Unset follows the base URL. */
+  deployment?: Deployment;
+  email?: string;
+  scoped?: boolean;
 };
+
+const deploymentOf = (s: Source): Deployment => s.deployment ?? deploymentFor(s.baseUrl);
+const isCloud = (s: Source) => isAtlassian(s.kind) && deploymentOf(s) === "cloud";
 type Scope = {
   spaces?: string[];
   projects?: string[];
@@ -201,6 +224,9 @@ type Schedule = {
   parallelParts: number;
   defaultDomainId?: number | null;
 };
+
+/** The default rate of an Atlassian Cloud connection. */
+const cloudRate = 10;
 
 const defaultSchedule: Schedule = {
   syncMinutes: 30,
@@ -228,6 +254,10 @@ const needsScope = (kind: Kind) => kind !== "backstage";
 function optionsOf(s: Source): Record<string, unknown> | undefined {
   if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined };
   if (s.kind === "backstage") return { frontendUrl: s.frontendUrl?.trim() || undefined };
+  if (isAtlassian(s.kind)) {
+    if (!isCloud(s)) return { deployment: "dc" };
+    return { deployment: "cloud", email: s.email?.trim() ?? "", scoped: s.scoped ?? false };
+  }
   return undefined;
 }
 
@@ -279,7 +309,32 @@ function SourceFields({
           />
         )}
       </Field>
-      <Field label={t("connections.baseUrl")} hint={t(`connections.baseUrlHints.${value.kind}` as CopyKey)}>
+      {isAtlassian(value.kind) && (
+        <Field
+          label={t("connections.deployment")}
+          hint={fixedKind ? t("connections.deploymentFixedHint") : t("connections.deploymentHint")}
+        >
+          {(p) => (
+            <Select
+              {...p}
+              disabled={fixedKind}
+              value={deploymentOf(value)}
+              onChange={(e) => onChange({ ...value, deployment: e.target.value as Deployment })}
+            >
+              <option value="dc">{t("connections.deployments.dc")}</option>
+              <option value="cloud">{t("connections.deployments.cloud")}</option>
+            </Select>
+          )}
+        </Field>
+      )}
+      <Field
+        label={t("connections.baseUrl")}
+        hint={
+          isCloud(value)
+            ? t("connections.cloudUrlHint")
+            : t(`connections.baseUrlHints.${value.kind}` as CopyKey)
+        }
+      >
         {(p) => (
           <Input
             {...p}
@@ -291,9 +346,29 @@ function SourceFields({
           />
         )}
       </Field>
+      {isCloud(value) && (
+        <Field label={t("connections.email")} hint={t("connections.emailHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              required
+              type="email"
+              autoComplete="off"
+              value={value.email ?? ""}
+              onChange={(e) => onChange({ ...value, email: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
       <Field
-        label={t("connections.token")}
-        hint={keepToken ? t("connections.tokenKeep") : tokenHint(value.kind)}
+        label={isCloud(value) ? t("connections.apiToken") : t("connections.token")}
+        hint={
+          keepToken
+            ? t("connections.tokenKeep")
+            : isCloud(value)
+              ? t("connections.apiTokenHint")
+              : tokenHint(value.kind)
+        }
       >
         {(p) => (
           <Input
@@ -307,6 +382,20 @@ function SourceFields({
           />
         )}
       </Field>
+      {isCloud(value) && (
+        <label className="flex cursor-pointer items-start gap-3 sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-accent"
+            checked={value.scoped ?? false}
+            onChange={(e) => onChange({ ...value, scoped: e.target.checked })}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>{t("connections.scoped")}</span>
+            <span className="text-sm text-ink-muted">{t("connections.scopedHint")}</span>
+          </span>
+        </label>
+      )}
       {value.kind === "backstage" && (
         <Field label={t("connections.frontendUrl")} hint={t("connections.frontendUrlHint")}>
           {(p) => (
@@ -422,6 +511,9 @@ function ScopePicker({
       source.kind,
       source.baseUrl,
       source.apiVersion,
+      deploymentOf(source),
+      source.email,
+      source.scoped,
       connectionId,
       source.token.length,
     ],
@@ -603,6 +695,17 @@ export function NewConnectionPage() {
       setGlobs({ include: defaultGlobs.join("\n"), exclude: "", code: defaultCode.join("\n") });
   }, [defaultGlobs, defaultCode, globs]);
   const [schedule, setSchedule] = useState<Schedule>(defaultSchedule);
+  // Atlassian Cloud takes 10 requests per second by default, Data Center 5.
+  const cloud = isCloud(source);
+  useEffect(() => {
+    setSchedule((s) => {
+      if (cloud && s.ratePerSecond === defaultSchedule.ratePerSecond)
+        return { ...s, ratePerSecond: cloudRate };
+      if (!cloud && s.ratePerSecond === cloudRate)
+        return { ...s, ratePerSecond: defaultSchedule.ratePerSecond };
+      return s;
+    });
+  }, [cloud]);
   const [error, setError] = useState<string>();
   const test = useTest();
   const tested = test.isSuccess && test.variables?.baseUrl === source.baseUrl.trim();
@@ -691,10 +794,17 @@ export function NewConnectionPage() {
             </div>
             {test.isSuccess && (
               <Notice tone="success">
-                {t(isRepo(source.kind) ? "connections.testRepoOk" : "connections.testOk", {
-                  user: test.data.user,
-                  count: test.data.sample,
-                })}
+                {t(
+                  isRepo(source.kind)
+                    ? "connections.testRepoOk"
+                    : test.data.more
+                      ? "connections.testOkMore"
+                      : "connections.testOk",
+                  {
+                    user: test.data.user,
+                    count: test.data.sample,
+                  },
+                )}
               </Notice>
             )}
             {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
@@ -819,8 +929,15 @@ function HealthSheet({ c }: { c: Connection }) {
     onError: (e) => setMsg({ tone: "danger", text: messageOf(e) }),
   });
   const registry = c.kind === "registry";
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const canSwitch = c.deployment === "dc" && c.status !== "paused";
   const actions = !registry && (
     <>
+      {canSwitch && (
+        <Button size="sm" onClick={() => setSwitchOpen(true)}>
+          {t("connections.switchCloud")}
+        </Button>
+      )}
       <Button
         size="sm"
         disabled={c.status === "paused" || start.isPending}
@@ -844,9 +961,10 @@ function HealthSheet({ c }: { c: Connection }) {
     </>
   );
   return (
-    <Sheet title={c.name} description={kindLabel(c.kind)} actions={actions}>
+    <Sheet title={c.name} description={sourceLabel(c)} actions={actions}>
       <div className="flex flex-col gap-4">
         {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        {c.switching && <Notice>{t("connections.switchPending")}</Notice>}
         {registry && <Notice>{t("connections.registryHelp")}</Notice>}
         {c.status === "paused" && (
           <Notice tone="danger">
@@ -887,6 +1005,17 @@ function HealthSheet({ c }: { c: Connection }) {
           </div>
         )}
       </div>
+      {switchOpen && (
+        <SwitchDialog
+          c={c}
+          onClose={() => setSwitchOpen(false)}
+          onDone={() => {
+            setSwitchOpen(false);
+            setMsg({ tone: "success", text: t("connections.switchQueued") });
+            refresh();
+          }}
+        />
+      )}
       <Dialog open={purgeOpen} onOpenChange={setPurgeOpen}>
         <DialogContent
           title={t("connections.purgeTitle", { name: c.name })}
@@ -909,6 +1038,99 @@ function HealthSheet({ c }: { c: Connection }) {
         </DialogContent>
       </Dialog>
     </Sheet>
+  );
+}
+
+/** The switch of a Data Center connection to Cloud: the site, the account email and an API token. */
+function SwitchDialog({ c, onClose, onDone }: { c: Connection; onClose: () => void; onDone: () => void }) {
+  const [site, setSite] = useState("");
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [scoped, setScoped] = useState(false);
+  const run = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/v1/connections/{id}/cloud", {
+          params: { path: { id: c.id } },
+          body: { baseUrl: site.trim(), email: email.trim(), token, scoped },
+        }),
+      ),
+    onSuccess: onDone,
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    run.mutate();
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title={t("connections.switchTitle", { name: c.name })}
+        description={t("connections.switchBody")}
+        closeLabel={t("connections.cancel")}
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Notice>{t("connections.switchKeeps")}</Notice>
+          {run.isError && <Notice tone="danger">{messageOf(run.error)}</Notice>}
+          <Field label={t("connections.baseUrl")} hint={t("connections.cloudUrlHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="url"
+                className="font-mono"
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("connections.email")} hint={t("connections.emailHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="email"
+                autoComplete="off"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("connections.apiToken")} hint={t("connections.apiTokenHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="password"
+                autoComplete="off"
+                className="font-mono"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
+            )}
+          </Field>
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 size-4 accent-accent"
+              checked={scoped}
+              onChange={(e) => setScoped(e.target.checked)}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span>{t("connections.scoped")}</span>
+              <span className="text-sm text-ink-muted">{t("connections.scopedHint")}</span>
+            </span>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={onClose}>
+              {t("connections.cancel")}
+            </Button>
+            <Button type="submit" variant="primary" disabled={run.isPending}>
+              {run.isPending ? t("connections.switching") : t("connections.switchAction")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1009,6 +1231,9 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     token: "",
     apiVersion: String(c.options?.apiVersion ?? "7.1"),
     frontendUrl: String(c.options?.frontendUrl ?? ""),
+    deployment: c.deployment,
+    email: String(c.options?.email ?? ""),
+    scoped: c.options?.scoped === true,
   });
   const [scope, setScope] = useState<Scope>(c.scope as Scope);
   const [globs, setGlobs] = useState<Globs>({
@@ -1072,7 +1297,10 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           </Button>
           {test.isSuccess && (
             <Notice tone="success">
-              {t("connections.testScopeOk", { user: test.data.user, count: test.data.sample })}
+              {t(test.data.more ? "connections.testScopeOkMore" : "connections.testScopeOk", {
+                user: test.data.user,
+                count: test.data.sample,
+              })}
             </Notice>
           )}
           {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
@@ -1148,6 +1376,18 @@ function RunsSheet({ c }: { c: Connection }) {
                       unchanged: r.unchanged,
                       deleted: r.deleted,
                     })}
+                    {r.rewrite && (
+                      <p className="mt-1" data-testid="run-rewrite">
+                        {t("connections.rewrite", {
+                          from: r.rewrite.from,
+                          to: r.rewrite.to,
+                          items: r.rewrite.items,
+                          entities: r.rewrite.entities,
+                          people: r.rewrite.people,
+                          unmatched: r.rewrite.unmatched,
+                        })}
+                      </p>
+                    )}
                     {r.parts.length > 1 && (
                       <details className="mt-1" data-testid="run-parts">
                         <summary className="cursor-pointer">

@@ -104,10 +104,12 @@ SET state = CASE WHEN EXISTS (SELECT 1 FROM passages p WHERE p.item_id = e.item_
 WHERE e.item_id = @item_id AND e.kind <> 'human';
 
 -- name: UpsertEntity :one
--- A type that a person set stays.
-INSERT INTO entities (type, key, domain_id) VALUES (@type, @key, @domain_id)
+-- A type that a person set stays. The metadata of the source, such as the
+-- email of a person, merges into the stored metadata.
+INSERT INTO entities (type, key, domain_id, metadata) VALUES (@type, @key, @domain_id, @metadata::jsonb)
 ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
-    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
 RETURNING id;
 
 -- name: AddEntitySource :exec

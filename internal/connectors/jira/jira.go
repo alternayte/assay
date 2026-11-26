@@ -1,6 +1,6 @@
 // Package jira reads Jira Data Center through REST v2 with a personal
-// access token. Issue fields become field passages and deterministic
-// claims.
+// access token, and Jira Cloud through REST v3 with an API token. Issue
+// fields become field passages and deterministic claims.
 package jira
 
 import (
@@ -29,9 +29,13 @@ type Connector struct {
 	scope  Scope
 	rules  connectors.Rules
 	limits connectors.Limits
+	// cloud reads Jira Cloud: REST v3, Atlassian Document Format and
+	// account IDs.
+	cloud bool
 }
 
-// New returns a connector. scope is the JSON scope of the connection.
+// New returns a connector for Jira Data Center. scope is the JSON scope of
+// the connection.
 func New(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, limits connectors.Limits) (*Connector, error) {
 	var s Scope
 	if len(scope) > 0 {
@@ -40,6 +44,25 @@ func New(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, li
 		}
 	}
 	return &Connector{c: c, scope: s, rules: rules, limits: limits}, nil
+}
+
+// NewCloud returns a connector for Jira Cloud. Its client sends Basic
+// authentication with the email and the API token.
+func NewCloud(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, limits connectors.Limits) (*Connector, error) {
+	k, err := New(c, scope, rules, limits)
+	if err != nil {
+		return nil, err
+	}
+	k.cloud = true
+	return k, nil
+}
+
+// api is the path of the REST API.
+func (k *Connector) api() string {
+	if k.cloud {
+		return "/rest/api/3"
+	}
+	return "/rest/api/2"
 }
 
 const timeLayout = "2006-01-02T15:04:05.000-0700"
@@ -73,8 +96,11 @@ func (k *Connector) jql(projects []string) string {
 }
 
 type searchPage struct {
-	Total  int `json:"total"`
-	Issues []struct {
+	Total int `json:"total"`
+	// NextPageToken pages the search of Jira Cloud. It is empty on the
+	// last page.
+	NextPageToken string `json:"nextPageToken"`
+	Issues        []struct {
 		Key    string `json:"key"`
 		Fields struct {
 			Updated string `json:"updated"`
@@ -82,28 +108,33 @@ type searchPage struct {
 	} `json:"issues"`
 }
 
-// Validate checks the token and counts the issues in scope.
+// Validate checks the token and counts the issues in scope. The search of
+// Jira Cloud gives no total, so on Cloud it counts one page of the search.
 func (k *Connector) Validate(ctx context.Context) (connectors.Validation, error) {
-	var u struct {
-		Name        string `json:"name"`
-		DisplayName string `json:"displayName"`
-	}
-	if err := k.c.GetJSON(ctx, "/rest/api/2/myself", nil, &u); err != nil {
+	var u user
+	if err := k.c.GetJSON(ctx, k.api()+"/myself", nil, &u); err != nil {
 		return connectors.Validation{}, err
+	}
+	if k.cloud {
+		var p searchPage
+		q := url.Values{"jql": {k.jql(nil)}, "maxResults": {strconv.Itoa(searchLimit)}, "fields": {"key"}}
+		if err := k.c.GetJSON(ctx, "/rest/api/3/search/jql", q, &p); err != nil {
+			return connectors.Validation{}, err
+		}
+		return connectors.Validation{User: u.display(), Sample: len(p.Issues), More: p.NextPageToken != ""}, nil
 	}
 	var p searchPage
 	if err := k.c.GetJSON(ctx, "/rest/api/2/search", url.Values{"jql": {k.jql(nil)}, "maxResults": {"0"}}, &p); err != nil {
 		return connectors.Validation{}, err
 	}
-	name := u.DisplayName
-	if name == "" {
-		name = u.Name
-	}
-	return connectors.Validation{User: name, Sample: p.Total}, nil
+	return connectors.Validation{User: u.display(), Sample: p.Total}, nil
 }
 
 // Scopes lists the projects.
 func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
+	if k.cloud {
+		return k.cloudProjects(ctx)
+	}
 	var ps []struct {
 		Key  string `json:"key"`
 		Name string `json:"name"`
@@ -116,6 +147,31 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 		out = append(out, connectors.Scope{ID: p.Key, Name: p.Name})
 	}
 	return out, nil
+}
+
+// cloudProjects pages the project search of Jira Cloud.
+func (k *Connector) cloudProjects(ctx context.Context) ([]connectors.Scope, error) {
+	out := []connectors.Scope{}
+	for start := 0; ; {
+		var p struct {
+			Values []struct {
+				Key  string `json:"key"`
+				Name string `json:"name"`
+			} `json:"values"`
+			IsLast bool `json:"isLast"`
+		}
+		q := url.Values{"startAt": {strconv.Itoa(start)}, "maxResults": {"50"}}
+		if err := k.c.GetJSON(ctx, "/rest/api/3/project/search", q, &p); err != nil {
+			return nil, err
+		}
+		for _, v := range p.Values {
+			out = append(out, connectors.Scope{ID: v.Key, Name: v.Name})
+		}
+		if p.IsLast || len(p.Values) == 0 {
+			return out, nil
+		}
+		start += len(p.Values)
+	}
 }
 
 // Parts are the projects of the scope, one part per project. A scope
@@ -138,8 +194,14 @@ func (k *Connector) Parts(ctx context.Context) ([]connectors.Part, error) {
 	return out, nil
 }
 
+// searchLimit is the page size of a search.
+const searchLimit = 100
+
 func (k *Connector) search(ctx context.Context, jql, fields string, fn func(key, updated string) error) error {
-	const limit = 100
+	if k.cloud {
+		return k.searchJQL(ctx, jql, fields, fn)
+	}
+	const limit = searchLimit
 	for start := 0; ; start += limit {
 		var p searchPage
 		q := url.Values{"jql": {jql}, "startAt": {strconv.Itoa(start)}, "maxResults": {strconv.Itoa(limit)}, "fields": {fields}}
@@ -154,6 +216,31 @@ func (k *Connector) search(ctx context.Context, jql, fields string, fn func(key,
 		if len(p.Issues) < limit || start+limit >= p.Total {
 			return nil
 		}
+	}
+}
+
+// searchJQL pages the search of Jira Cloud by its next page token. Jira
+// Cloud removed the search with startAt.
+func (k *Connector) searchJQL(ctx context.Context, jql, fields string, fn func(key, updated string) error) error {
+	token := ""
+	for {
+		var p searchPage
+		q := url.Values{"jql": {jql}, "maxResults": {strconv.Itoa(searchLimit)}, "fields": {fields}}
+		if token != "" {
+			q.Set("nextPageToken", token)
+		}
+		if err := k.c.GetJSON(ctx, "/rest/api/3/search/jql", q, &p); err != nil {
+			return err
+		}
+		for _, is := range p.Issues {
+			if err := fn(is.Key, is.Fields.Updated); err != nil {
+				return err
+			}
+		}
+		if p.NextPageToken == "" || p.NextPageToken == token || len(p.Issues) == 0 {
+			return nil
+		}
+		token = p.NextPageToken
 	}
 }
 
@@ -181,9 +268,14 @@ func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(s
 	return k.search(ctx, k.jql([]string{part.Key}), "key", func(key, _ string) error { return fn(key) })
 }
 
+// user is a Jira user: a name on Data Center, an account ID on Cloud.
+// Cloud gives the email only when the privacy settings of the user allow
+// it.
 type user struct {
 	Name        string `json:"name"`
+	AccountID   string `json:"accountId"`
 	DisplayName string `json:"displayName"`
+	Email       string `json:"emailAddress"`
 }
 
 func (u *user) display() string {
@@ -195,6 +287,32 @@ func (u *user) display() string {
 	}
 	return u.Name
 }
+
+// person is the person entity of a user, or nil for a user without a name
+// or account ID. Data Center people keep the user name as an alias, and
+// Cloud people the display name. The email is entity metadata: a switch to
+// Cloud matches people by it.
+func (k *Connector) person(u *user) *content.EntityRef {
+	if u == nil {
+		return nil
+	}
+	id, alias := u.Name, u.Name
+	if k.cloud {
+		id, alias = u.AccountID, u.DisplayName
+	}
+	if id == "" {
+		return nil
+	}
+	p := &content.EntityRef{Type: "person", Key: PersonKey(k.c.Host(), id), Name: u.display(), Aliases: []string{alias}}
+	if e := strings.TrimSpace(u.Email); e != "" {
+		p.Metadata = map[string]any{"email": strings.ToLower(e)}
+	}
+	return p
+}
+
+// PersonKey is the key of a Jira person: the user name on Data Center, the
+// account ID on Cloud.
+func PersonKey(host, id string) string { return "jira:" + host + ":user:" + id }
 
 type named struct {
 	Name string `json:"name"`
@@ -215,18 +333,20 @@ type issueJSON struct {
 }
 
 type fields struct {
-	Summary     string    `json:"summary"`
-	Description string    `json:"description"`
-	IssueType   named     `json:"issuetype"`
-	Status      named     `json:"status"`
-	Priority    *named    `json:"priority"`
-	Assignee    *user     `json:"assignee"`
-	Reporter    *user     `json:"reporter"`
-	Labels      []string  `json:"labels"`
-	Components  []named   `json:"components"`
-	FixVersions []named   `json:"fixVersions"`
-	DueDate     string    `json:"duedate"`
-	Parent      *issueRef `json:"parent"`
+	Summary string `json:"summary"`
+	// Description is wiki markup on Data Center and Atlassian Document
+	// Format on Cloud.
+	Description json.RawMessage `json:"description"`
+	IssueType   named           `json:"issuetype"`
+	Status      named           `json:"status"`
+	Priority    *named          `json:"priority"`
+	Assignee    *user           `json:"assignee"`
+	Reporter    *user           `json:"reporter"`
+	Labels      []string        `json:"labels"`
+	Components  []named         `json:"components"`
+	FixVersions []named         `json:"fixVersions"`
+	DueDate     string          `json:"duedate"`
+	Parent      *issueRef       `json:"parent"`
 	IssueLinks  []struct {
 		Type struct {
 			Name    string `json:"name"`
@@ -246,18 +366,18 @@ var fieldList = "summary,description,issuetype,status,priority,assignee,reporter
 func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error) {
 	var raw issueJSON
 	q := url.Values{"fields": {fieldList + ",*navigable"}, "expand": {"names"}}
-	if err := k.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key), q, &raw); err != nil {
+	if err := k.c.GetJSON(ctx, k.api()+"/issue/"+url.PathEscape(key), q, &raw); err != nil {
 		return nil, err
 	}
 	var cs struct {
 		Comments []struct {
-			Author  *user  `json:"author"`
-			Created string `json:"created"`
-			Body    string `json:"body"`
+			Author  *user           `json:"author"`
+			Created string          `json:"created"`
+			Body    json.RawMessage `json:"body"`
 		} `json:"comments"`
 	}
 	cq := url.Values{"orderBy": {"-created"}, "maxResults": {"50"}, "startAt": {"0"}}
-	if err := k.c.GetJSON(ctx, "/rest/api/2/issue/"+url.PathEscape(key)+"/comment", cq, &cs); err != nil {
+	if err := k.c.GetJSON(ctx, k.api()+"/issue/"+url.PathEscape(key)+"/comment", cq, &cs); err != nil {
 		return nil, err
 	}
 	var f fields
@@ -277,6 +397,10 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 	}
 	if k.limits.MaxItemBytes > 0 && size > k.limits.MaxItemBytes {
 		return nil, &connectors.SkipError{Reason: "too_large"}
+	}
+	description, err := k.markdown(f.Description)
+	if err != nil {
+		return nil, fmt.Errorf("jira: issue %s: %w", key, err)
 	}
 
 	b2 := &body{}
@@ -303,15 +427,19 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 			b2.field(capital(l.Type.Inward), strings.TrimSpace(l.InwardIssue.Key+" "+l.InwardIssue.Fields.Summary))
 		}
 	}
-	if d := strings.TrimSpace(f.Description); d != "" {
-		b2.parts = append(b2.parts, "## Description", ToMarkdown(d))
+	if description != "" {
+		b2.parts = append(b2.parts, "## Description", description)
 	}
 	if len(cs.Comments) > 0 {
 		b2.parts = append(b2.parts, "## Comments")
 		for i := len(cs.Comments) - 1; i >= 0; i-- {
 			c := cs.Comments[i]
+			text, err := k.markdown(c.Body)
+			if err != nil {
+				return nil, fmt.Errorf("jira: a comment of issue %s: %w", key, err)
+			}
 			b2.parts = append(b2.parts, fmt.Sprintf("### %s, %s", escape(c.Author.display()), parseTime(c.Created).UTC().Format("2006-01-02 15:04")),
-				ToMarkdown(c.Body))
+				text)
 		}
 	}
 
@@ -319,7 +447,7 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 	subject := content.EntityRef{Type: k.typeOf(f.IssueType.Name), Key: issueKey(host, raw.Key), Name: f.Summary, Aliases: []string{raw.Key}}
 	it := &content.Item{
 		ExternalID: raw.Key, Kind: "issue", Title: raw.Key + " " + f.Summary,
-		URL:    k.c.URL("/browse/"+raw.Key, nil),
+		URL:    k.c.Link("/browse/"+raw.Key, nil),
 		Author: f.Reporter.display(), Created: parseTime(f.Created), Updated: parseTime(f.Updated),
 		Body:   strings.Join(b2.parts, "\n\n"),
 		Entity: &subject,
@@ -341,9 +469,8 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 	if f.Status.Name != "" {
 		fact("status", nil, f.Status.Name, "Status: "+f.Status.Name)
 	}
-	if f.Assignee != nil && f.Assignee.Name != "" {
-		fact("assigned_to", &content.EntityRef{Type: "person", Key: "jira:" + host + ":user:" + f.Assignee.Name, Name: f.Assignee.display(),
-			Aliases: []string{f.Assignee.Name}}, "", "Assignee: "+f.Assignee.display())
+	if p := k.person(f.Assignee); p != nil {
+		fact("assigned_to", p, "", "Assignee: "+f.Assignee.display())
 	}
 	if f.DueDate != "" {
 		fact("target_date", nil, f.DueDate, "Due date: "+f.DueDate)
@@ -363,6 +490,25 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 			Aliases: []string{f.Parent.Key}}, "", "Parent: "+f.Parent.Key)
 	}
 	return it, nil
+}
+
+// markdown converts a description or a comment body: wiki markup on Data
+// Center, Atlassian Document Format on Cloud. Null is empty.
+func (k *Connector) markdown(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	if k.cloud {
+		return ADFToMarkdown(raw)
+	}
+	var wiki string
+	if err := json.Unmarshal(raw, &wiki); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(wiki) == "" {
+		return "", nil
+	}
+	return ToMarkdown(strings.TrimSpace(wiki)), nil
 }
 
 func (k *Connector) typeOf(issueType string) string {

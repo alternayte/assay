@@ -34,6 +34,7 @@ type Connection struct {
 	UpdatedAt            time.Time
 	CodeGlobs            []string
 	ParallelParts        int32
+	RewriteFrom          string
 }
 
 type SyncPart struct {
@@ -67,4 +68,5 @@ type SyncRun struct {
 	QueuedAt     time.Time
 	StartedAt    *time.Time
 	FinishedAt   *time.Time
+	Rewrite      json.RawMessage
 }

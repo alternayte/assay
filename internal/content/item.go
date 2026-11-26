@@ -47,6 +47,9 @@ type EntityRef struct {
 	Key     string   `json:"key"`
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases,omitempty"`
+	// Metadata are source facts about the entity that are not claims, such
+	// as the email of a person. They merge into the stored metadata.
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // Fact is one deterministic claim. The object is an entity or a text.

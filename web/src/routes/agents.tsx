@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, Copy, KeyRound, Plus } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -17,24 +18,6 @@ import { formatAgo, formatTime } from "@/lib/format";
 type Token = Schemas["Token"];
 
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : t("errors.network"));
-
-/** A button that copies text and says so for two seconds. */
-function CopyButton({ text, label, done }: { text: string; label: string; done: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      size="sm"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-    >
-      {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-      {copied ? done : label}
-    </Button>
-  );
-}
 
 function state(k: Token): { tone: "supported" | "neutral" | "stale"; text: string } {
   if (k.revokedAt) return { tone: "neutral", text: t("tokens.revoked") };

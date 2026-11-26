@@ -330,3 +330,27 @@ ORDER BY e.id LIMIT 1;
 
 -- name: AllConnectionIDs :many
 SELECT id FROM connections ORDER BY id;
+
+-- name: WebhookOf :one
+-- The webhook of a connection with what the endpoint checks.
+SELECT w.connection_id, w.token_hash, w.username, w.secret_id, c.kind, c.status, c.base_url, c.options
+FROM connection_webhooks w JOIN connections c ON c.id = w.connection_id
+WHERE w.connection_id = @connection_id;
+
+-- name: PutWebhook :exec
+-- Creates the webhook of a connection, or rotates its token and secret.
+INSERT INTO connection_webhooks (connection_id, token_hash, username, secret_id, rotated_at)
+VALUES (@connection_id, @token_hash, @username, @secret_id, @now)
+ON CONFLICT (connection_id) DO UPDATE
+SET token_hash = excluded.token_hash, username = excluded.username, secret_id = excluded.secret_id, rotated_at = excluded.rotated_at;
+
+-- name: CountWebhook :exec
+UPDATE connection_webhooks SET received = received + 1, last_received_at = @now WHERE connection_id = @connection_id;
+
+-- name: ListWebhooks :many
+SELECT connection_id, received, last_received_at, rotated_at FROM connection_webhooks ORDER BY connection_id;
+
+-- name: ReconcileActive :one
+-- Whether a reconciliation of a connection is queued or running. Its
+-- parts tombstone the stored items that their listing missed.
+SELECT EXISTS (SELECT 1 FROM sync_runs WHERE connection_id = @connection_id AND kind = 'reconcile' AND status IN ('queued', 'running'));

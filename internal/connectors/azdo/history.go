@@ -115,6 +115,23 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 	return nil, connectors.ErrNotFound
 }
 
+// PartOf returns the repository of a file or a pull request, and the
+// project of a work item or a wiki page. An item of a kind that the
+// connection does not read is out of scope.
+func (k *Connector) PartOf(ctx context.Context, it *content.Item) (string, bool, error) {
+	scope, kind, _, ok := connectors.ParseHistoryID(it.ExternalID)
+	if !ok {
+		return k.Connector.PartOf(ctx, it)
+	}
+	switch {
+	case kind == connectors.KindPullRequest && k.hist.ReadsPullRequests() && slices.Contains(k.repos, scope),
+		kind == connectors.KindWorkItem && k.hist.ReadsIssues() && k.isProject(scope),
+		kind == connectors.KindWiki && k.hist.Wiki && k.isProject(scope):
+		return scope, true, nil
+	}
+	return "", false, nil
+}
+
 func (k *Connector) web(p string, q url.Values) string { return k.h.c.URL(p, q) }
 
 type identityJSON struct {

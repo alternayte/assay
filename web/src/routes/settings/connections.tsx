@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -16,6 +17,11 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
+type Webhook = Schemas["WebhookRecord"];
+type WebhookSecret = Schemas["WebhookSecret"];
+type WebhookKind = "github" | "azdo" | "jira" | "confluence";
+/** The number of steps per source kind in the copy. */
+const webhookSteps: Record<WebhookKind, number> = { github: 4, azdo: 4, jira: 4, confluence: 3 };
 type Kind = "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
 
 const repoKinds: string[] = ["github", "azdo", "gitlab", "bitbucket"];
@@ -1052,6 +1058,7 @@ export function ConnectionPage() {
       {c.kind !== "registry" && (
         <>
           <VisibilitySheet key={`v${c.id}`} c={c} />
+          {c.webhook && <WebhookSheet c={c} webhook={c.webhook} />}
           <ConfigurationSheet key={`c${c.id}`} c={c} />
           <ExtractionSheet c={c} />
           <RunsSheet c={c} />
@@ -1314,6 +1321,96 @@ function SwitchDialog({ c, onClose, onDone }: { c: Connection; onClose: () => vo
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A value that the webhook panel shows once, with a copy button. */
+function OnceValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="label">{label}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="min-w-0 flex-1 rounded-sm border border-rule bg-paper-raised px-2 py-1 font-mono text-sm break-all">
+          {value}
+        </code>
+        <CopyButton
+          text={value}
+          label={t("connections.webhook.copy")}
+          done={t("connections.webhook.copied")}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** The webhook of a connection: the URL and the secret once, Rotate, the counts and the steps in the source. */
+function WebhookSheet({ c, webhook }: { c: Connection; webhook: Webhook }) {
+  const qc = useQueryClient();
+  const [made, setMade] = useState<WebhookSecret>();
+  const rotate = useMutation({
+    mutationFn: async () =>
+      unwrap(await api.POST("/api/v1/connections/{id}/webhook", { params: { path: { id: c.id } } })),
+    onSuccess: (r) => {
+      setMade(r);
+      qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+  const kind = c.kind as WebhookKind;
+  const steps = Array.from(
+    { length: webhookSteps[kind] ?? 0 },
+    (_, i) => `connections.webhook.${kind}.${i + 1}` as CopyKey,
+  );
+  const actions = (
+    <Button size="sm" disabled={rotate.isPending} onClick={() => rotate.mutate()}>
+      {webhook.rotatedAt ? t("connections.webhook.rotate") : t("connections.webhook.create")}
+    </Button>
+  );
+  return (
+    <Sheet
+      title={t("connections.webhook.title")}
+      description={t("connections.webhook.body")}
+      actions={actions}
+    >
+      <div className="flex flex-col gap-4">
+        {!webhook.public && <Notice tone="danger">{t("connections.webhook.private")}</Notice>}
+        {kind === "azdo" && !webhook.https && <Notice tone="danger">{t("connections.webhook.https")}</Notice>}
+        {rotate.isError && <Notice tone="danger">{messageOf(rotate.error)}</Notice>}
+        {made && (
+          <div
+            className="flex flex-col gap-3 rounded-sm border-l-4 border-accent bg-accent-wash px-3 py-2"
+            data-testid="webhook-secret"
+          >
+            <p className="font-medium">{t("connections.webhook.made")}</p>
+            <OnceValue label={t("connections.webhook.url")} value={made.url} />
+            {made.username && <OnceValue label={t("connections.webhook.username")} value={made.username} />}
+            <OnceValue
+              label={made.username ? t("connections.webhook.password") : t("connections.webhook.secret")}
+              value={made.secret}
+            />
+          </div>
+        )}
+        {webhook.rotatedAt ? (
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <Term label={t("connections.webhook.received")}>{webhook.received}</Term>
+            <Term label={t("connections.webhook.last")}>
+              {webhook.lastReceivedAt ? formatTime(webhook.lastReceivedAt) : t("connections.never")}
+            </Term>
+            <Term label={t("connections.webhook.rotated")}>{formatTime(webhook.rotatedAt)}</Term>
+          </dl>
+        ) : (
+          <p className="text-sm">{t("connections.webhook.none")}</p>
+        )}
+        {webhook.rotatedAt && <p className="text-sm text-ink-muted">{t("connections.webhook.rotateHint")}</p>}
+        <div className="flex flex-col gap-1">
+          <p className="label">{t("connections.webhook.steps")}</p>
+          <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+            {steps.map((k) => (
+              <li key={k}>{t(k)}</li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </Sheet>
   );
 }
 

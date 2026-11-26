@@ -328,6 +328,32 @@ func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(s
 	return k.listAttachments(ctx, part, pages, fn)
 }
 
+// PartOf returns the space of a page. A page of a space outside the scope,
+// or one that the ancestors or labels of the scope leave out, is out of
+// scope. An attachment is never named alone: sync reads it with its page.
+func (k *Connector) PartOf(ctx context.Context, it *content.Item) (string, bool, error) {
+	space, _ := it.Metadata["space"].(string)
+	if space == "" || strings.HasPrefix(it.ExternalID, attachmentPrefix) {
+		return "", false, nil
+	}
+	if len(k.scope.Spaces) > 0 && !slices.Contains(k.scope.Spaces, space) {
+		return "", false, nil
+	}
+	if len(k.scope.Ancestors) == 0 && len(k.scope.Labels) == 0 {
+		return space, true, nil
+	}
+	// A page ID is digits only, so that it is safe in CQL.
+	if it.ExternalID == "" || strings.Trim(it.ExternalID, "0123456789") != "" {
+		return "", false, nil
+	}
+	found := false
+	err := k.search(ctx, k.cql([]string{space})+" AND id = "+it.ExternalID, "", 1, func(*pageJSON) error {
+		found = true
+		return nil
+	})
+	return space, found, err
+}
+
 type person struct {
 	Username    string `json:"username"`
 	AccountID   string `json:"accountId"`

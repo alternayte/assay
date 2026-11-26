@@ -145,6 +145,10 @@ type Service struct {
 	// redirect to. Empty means https://api.media.atlassian.com. Tests set
 	// the fixture server.
 	AtlassianMedia string
+	// BaseURL is ASSAY_BASE_URL, the start of the webhook URLs.
+	BaseURL string
+
+	hooks hookLimiter
 }
 
 func (s *Service) now() time.Time {

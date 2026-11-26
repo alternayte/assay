@@ -158,6 +158,20 @@ func (q *Queries) ConnectionEntities(ctx context.Context, id int64) ([]int64, er
 	return items, nil
 }
 
+const countWebhook = `-- name: CountWebhook :exec
+UPDATE connection_webhooks SET received = received + 1, last_received_at = $1 WHERE connection_id = $2
+`
+
+type CountWebhookParams struct {
+	Now          *time.Time
+	ConnectionID int64
+}
+
+func (q *Queries) CountWebhook(ctx context.Context, arg CountWebhookParams) error {
+	_, err := q.db.Exec(ctx, countWebhook, arg.Now, arg.ConnectionID)
+	return err
+}
+
 const deleteConnection = `-- name: DeleteConnection :execrows
 DELETE FROM connections WHERE id = $1 AND kind <> 'registry'
 `
@@ -1051,6 +1065,42 @@ func (q *Queries) ListVisibility(ctx context.Context) ([]ListVisibilityRow, erro
 	return items, nil
 }
 
+const listWebhooks = `-- name: ListWebhooks :many
+SELECT connection_id, received, last_received_at, rotated_at FROM connection_webhooks ORDER BY connection_id
+`
+
+type ListWebhooksRow struct {
+	ConnectionID   int64
+	Received       int64
+	LastReceivedAt *time.Time
+	RotatedAt      time.Time
+}
+
+func (q *Queries) ListWebhooks(ctx context.Context) ([]ListWebhooksRow, error) {
+	rows, err := q.db.Query(ctx, listWebhooks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWebhooksRow
+	for rows.Next() {
+		var i ListWebhooksRow
+		if err := rows.Scan(
+			&i.ConnectionID,
+			&i.Received,
+			&i.LastReceivedAt,
+			&i.RotatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockConnectionParts = `-- name: LockConnectionParts :exec
 SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_parts', $1::bigint))
 `
@@ -1314,6 +1364,33 @@ func (q *Queries) PrefixEntities(ctx context.Context, arg PrefixEntitiesParams) 
 	return items, nil
 }
 
+const putWebhook = `-- name: PutWebhook :exec
+INSERT INTO connection_webhooks (connection_id, token_hash, username, secret_id, rotated_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (connection_id) DO UPDATE
+SET token_hash = excluded.token_hash, username = excluded.username, secret_id = excluded.secret_id, rotated_at = excluded.rotated_at
+`
+
+type PutWebhookParams struct {
+	ConnectionID int64
+	TokenHash    []byte
+	Username     string
+	SecretID     *int64
+	Now          time.Time
+}
+
+// Creates the webhook of a connection, or rotates its token and secret.
+func (q *Queries) PutWebhook(ctx context.Context, arg PutWebhookParams) error {
+	_, err := q.db.Exec(ctx, putWebhook,
+		arg.ConnectionID,
+		arg.TokenHash,
+		arg.Username,
+		arg.SecretID,
+		arg.Now,
+	)
+	return err
+}
+
 const readsConnection = `-- name: ReadsConnection :one
 SELECT coalesce(EXISTS (SELECT 1 FROM connections c WHERE c.id = $1 AND c.owner_id = $2::uuid)
     OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
@@ -1334,6 +1411,19 @@ func (q *Queries) ReadsConnection(ctx context.Context, arg ReadsConnectionParams
 	var reads bool
 	err := row.Scan(&reads)
 	return reads, err
+}
+
+const reconcileActive = `-- name: ReconcileActive :one
+SELECT EXISTS (SELECT 1 FROM sync_runs WHERE connection_id = $1 AND kind = 'reconcile' AND status IN ('queued', 'running'))
+`
+
+// Whether a reconciliation of a connection is queued or running. Its
+// parts tombstone the stored items that their listing missed.
+func (q *Queries) ReconcileActive(ctx context.Context, connectionID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, reconcileActive, connectionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const removeVisibility = `-- name: RemoveVisibility :many
@@ -1729,4 +1819,38 @@ func (q *Queries) UpdateConnection(ctx context.Context, arg UpdateConnectionPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const webhookOf = `-- name: WebhookOf :one
+SELECT w.connection_id, w.token_hash, w.username, w.secret_id, c.kind, c.status, c.base_url, c.options
+FROM connection_webhooks w JOIN connections c ON c.id = w.connection_id
+WHERE w.connection_id = $1
+`
+
+type WebhookOfRow struct {
+	ConnectionID int64
+	TokenHash    []byte
+	Username     string
+	SecretID     *int64
+	Kind         string
+	Status       string
+	BaseUrl      string
+	Options      json.RawMessage
+}
+
+// The webhook of a connection with what the endpoint checks.
+func (q *Queries) WebhookOf(ctx context.Context, connectionID int64) (WebhookOfRow, error) {
+	row := q.db.QueryRow(ctx, webhookOf, connectionID)
+	var i WebhookOfRow
+	err := row.Scan(
+		&i.ConnectionID,
+		&i.TokenHash,
+		&i.Username,
+		&i.SecretID,
+		&i.Kind,
+		&i.Status,
+		&i.BaseUrl,
+		&i.Options,
+	)
+	return i, err
 }

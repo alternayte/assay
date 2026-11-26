@@ -403,7 +403,8 @@
       "jira": "Jira",
       "github": "GitHub",
       "azdo": "Azure DevOps Server",
-      "backstage": "Backstage"
+      "backstage": "Backstage",
+      "web": "Web documentation"
     },
     "status": {
       "active": "Active",
@@ -511,8 +512,29 @@
       "jira": "The URL before /rest, such as https://jira.acme.test.",
       "github": "Use https://api.github.com for GitHub. Use https://git.acme.test/api/v3 for GitHub Enterprise Server.",
       "azdo": "The collection URL, such as https://ado.acme.test/tfs/AcmeCollection.",
-      "backstage": "The URL of the Backstage backend, such as https://backstage.acme.test. Use a static external access token."
+      "backstage": "The URL of the Backstage backend, such as https://backstage.acme.test. Use a static external access token.",
+      "web": "The URL of the site, such as https://docs.acme.test. Assay reads only pages on this host."
     },
+    "authName": "Auth header name",
+    "authNameHint": "Optional. Use it when the site needs a header with a token, such as X-Portal-Token.",
+    "authValue": "Auth header value",
+    "authValueHint": "Optional. Assay stores it encrypted and never shows it again.",
+    "seed": "Start from",
+    "seedHint": "Assay starts at this file or page and follows the links on the same host.",
+    "seeds": {
+      "auto": "Try llms.txt, then sitemap.xml, then the base URL",
+      "llms": "llms.txt",
+      "llms-full": "llms-full.txt, one item for each section",
+      "sitemap": "sitemap.xml",
+      "start": "The base URL"
+    },
+    "pathPrefixes": "Path prefixes",
+    "pathPrefixesHint": "Optional. Write one path on each line, such as /docs. Assay reads only pages below these paths. Leave it empty to use the path of the base URL.",
+    "maxDepth": "Link depth",
+    "maxDepthHint": "The most links that Assay follows from a start page.",
+    "maxPages": "Page limit",
+    "maxPagesHint": "The most pages that Assay reads from the site.",
+    "testWebOk": "Assay read {user}. The start lists {count} pages.",
     "frontendUrl": "Web address",
     "frontendUrlHint": "The Backstage web address for links. Leave it empty when it is the same as the base URL.",
     "namespaces": "Namespaces",
@@ -595,7 +617,8 @@
       "codeowners": "CODEOWNERS",
       "repository": "Repository",
       "review": "Review",
-      "decision": "Decision"
+      "decision": "Decision",
+      "web": "Web"
     },
     "asked": "Asked {when}",
     "newQuestion": "New question",

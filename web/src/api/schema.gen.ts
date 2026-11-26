@@ -2400,7 +2400,7 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "backstage" | "web";
             name: string;
             options?: {
                 [key: string]: unknown;
@@ -2434,7 +2434,7 @@ export interface components {
              * @default 30
              */
             syncMinutes: number;
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         ConnectionRecord: {
@@ -2459,7 +2459,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage" | "web";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -3199,7 +3199,7 @@ export interface components {
             kind: string;
             passages: components["schemas"]["PassageRecord"][];
             /** @enum {string} */
-            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo";
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage" | "web";
             title: string;
             /** Format: date-time */
             updatedAt: string | null;
@@ -4221,7 +4221,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For a web site, the URL where the crawl starts, such as https://docs.acme.test.
              */
             baseUrl: string;
             /** @description Source files to index. Empty turns code indexing off. */
@@ -4235,14 +4235,14 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "backstage" | "web";
             options?: {
                 [key: string]: unknown;
             };
             scope?: {
                 [key: string]: unknown;
             };
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         SpaceRecord: {
@@ -8200,7 +8200,7 @@ export interface operations {
                 /** @description Search source code only. Off by default: results hold no source code. */
                 code?: boolean;
                 /** @description The kind of the source connection. */
-                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "";
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage" | "web" | "";
                 connection?: number;
                 /** @description Items about an entity of this type. */
                 entityType?: string;

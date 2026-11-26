@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Payments API reference · Acme Developer Portal</title></head>
+<body>
+  <header><nav><a href="/web/guides/getting-started">Getting started</a></nav></header>
+  <main>
+    <h1>Payments API reference</h1>
+    <h2>Rate limit</h2>
+    <p>The Payments API accepts at most 50 requests per second for each client. A client that sends more requests gets status 429.</p>
+    <h2>Endpoints</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>POST</td><td>/payments</td><td>Creates a payment.</td></tr>
+        <tr><td>GET</td><td>/payments/{id}</td><td>Returns a payment.</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

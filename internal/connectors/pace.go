@@ -78,11 +78,23 @@ func (p *pace) reserve(ctx context.Context) (time.Duration, error) {
 		p.next = at.Add(p.every)
 		return time.Until(at), nil
 	}
-	secs, err := p.q.ReserveSlot(ctx, ReserveSlotParams{ConnectionID: p.id, Every: p.every.Seconds()})
+	p.mu.Lock()
+	every := p.every
+	p.mu.Unlock()
+	secs, err := p.q.ReserveSlot(ctx, ReserveSlotParams{ConnectionID: p.id, Every: every.Seconds()})
 	if err != nil {
 		return 0, paceError(ctx, err)
 	}
 	return seconds(secs), nil
+}
+
+// slow makes the slots at least every apart.
+func (p *pace) slow(every time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if every > p.every {
+		p.every = every
+	}
 }
 
 // held returns the time until the hold of the connection ends.

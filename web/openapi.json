@@ -951,7 +951,8 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -1005,7 +1006,7 @@
             "type": "integer"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -1084,7 +1085,8 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -3247,7 +3249,9 @@
               "confluence",
               "jira",
               "github",
-              "azdo"
+              "azdo",
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -6233,7 +6237,7 @@
             "type": "string"
           },
           "baseUrl": {
-            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL.",
+            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For a web site, the URL where the crawl starts, such as https://docs.acme.test.",
             "format": "uri",
             "type": "string"
           },
@@ -6268,7 +6272,8 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -6281,7 +6286,7 @@
             "type": "object"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -12433,6 +12438,8 @@
                 "jira",
                 "github",
                 "azdo",
+                "backstage",
+                "web",
                 ""
               ],
               "type": "string"

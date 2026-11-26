@@ -12,8 +12,9 @@ import (
 
 // Serve runs the fixture server until ctx ends. The fake model API answers
 // under /v1 and /api/alpha/decisions, the fake Confluence API under
-// /confluence, the fake Jira API under /jira, the corpus manifest at
-// /manifest.json and the test control routes under /control.
+// /confluence, the fake Jira API under /jira, the developer portal under
+// /web, the corpus manifest at /manifest.json and the test control routes
+// under /control.
 func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok\n")) })
@@ -23,6 +24,8 @@ func Serve(ctx context.Context, addr string, log *slog.Logger) error {
 	mux.Handle("/github/", sources)
 	mux.Handle("/ghes/", sources)
 	mux.Handle("/azdo/", sources)
+	mux.Handle("/web/", sources)
+	mux.Handle("/robots.txt", sources)
 	mux.Handle("GET /manifest.json", sources)
 	// The control routes let the browser tests change a page and read the
 	// methods that Assay sent. No connector calls them.

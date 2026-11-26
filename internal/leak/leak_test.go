@@ -398,3 +398,64 @@ func TestSCN_VIS_001_AdminGetsNoRestrictedContent(t *testing.T) {
 	}
 
 }
+
+func TestSCN_VIS_012_WebConnectionSharedWithOneGroup(t *testing.T) {
+	w := start(t, false)
+	insider, insiderID := w.env.Invite(w.owner, "insider@acme.test", "member", "insider-password-1")
+	var g struct {
+		ID int64 `json:"id"`
+	}
+	w.owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/groups", map[string]string{"name": "Payments"}).JSON(t, &g)
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/groups/%d/members/%s", g.ID, insiderID), nil)
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-portal", Kind: "web", BaseURL: base})
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", conn),
+		map[string]any{"groupIds": []int64{g.ID}, "confirm": true})
+	if r := w.env.RunNow(w.owner, conn, "sync"); r.Status != "succeeded" || r.Created == 0 {
+		t.Fatalf("sync %+v", r)
+	}
+	values := w.ids(t)
+
+	// The words and the page URLs of the portal are in no other source. The
+	// canary is not a marker here: a question that names it comes back in
+	// the answer, and a search snippet splits it.
+	leaked := func(body string) string {
+		for _, m := range []string{"idempotency", "/web/guides/", "/web/reference/", "/web/releases/"} {
+			if strings.Contains(strings.ToLower(body), m) {
+				return m
+			}
+		}
+		return ""
+	}
+	// The group member reads the pages, so the suite reads real data.
+	if leaked(get(insider, http.MethodGet, "/api/v1/search?q=idempotency", nil)) == "" {
+		t.Fatal("the group member does not find the portal pages")
+	}
+
+	for _, reader := range []struct {
+		name string
+		cl   *testkit.Client
+	}{{"member", w.member}, {"admin2", w.admin2}} {
+		checked := 0
+		check := func(where, body string) {
+			checked++
+			if m := leaked(body); m != "" {
+				t.Errorf("%s: %s shows %q from the portal of the group", reader.name, where, m)
+			}
+		}
+		for _, p := range paths(t, values) {
+			check("GET "+p, get(reader.cl, http.MethodGet, p, nil))
+			check("GET "+p+"?q=", get(reader.cl, http.MethodGet, p+"?q=idempotency", nil))
+		}
+		for name, body := range posts(reader.cl) {
+			check("POST "+name, body)
+		}
+		check("POST ask retries", get(reader.cl, http.MethodPost, "/api/v1/ask", map[string]string{"question": "How does a client retry a payment?"}))
+		for name, body := range mcpCalls(t, w.mcpSession(t, reader.cl), values["key"]) {
+			check("MCP "+name, body)
+		}
+		if checked < 200 {
+			t.Fatalf("%s: only %d responses checked", reader.name, checked)
+		}
+	}
+}

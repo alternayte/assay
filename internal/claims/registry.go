@@ -39,7 +39,7 @@ type Predicate struct {
 
 // Source types of evidence. decision is the source of repo_system claims
 // and of the edges that code proposes.
-var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision"}
+var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision", "web"}
 
 var owners = []string{"service", "api", "system", "resource", "repository", "project", "initiative", "term"}
 

@@ -854,6 +854,14 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		cursor = newest.UTC().Format(time.RFC3339Nano)
 		return New(s.Pool).SetPartCursor(ctx, SetPartCursorParams{Now: ptr(s.now()), ConnectionID: conn.ID, Part: part.Key, Cursor: cursor})
 	}
+	if rc, ok := k.(connectors.Recaller); ok {
+		known, err := s.known(ctx, conn.ID, part.Key)
+		if err != nil {
+			st.fail(err)
+			return ""
+		}
+		rc.Recall(part, known)
+	}
 	err = k.Changed(ctx, part, since, func(r connectors.Ref) error {
 		batch = append(batch, r)
 		if len(batch) < listBatch {
@@ -874,6 +882,28 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		}
 	}
 	return cursor
+}
+
+// known returns the stored items of a part with their revisions.
+func (s *Service) known(ctx context.Context, connectionID int64, part string) ([]connectors.Known, error) {
+	q := New(s.Pool)
+	ids, err := q.PartItemIDs(ctx, PartItemIDsParams{ConnectionID: connectionID, Part: part})
+	if err != nil {
+		return nil, err
+	}
+	revs, err := q.ItemRevisions(ctx, ItemRevisionsParams{ConnectionID: connectionID, Part: part})
+	if err != nil {
+		return nil, err
+	}
+	rev := make(map[string]string, len(revs))
+	for _, r := range revs {
+		rev[r.ExternalID] = r.Revision
+	}
+	out := make([]connectors.Known, 0, len(ids))
+	for _, it := range ids {
+		out = append(out, connectors.Known{ID: it.ExternalID, Revision: rev[it.ExternalID]})
+	}
+	return out, nil
 }
 
 // storedItems are the revisions and source update times of the stored

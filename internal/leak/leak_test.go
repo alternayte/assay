@@ -416,11 +416,13 @@ func TestSCN_VIS_012_WebConnectionSharedWithOneGroup(t *testing.T) {
 	}
 	values := w.ids(t)
 
-	// The words and the page URLs of the portal are in no other source. The
-	// canary is not a marker here: a question that names it comes back in
-	// the answer, and a search snippet splits it.
+	// The title words and the page URLs of the portal are in no other
+	// source. The canary is not a marker here: a question that names it
+	// comes back in the answer, and a search snippet splits it. A topic word
+	// such as idempotency is not a marker either: the repository history of
+	// the payments API uses it too.
 	leaked := func(body string) string {
-		for _, m := range []string{"idempotency", "/web/guides/", "/web/reference/", "/web/releases/"} {
+		for _, m := range []string{"developer portal", "/web/guides/", "/web/reference/", "/web/releases/"} {
 			if strings.Contains(strings.ToLower(body), m) {
 				return m
 			}

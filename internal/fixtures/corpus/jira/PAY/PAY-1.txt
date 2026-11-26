@@ -1,6 +1,6 @@
 type: Epic
 summary: Payment retries
-status: In Progress
+status: Done
 assignee: alex.acme
 reporter: jo.acme
 priority: High
@@ -13,3 +13,15 @@ updated: 2026-02-01T09:00:00Z
 ---
 h2. Goal
 Failed card calls retry with *exponential backoff*. See [the decision|https://wiki.acme.test/decision].
+=== history jo.acme 2026-01-10T10:00:00Z
+status: Open -> To Do
+=== history alex.acme 2026-01-15T09:00:00Z
+status: To Do -> In Progress
+assignee: jo.acme -> alex.acme
+=== history alex.acme 2026-01-20T09:00:00Z
+Fix Version: 2026.4 ->
+Fix Version: -> 2027.1
+=== history priya.acme 2026-01-25T09:00:00Z
+priority: Medium -> High
+=== history alex.acme 2026-02-01T09:00:00Z
+status: In Progress -> Done

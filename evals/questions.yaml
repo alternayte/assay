@@ -142,7 +142,7 @@
 - id: payment-retries-status
   question: What is the status of the Payment retries epic?
   sources: [PAY-1]
-  facts: [In Progress]
+  facts: [Done]
   expected: [{source: PAY-1, grade: 3}]
 
 - id: payment-retries-due

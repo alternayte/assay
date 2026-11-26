@@ -13,9 +13,10 @@ import (
 // The HTML parser would otherwise read the following siblings as children.
 var selfClosing = regexp.MustCompile(`<((?:ac|ri):[\w-]+)([^<>]*?)\s*/>`)
 
-// ToMarkdown converts Confluence storage format to Markdown. Images,
-// attachments and navigation macros are dropped. Links keep only http, https
-// and mailto targets.
+// ToMarkdown converts Confluence storage format to Markdown. Images and
+// navigation macros are dropped. An attachment link and the viewpdf and
+// view-file macros become the text "Attachment: <file name>". Links keep
+// only http, https and mailto targets.
 func ToMarkdown(storage string) (string, error) {
 	src := selfClosing.ReplaceAllString(storage, "<$1$2></$1>")
 	nodes, err := html.ParseFragment(strings.NewReader(src), &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body})
@@ -81,7 +82,7 @@ func textOf(n *html.Node) string {
 var dropped = map[string]bool{
 	"toc": true, "children": true, "pagetree": true, "attachments": true, "recently-updated": true,
 	"contentbylabel": true, "include": true, "excerpt-include": true, "anchor": true, "gallery": true,
-	"livesearch": true, "view-file": true, "viewpdf": true, "multimedia": true, "profile": true,
+	"livesearch": true, "multimedia": true, "profile": true,
 }
 
 var panels = map[string]string{"info": "Info", "note": "Note", "warning": "Warning", "tip": "Tip", "panel": ""}
@@ -188,6 +189,11 @@ func macro(n *html.Node) []string {
 	switch {
 	case dropped[name]:
 		return nil
+	case name == "viewpdf" || name == "view-file":
+		if f := attachmentName(n); f != "" {
+			return []string{escape(attachmentText(f), false)}
+		}
+		return nil
 	case name == "code" || name == "noformat":
 		body := ""
 		if b := child(n, "ac:plain-text-body"); b != nil {
@@ -230,6 +236,30 @@ func macro(n *html.Node) []string {
 		}
 	}
 	return nil
+}
+
+// attachmentText is the text of an attachment in a page body.
+func attachmentText(name string) string { return "Attachment: " + strings.TrimSpace(name) }
+
+// attachmentName is the file name of the first attachment that a macro
+// names, such as the name parameter of viewpdf.
+func attachmentName(n *html.Node) string {
+	var found string
+	var walk func(*html.Node)
+	walk = func(x *html.Node) {
+		if found != "" {
+			return
+		}
+		if x.Type == html.ElementNode && x.Data == "ri:attachment" {
+			found = strings.TrimSpace(attr(x, "ri:filename"))
+			return
+		}
+		for c := x.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return found
 }
 
 func children(n *html.Node) []*html.Node {
@@ -428,14 +458,16 @@ func inline(b *strings.Builder, n *html.Node, cell bool) {
 			b.WriteString(text)
 		}
 	case "ac:link":
-		if body := child(n, "ac:link-body"); body != nil {
+		// A link to an attachment names the file, so that the reader knows
+		// that the file exists.
+		if at := child(n, "ri:attachment"); at != nil && attr(at, "ri:filename") != "" {
+			b.WriteString(escape(attachmentText(attr(at, "ri:filename")), cell))
+		} else if body := child(n, "ac:link-body"); body != nil {
 			b.WriteString(escape(strings.TrimSpace(collapse(textOf(body))), cell))
 		} else if body := child(n, "ac:plain-text-link-body"); body != nil {
 			b.WriteString(escape(strings.TrimSpace(collapse(textOf(body))), cell))
 		} else if pg := child(n, "ri:page"); pg != nil {
 			b.WriteString(escape(attr(pg, "ri:content-title"), cell))
-		} else if at := child(n, "ri:attachment"); at != nil {
-			b.WriteString(escape(attr(at, "ri:filename"), cell))
 		}
 	case "ac:structured-macro":
 		switch attr(n, "ac:name") {

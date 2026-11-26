@@ -18,7 +18,28 @@ Connectors are read-only. The connector HTTP client sends only GET and HEAD requ
 | Bitbucket Data Center | REST 1.0 | HTTP access token with Repository read (bearer) | Repositories, default branch |
 | Web documentation | Pages over HTTP | Optional auth header, `Name: value` | Seed, path prefixes, link depth and page limit |
 
-Jira issues give their summary, description, the newest 50 comments, status, type, assignee, reporter, priority, labels, components, fix versions, due date, parent and links. Confluence pages give their title, body, version, ancestors, labels and author.
+Jira issues give their summary, description, comments, status, type, assignee, reporter, priority, labels, components, fix versions, due date, parent and links. Confluence pages give their title, body, version, ancestors, labels and author.
+
+### Jira comments and history
+
+- Assay reads all comments of a changed issue, oldest first, in pages of 100.
+- The connector rule `maxCommentsPerIssue` limits the comments of one item. The default is 500. Above the limit, the item keeps the newest comments and the passage "Assay read the newest N of M comments."
+- The item has a `## History` section after the comments. It holds the changes of status, assignee and fix version, oldest first. Each change is one paragraph: `**<yyyy-mm-dd hh:mm>, <author>:** <Field> <from> → <to>`. Assay does not read the changes of other fields.
+- Data Center gives the changelog on the issue request with `expand=changelog`. Cloud pages `GET /rest/api/3/issue/{key}/changelog`. Assay does not use the bulk changelog of Cloud, because it needs POST.
+- An unchanged issue gets no comment or changelog request.
+- The item size limit counts the description, the comments and the History.
+
+### Confluence attachments
+
+- A Confluence connection reads the PDF, Word (DOCX) and draw.io attachments of the pages in its scope. Each attachment is an item of kind `file` with the ID `att:<attachment ID>`, the file name as title and the attachment version as revision.
+- The item metadata holds `parent`, `parentTitle`, `mediaType` and `fileSize`. The heading path of each passage starts with the page title.
+- A PDF page is a section `Page N`. A scan without text is skipped with `no_text`, an encrypted PDF with `encrypted`, and a file that Assay cannot parse with `unreadable`.
+- A DOCX gives headings from the styles Heading 1 to Heading 6, tables and paragraphs.
+- A draw.io file gives one section for each diagram tab, with the labels of its shapes and lines as a list. Assay finds draw.io files by the media type `application/vnd.jgraph.mxfile` or the extension `.drawio`.
+- The setting `attachments` in Settings, General selects the file types and the largest file. The default types are `pdf`, `docx` and `drawio`, and the default limit is 10240 KB. An empty type list stops attachment reads. A larger file is skipped with `too_large` before any download.
+- Assay reads an attachment only when its page is an item of the connection. A sync lists the changed attachments of a space with one CQL query after the pages. A reconciliation deletes the attachments that are gone, and the attachments of a page that is gone.
+- A page body shows an attachment link, a `viewpdf` macro or a `view-file` macro as `Attachment: <file name>`.
+- A Confluence Cloud download redirects to the Atlassian media host `https://api.media.atlassian.com`. A Cloud connection follows this redirect and sends no credentials to that host. `ASSAY_ATLASSIAN_MEDIA_URL` changes the media host. A redirect to any other host skips the attachment with `foreign_host`.
 
 The base URL of a GitLab connection is `https://gitlab.com` or the URL of the self-managed server. The base URL of a Bitbucket connection is the URL before `/rest`. A GitLab project ID is its path with namespace, such as `acme/payments/billing-api`. A Bitbucket repository ID is the project key and the repository slug, such as `PLAT/billing-gateway`.
 
@@ -76,7 +97,8 @@ Some sources give claims with no model call:
 
 - `catalog-info.yaml` (Backstage kinds Component, API, System, Group, Resource and Domain) gives entities `backstage:<kind>:<namespace>/<name>` and the claims `owned_by`, `part_of`, `depends_on`, `provides_api`, `consumes_api` and `status`. The repository gets `implements`.
 - The default rule of `CODEOWNERS` gives an `owned_by` claim for the repository. Path rules give no claim. Each host reads its own file: GitHub and Azure DevOps `.github/CODEOWNERS`, `CODEOWNERS` or `docs/CODEOWNERS`, GitLab `CODEOWNERS`, `docs/CODEOWNERS` or `.gitlab/CODEOWNERS`, and Bitbucket `.bitbucket/CODEOWNERS`. A Bitbucket group `@@group` is a team.
-- Jira fields give `status`, `assigned_to`, `target_date`, `blocks` (the configured link type) and `part_of`. The issue types in the connector rules become initiatives.
+- Jira fields give `status`, `assigned_to`, `fix_version`, `target_date`, `blocks` (the configured link type) and `part_of`. The issue types in the connector rules become initiatives.
+- Each status, assignee and fix version change of the History gives a dated value of `status`, `assigned_to` or `fix_version`. The entity timeline shows these values. The current field value has the date of its last change, or the created date of the issue when no change set it. An unassign gives no value. The value of `fix_version` is the comma-joined fix versions after the change.
 - Confluence pages with a decision label (default `decision` and `adr`) become decisions. Tables with Term and Definition columns on pages with a glossary label (default `glossary`) give terms.
 
 The extract model finds more claims in the text. See [models.md](models.md).

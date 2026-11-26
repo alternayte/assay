@@ -142,6 +142,16 @@ func (s *Service) cloudID(ctx context.Context, site string) (string, error) {
 	return info.CloudID, nil
 }
 
+// DefaultAtlassianMedia is the media host of Atlassian Cloud downloads.
+const DefaultAtlassianMedia = "https://api.media.atlassian.com"
+
+func (s *Service) atlassianMedia() string {
+	if s.AtlassianMedia != "" {
+		return strings.TrimRight(s.AtlassianMedia, "/")
+	}
+	return DefaultAtlassianMedia
+}
+
 func (s *Service) atlassianAPI() string {
 	if s.AtlassianAPI != "" {
 		return strings.TrimRight(s.AtlassianAPI, "/")
@@ -160,6 +170,11 @@ func (s *Service) openCloud(ctx context.Context, src source, r connectors.Rules,
 	opts := connectors.ClientOptions{BaseURL: src.BaseURL,
 		Authorization: "Basic " + base64.StdEncoding.EncodeToString([]byte(strings.TrimSpace(o.Email)+":"+src.Token)),
 		Concurrency:   src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID}
+	if src.Kind == "confluence" {
+		// A download of an attachment redirects to the media host. The
+		// client follows that redirect and sends no credentials there.
+		opts.AlsoURLs = []string{s.atlassianMedia()}
+	}
 	if o.Scoped {
 		id := o.CloudID
 		if id == "" {
@@ -306,7 +321,9 @@ func (s *Service) rewriteBatch(ctx context.Context, conn Connection, rw *Rewrite
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			} else if conn.Kind == "confluence" && r.Item != nil {
-				m, err := q.MatchPage(ctx, MatchPageParams{ConnectionID: conn.ID, Part: part, Title: r.Item.Title, CloudIds: cloudIDs})
+				parent, _ := r.Item.Metadata["parentTitle"].(string)
+				m, err := q.MatchPage(ctx, MatchPageParams{ConnectionID: conn.ID, Part: part, Title: r.Item.Title, CloudIds: cloudIDs,
+					Attachment: strings.HasPrefix(r.ID, "att:"), ParentTitle: parent})
 				if errors.Is(err, pgx.ErrNoRows) {
 					continue
 				}

@@ -101,15 +101,18 @@ func TestSCN_SYN_018_PartsFanOutAndLastPartEndsRun(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	total := 0
+	total, skipped := 0, 0
 	for i, p := range partRows(t, env, run) {
-		if p.Part != spaces[i] || p.Status != "succeeded" || p.Host == "" || p.Created != src.Count(p.Part) {
-			t.Fatalf("part %+v, want succeeded with %d new items", p, src.Count(p.Part))
+		want := src.Count(p.Part) + src.AttachmentItems(p.Part)
+		if p.Part != spaces[i] || p.Status != "succeeded" || p.Host == "" || p.Created != want {
+			t.Fatalf("part %+v, want succeeded with %d new items", p, want)
 		}
 		total += p.Created
+		skipped += src.AttachmentSkips(p.Part)
 	}
+	// The run also sees the attachments that it skips.
 	r := runOf(t, admin, conn, run)
-	if r.Status != "succeeded" || r.Created != total || r.Seen != total {
+	if r.Status != "succeeded" || r.Created != total || r.Seen != total+skipped || len(r.Skipped) != skipped {
 		t.Fatalf("run %+v, want succeeded with the %d new items of the parts", r, total)
 	}
 	if n := env.Count("SELECT count(*) FROM connection_cursors WHERE connection_id = $1 AND cursor <> ''", conn); n != 3 {

@@ -67,4 +67,10 @@ type Fact struct {
 	// Line is the source line of the quote, or 0. It selects the passage
 	// when the same quote is in several passages.
 	Line int `json:",omitempty"`
+	// At dates a value of a time-scoped predicate, such as a status change
+	// of a changelog. The claim is the one with valid_from At. The facts
+	// with At of an item replace its earlier field evidence for their
+	// subject and predicate. Zero keeps the newest value when it is
+	// unchanged.
+	At time.Time `json:",omitzero"`
 }

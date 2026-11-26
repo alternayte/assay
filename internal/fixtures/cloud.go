@@ -228,8 +228,10 @@ func (s *Sources) jiraCloud(w http.ResponseWriter, r *http.Request, p string) {
 			"The requested API has been removed. Please migrate to the /rest/api/3/search/jql API."}})
 	case strings.HasPrefix(p, "/rest/api/3/issue/") && strings.HasSuffix(p, "/comment"):
 		s.comments(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "/rest/api/3/issue/"), "/comment"), true)
+	case strings.HasPrefix(p, "/rest/api/3/issue/") && strings.HasSuffix(p, "/changelog"):
+		s.changelog(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "/rest/api/3/issue/"), "/changelog"))
 	case strings.HasPrefix(p, "/rest/api/3/issue/"):
-		s.issue(w, strings.TrimPrefix(p, "/rest/api/3/issue/"), true)
+		s.issue(w, r, strings.TrimPrefix(p, "/rest/api/3/issue/"), true)
 	default:
 		http.NotFound(w, r)
 	}
@@ -299,6 +301,15 @@ func (s *Sources) confluenceCloud(w http.ResponseWriter, r *http.Request, p stri
 		writeJSON(w, http.StatusOK, s.confluencePerson(name))
 	case p == "/rest/api/content/search":
 		s.searchPages(w, r, true)
+	case strings.HasPrefix(p, "/download/attachments/"):
+		s.download(w, r, p, true)
+	case strings.HasPrefix(p, "/api/v2/attachments/"):
+		a, ok := s.attachmentByID(strings.TrimPrefix(p, "/api/v2/attachments/"), true)
+		if !ok {
+			http.Error(w, `{"errors":[{"status":404,"code":"NOT_FOUND","title":"Not Found"}]}`, http.StatusNotFound)
+			return
+		}
+		writeJSON(w, http.StatusOK, attachmentV2(a))
 	case p == "/api/v2/spaces":
 		res := []map[string]any{}
 		for _, sp := range s.spaces {

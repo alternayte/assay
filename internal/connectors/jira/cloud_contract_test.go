@@ -99,7 +99,7 @@ func TestSCN_CON_015_JiraCloudMatchesDataCenter(t *testing.T) {
 				t.Fatal(err)
 			}
 			v, err := cloud.Validate(ctx)
-			if err != nil || v.User != "Assay Reader" || v.Sample != 7 || v.More {
+			if err != nil || v.User != "Assay Reader" || v.Sample != 8 || v.More {
 				t.Fatalf("validation %+v %v", v, err)
 			}
 			scopes, err := cloud.Scopes(ctx)
@@ -130,7 +130,7 @@ func TestSCN_CON_015_JiraCloudMatchesDataCenter(t *testing.T) {
 					t.Fatalf("part %s IDs %v", part.Key, ids)
 				}
 			}
-			for _, key := range []string{"PAY-1", "PAY-2", "PAY-3", "PAY-4", "REM-1", "REM-2", "REM-3"} {
+			for _, key := range []string{"PAY-1", "PAY-2", "PAY-3", "PAY-4", "PAY-12", "REM-1", "REM-2", "REM-3"} {
 				want, err := dc.Fetch(ctx, key)
 				if err != nil {
 					t.Fatal(err)

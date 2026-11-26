@@ -41,6 +41,9 @@ type Connector struct {
 	spaces map[string]spaceRef
 	users  map[string]string
 	titles map[string]string
+	// pages are the page IDs of each part that are stored or listed in
+	// this run. An attachment is read only when its page is one of them.
+	pages map[string]map[string]bool
 }
 
 type spaceRef struct{ Key, Name string }
@@ -54,7 +57,7 @@ func New(c *connectors.Client, scope json.RawMessage, rules connectors.Rules, li
 			return nil, fmt.Errorf("confluence: the scope is not valid: %w", err)
 		}
 	}
-	return &Connector{c: c, scope: s, rules: rules, limits: limits}, nil
+	return &Connector{c: c, scope: s, rules: rules, limits: limits, pages: map[string]map[string]bool{}}, nil
 }
 
 // NewCloud returns a connector for Confluence Cloud. The client base URL is
@@ -290,7 +293,7 @@ func (k *Connector) Changed(ctx context.Context, part connectors.Part, since tim
 		cql += fmt.Sprintf(` AND lastmodified >= "%s"`, since.Add(-connectors.Overlap).UTC().Format("2006/01/02 15:04"))
 	}
 	cql += " order by lastmodified asc"
-	return k.search(ctx, cql, pageExpand, 50, func(p *pageJSON) error {
+	err := k.search(ctx, cql, pageExpand, 50, func(p *pageJSON) error {
 		t, _ := time.Parse(time.RFC3339, p.Version.When)
 		r := connectors.Ref{ID: p.ID, Updated: t, Version: revision(p.Version.Number)}
 		if k.limits.MaxItemBytes > 0 && len(p.Body.Storage.Value) > k.limits.MaxItemBytes {
@@ -302,13 +305,27 @@ func (k *Connector) Changed(ctx context.Context, part connectors.Part, since tim
 			return err
 		}
 		r.Item = it
+		k.addPage(part.Key, p.ID)
 		return fn(r)
 	})
+	if err != nil {
+		return err
+	}
+	return k.changedAttachments(ctx, part, since, fn)
 }
 
-// ListIDs lists all page IDs of a space in scope.
+// ListIDs lists all page IDs of a space in scope, then the IDs of the
+// attachments of those pages.
 func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(string) error) error {
-	return k.search(ctx, k.cql([]string{part.Key}), "", 100, func(p *pageJSON) error { return fn(p.ID) })
+	pages := map[string]bool{}
+	err := k.search(ctx, k.cql([]string{part.Key}), "", 100, func(p *pageJSON) error {
+		pages[p.ID] = true
+		return fn(p.ID)
+	})
+	if err != nil {
+		return err
+	}
+	return k.listAttachments(ctx, part, pages, fn)
 }
 
 type person struct {
@@ -355,14 +372,33 @@ type pageJSON struct {
 				Name string `json:"name"`
 			} `json:"results"`
 		} `json:"labels"`
+		// MediaType is the media type of an attachment.
+		MediaType string `json:"mediaType"`
 	} `json:"metadata"`
+	// Container is the page of an attachment.
+	Container struct {
+		ID    string `json:"id"`
+		Type  string `json:"type"`
+		Title string `json:"title"`
+	} `json:"container"`
+	// Extensions hold the media type and the file size of an attachment.
+	Extensions struct {
+		MediaType string `json:"mediaType"`
+		FileSize  int64  `json:"fileSize"`
+	} `json:"extensions"`
 	Links struct {
 		WebUI string `json:"webui"`
+		// Download is the download link of an attachment, relative to the
+		// context path.
+		Download string `json:"download"`
 	} `json:"_links"`
 }
 
-// Fetch reads one page.
+// Fetch reads one page, or one attachment by its item ID att:<id>.
 func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error) {
+	if att, ok := strings.CutPrefix(id, attachmentPrefix); ok {
+		return k.fetchAttachment(ctx, att)
+	}
 	if k.cloud {
 		return k.fetchCloud(ctx, id)
 	}

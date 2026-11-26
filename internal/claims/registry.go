@@ -61,7 +61,7 @@ func init() {
 			Priority: []string{"catalog", "registry", "others", "decision"}},
 		{Name: "deployed_to", Subjects: []string{"service"}, Objects: []string{"environment"}, Multi: true, Priority: []string{"repository", "others"}},
 		{Name: "blocks", Subjects: []string{"issue", "initiative"}, Objects: []string{"issue", "initiative"}, Multi: true, Priority: []string{"jira", "others"}},
-		{Name: "assigned_to", Subjects: []string{"issue", "initiative"}, Objects: []string{"person"}, Priority: []string{"jira"}},
+		{Name: "assigned_to", Subjects: []string{"issue", "initiative"}, Objects: []string{"person"}, TimeScoped: true, Priority: []string{"jira"}},
 		{Name: "status", Subjects: []string{"issue", "initiative", "decision", "service", "term"}, Objects: []string{ObjText}, TimeScoped: true,
 			Priority: []string{"registry", "jira", "catalog", "others"}},
 		{Name: "target_date", Subjects: []string{"issue", "initiative"}, Objects: []string{ObjDate}, TimeScoped: true, Priority: []string{"jira", "others"}},
@@ -77,6 +77,11 @@ func init() {
 		p.Extract = true
 		Registry[p.Name] = p
 	}
+	// The fix versions of an issue come from the Jira field and its
+	// changelog, never from prose extraction. The value is the
+	// comma-joined fix versions.
+	Registry["fix_version"] = Predicate{Name: "fix_version", Subjects: []string{"issue", "initiative"}, Objects: []string{ObjText}, TimeScoped: true,
+		Priority: []string{"jira", "others"}}
 	// Contracts come from spec files and from design digests, never from
 	// prose extraction.
 	contract := []string{"registry", "repository", "catalog", "others", "decision"}

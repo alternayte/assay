@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/content/files"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/outbound"
 )
@@ -35,7 +36,8 @@ func SourceClient(t testing.TB, baseURL string) *connectors.Client {
 
 // DefaultRules are the default connector rules.
 var DefaultRules = connectors.Rules{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks",
-	DecisionLabels: []string{"decision", "adr"}, GlossaryLabels: []string{"glossary"}}
+	DecisionLabels: []string{"decision", "adr"}, GlossaryLabels: []string{"glossary"}, MaxCommentsPerIssue: connectors.DefaultMaxComments,
+	AttachmentTypes: files.Types, MaxAttachmentBytes: 10240 << 10}
 
 // Connection is a connection to create in a test.
 type Connection struct {

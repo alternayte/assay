@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,21 @@ type Comment struct {
 	Body    string
 }
 
+// Change is one entry of the changelog of a Jira issue.
+type Change struct {
+	Author  string
+	Created time.Time
+	Items   []ChangeItem
+}
+
+// ChangeItem is one changed field. From and To are the values as names: a
+// status name, a user name or a version name. Empty is no value.
+type ChangeItem struct {
+	Field string // status, assignee, Fix Version or another field
+	From  string
+	To    string
+}
+
 // Issue is a Jira issue of the corpus.
 type Issue struct {
 	Key         string
@@ -65,6 +81,8 @@ type Issue struct {
 	Updated     time.Time
 	Description string // wiki markup
 	Comments    []Comment
+	// History is the changelog, oldest first.
+	History []Change
 }
 
 // Fault is a scripted failure of the next requests to a path prefix.
@@ -96,12 +114,14 @@ type Sources struct {
 	spaces   [][2]string
 	projects [][2]string
 	pages    map[string]*Page
-	issues   map[string]*Issue
-	repos    map[string]*Repo // by host:id
-	faults   map[string]*Fault
-	hits     []Hit
-	tokens   map[string]bool
-	now      func() time.Time
+	// attachments are the files of the pages by attachment ID.
+	attachments map[string]*Attachment
+	issues      map[string]*Issue
+	repos       map[string]*Repo // by host:id
+	faults      map[string]*Fault
+	hits        []Hit
+	tokens      map[string]bool
+	now         func() time.Time
 	// catalog holds the Backstage catalog entities by ref.
 	catalog      map[string]map[string]any
 	catalogOrder []string
@@ -119,7 +139,7 @@ type Sources struct {
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
-	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
+	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, attachments: map[string]*Attachment{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
 		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{},
 		hidden: map[string]bool{}, adf: map[string]*recordedADF{},
 		web: map[string]*WebPage{}, offsite: DefaultOffsite}
@@ -157,16 +177,38 @@ func NewSources() *Sources {
 			Summary: h["summary"], Status: h["status"], Assignee: h["assignee"], Reporter: h["reporter"], Priority: h["priority"],
 			Labels: list(h["labels"]), Components: list(h["components"]), FixVersions: list(h["fixVersions"]), Due: h["due"],
 			Parent: h["parent"], Epic: h["epic"], Links: list(h["links"]), Created: when(h["created"]), Updated: when(h["updated"])}
-		parts := strings.Split(body, "\n=== comment ")
+		parts := strings.Split(body, "\n=== ")
 		is.Description = strings.TrimSpace(parts[0])
 		for _, c := range parts[1:] {
 			head, text, _ := strings.Cut(c, "\n")
+			kind, head, _ := strings.Cut(head, " ")
 			author, at, _ := strings.Cut(head, " ")
-			is.Comments = append(is.Comments, Comment{Author: author, Created: when(at), Body: strings.TrimSpace(text)})
+			switch kind {
+			case "comment":
+				is.Comments = append(is.Comments, Comment{Author: author, Created: when(at), Body: strings.TrimSpace(text)})
+			case "history":
+				ch := Change{Author: author, Created: when(at)}
+				for _, l := range strings.Split(strings.TrimSpace(text), "\n") {
+					field, v, _ := strings.Cut(l, ":")
+					from, to, _ := strings.Cut(v, "->")
+					ch.Items = append(ch.Items, ChangeItem{Field: strings.TrimSpace(field), From: strings.TrimSpace(from), To: strings.TrimSpace(to)})
+				}
+				is.History = append(is.History, ch)
+			default:
+				panic("fixtures: unknown section " + kind + " in " + p)
+			}
+		}
+		// A bot thread: generated build comments after the written ones.
+		if n, err := strconv.Atoi(h["botComments"]); err == nil {
+			for i := range n {
+				is.Comments = append(is.Comments, Comment{Author: "sam.acme", Created: is.Created.Add(time.Duration(i+1) * time.Minute),
+					Body: fmt.Sprintf("Build %d of the retry queue checks passed.", i+1)})
+			}
 		}
 		s.issues[is.Key] = is
 		return nil
 	})
+	s.loadAttachments()
 	s.loadADF()
 	s.loadRepos()
 	return s
@@ -286,6 +328,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Retry-After", fault.RetryAfter)
 		}
 		http.Error(w, `{"message":"scripted failure"}`, fault.Status)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, MediaPath+"/") {
+		s.media(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/web/") || r.URL.Path == "/robots.txt" {

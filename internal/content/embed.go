@@ -38,8 +38,9 @@ type Embedder struct {
 	Pool   *pgxpool.Pool
 	Models *models.Gateway
 	Log    *slog.Logger
-	// Shards is the number of embed shards. Shard i embeds the chunks with
-	// id % Shards = i.
+	// Shards is the number of embed shards of the whole cluster. Shard i
+	// embeds the chunks with id % Shards = i. Each process works some of
+	// them with its own number of embed workers.
 	Shards int
 }
 
@@ -312,8 +313,9 @@ type EmbedArgs struct {
 // Kind is the River job kind.
 func (EmbedArgs) Kind() string { return "embed" }
 
-// EmbedQueue is the River queue of the embed jobs. It has one worker per
-// shard. The shards split the chunks, so two never embed the same chunk.
+// EmbedQueue is the River queue of the embed jobs. The shards split the
+// chunks, so two workers never embed the same chunk, in one process or in
+// many.
 const EmbedQueue = "embed"
 
 // InsertOpts keeps one unfinished job per shard, so that jobs do not pile

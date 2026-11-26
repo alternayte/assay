@@ -1,6 +1,7 @@
 // Package eval runs a question set against an Assay instance and scores
 // the answers (REQ-EVL-002 to REQ-EVL-004): citation precision and recall,
-// fact recall, no-evidence accuracy, latency and cost.
+// fact recall, no-evidence accuracy, latency and cost. The retrieval eval
+// scores the search_context ranking alone (REQ-EVL-006).
 package eval
 
 import (
@@ -34,6 +35,9 @@ type Question struct {
 	Facts []string `yaml:"facts"`
 	// NoEvidence is true for a question that the sources cannot answer.
 	NoEvidence bool `yaml:"no_evidence"`
+	// Expected are the graded items that search should rank. Only the
+	// retrieval eval reads them.
+	Expected []Expected `yaml:"expected"`
 }
 
 // Load reads and checks a question set.
@@ -46,7 +50,8 @@ func Load(path string) ([]Question, error) {
 }
 
 // Parse decodes and checks a question set: unique IDs, a question text, and
-// sources and facts, or no_evidence with neither.
+// sources and facts, or no_evidence with neither. Expected items need a
+// source and a grade of 1 to 3, and one of them a grade of 2 or more.
 func Parse(b []byte) ([]Question, error) {
 	var qs []Question
 	dec := yaml.NewDecoder(bytes.NewReader(b))
@@ -73,6 +78,17 @@ func Parse(b []byte) ([]Question, error) {
 		}
 		if !q.NoEvidence && (len(q.Sources) == 0 || len(q.Facts) == 0) {
 			errs = append(errs, fmt.Errorf("%s: give sources and facts, or no_evidence", where))
+		}
+		if q.NoEvidence && len(q.Expected) > 0 {
+			errs = append(errs, fmt.Errorf("%s: a no-evidence question has no expected items", where))
+		}
+		for _, e := range q.Expected {
+			if strings.TrimSpace(e.Source) == "" || e.Grade < 1 || e.Grade > 3 {
+				errs = append(errs, fmt.Errorf("%s: an expected item needs a source and a grade of 1 to 3", where))
+			}
+		}
+		if len(q.Expected) > 0 && !slices.ContainsFunc(q.Expected, func(e Expected) bool { return e.Grade >= 2 }) {
+			errs = append(errs, fmt.Errorf("%s: give an expected item with a grade of 2 or more", where))
 		}
 	}
 	return qs, errors.Join(errs...)
@@ -469,4 +485,84 @@ func BandsMarkdown(bs []Band) string {
 		b.WriteString("| No labelled decisions | | | | |\n")
 	}
 	return b.String()
+}
+
+// Rated is one rated question of an instance, from its feedback route.
+type Rated struct {
+	ID         int64    `json:"id"`
+	Question   string   `json:"question"`
+	Rating     string   `json:"rating"`
+	NoEvidence bool     `json:"noEvidence"`
+	Sources    []string `json:"sources"`
+}
+
+// actMark starts the comments of a feedback set that a person must act on.
+const actMark = "Action"
+
+// FetchRated reads the rated questions that the token user can see. The
+// token user must be an admin.
+func FetchRated(ctx context.Context, client *http.Client, base, token string) ([]Rated, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/api/v1/feedback/questions", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+		return nil, fmt.Errorf("eval: the feedback route answered %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		Questions []Rated `json:"questions"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Questions, nil
+}
+
+// FeedbackSet writes rated questions as a question set. An up-marked
+// answer gives the titles of its cited items as sources. A no-evidence
+// answer with a down mark gives no_evidence. Every other question has
+// empty facts with an actMark comment, so Parse refuses the set until a person
+// adds the facts.
+func FeedbackSet(qs []Rated) []byte {
+	var b bytes.Buffer
+	b.WriteString("# Real questions of Assay users, from their marks on answers.\n")
+	b.WriteString("# Keep this file out of the repository. Add the facts of each question before you run the set.\n")
+	if len(qs) == 0 {
+		b.WriteString("[]\n")
+		return b.Bytes()
+	}
+	str := func(s string) string {
+		var out bytes.Buffer
+		enc := json.NewEncoder(&out)
+		enc.SetEscapeHTML(false)
+		_ = enc.Encode(s)
+		return strings.TrimSpace(out.String())
+	}
+	for _, q := range qs {
+		fmt.Fprintf(&b, "\n- id: feedback-%d\n  question: %s\n", q.ID, str(q.Question))
+		if q.NoEvidence && q.Rating == "down" {
+			b.WriteString("  # The answer had no evidence and a not-helpful mark. Keep no_evidence, or give sources and facts.\n")
+			b.WriteString("  no_evidence: true\n")
+			continue
+		}
+		srcs := []string{}
+		if q.Rating == "up" {
+			for _, s := range q.Sources {
+				srcs = append(srcs, str(s))
+			}
+		} else {
+			b.WriteString("  # " + actMark + ": the answer had a not-helpful mark. Add the titles of the right sources.\n")
+		}
+		fmt.Fprintf(&b, "  sources: [%s]\n", strings.Join(srcs, ", "))
+		b.WriteString("  # " + actMark + ": add the words that a right answer states.\n")
+		b.WriteString("  facts: []\n")
+	}
+	return b.Bytes()
 }

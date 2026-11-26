@@ -1,0 +1,21 @@
+// Package invoice builds the monthly invoices of merchants.
+package invoice
+
+import (
+	"encoding/json"
+	"net/http"
+)
+
+// Invoice is the bill of one merchant for one month.
+type Invoice struct {
+	Merchant string `json:"merchant"`
+	Month    string `json:"month"`
+	Cents    int64  `json:"cents"`
+}
+
+// Handler serves the invoices of a merchant.
+func Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]Invoice{})
+	})
+}

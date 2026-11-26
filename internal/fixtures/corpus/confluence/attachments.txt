@@ -1,0 +1,5 @@
+att5001 1009 alex.acme 2026-02-03T09:10:00Z application/pdf payments-spec.pdf
+att5002 1009 alex.acme 2026-02-03T09:20:00Z application/vnd.openxmlformats-officedocument.wordprocessingml.document payments-design.docx
+att5003 1009 priya.acme 2026-02-03T09:30:00Z application/vnd.jgraph.mxfile Payments diagram
+att5004 1009 sam.acme 2026-02-03T09:40:00Z application/pdf scanned-invoice.pdf
+att5005 1009 sam.acme 2026-02-03T09:50:00Z image/png whiteboard.png

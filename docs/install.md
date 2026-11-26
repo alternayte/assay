@@ -1,6 +1,6 @@
 # Install and operate Assay
 
-Assay runs with Docker Compose on one machine. The Compose file has two services: `db` (PostgreSQL 17 with pgvector) and `assay`. The `demo` profile adds `fixtures`, the server of the synthetic Acme sources.
+Assay runs with Docker Compose on one machine, or with the Helm chart on Kubernetes. The Compose file has three services: `db` (PostgreSQL 17 with pgvector), `assay` (the web role: the UI, REST and MCP) and `worker` (the worker role: syncs and model jobs). The `demo` profile adds `fixtures`, the server of the synthetic Acme sources.
 
 ## Install
 
@@ -59,7 +59,9 @@ Each way purges the five Acme connections with their items, entities, claims, re
 
 ## Update
 
-Run the install command again, or `sh ~/.assay/install.sh`. The script keeps the data and `.env`, except the version. It pulls the image of the newest release, or of the release that `--version` names, and restarts Assay. Assay applies the database migrations at start.
+Run the install command again, or `sh ~/.assay/install.sh`. The script keeps the data and `.env`, except the version. It pulls the image of the newest release, or of the release that `--version` names, and restarts the `assay` and `worker` services. An install from before the `worker` service gets it on this run. Assay applies the database migrations at start.
+
+The script starts one worker. To run more workers after it, run `docker compose up -d --scale worker=3` in the install directory. Run the command again after each update.
 
 ## Stop
 
@@ -83,9 +85,9 @@ To restore into an empty install:
 
 ```sh
 cd ~/.assay
-docker compose stop assay
+docker compose stop assay worker
 docker compose exec -T db pg_restore -U assay -d assay --clean --if-exists < assay.dump
-docker compose start assay
+docker compose start assay worker
 ```
 
 ## Corporate proxy and certificates
@@ -107,20 +109,38 @@ For a proxy that inspects TLS, put the CA certificates in `ASSAY_EXTRA_CA_PEM` (
 
 ## Roles and replicas
 
-`ASSAY_ROLE` selects the parts of the process: `web` serves the UI, REST and MCP; `worker` runs the sync and model jobs; `all` runs both. Several replicas of each role are safe.
+`ASSAY_ROLE` selects the parts of the process: `web` serves the UI, REST and MCP; `worker` runs the sync and model jobs; `all` runs both. Several replicas of each role are safe. Compose runs `assay` with the role `web` and `worker` with the role `worker`.
 
-Jobs run on six queues. Each queue has its own workers, so that the bulk of one queue never holds the others back.
+A sync or reconcile run splits into parts, one per scope unit: a Confluence space, a Jira project, a repository or the Backstage catalog. Each part is a job, and any worker runs it. Each part keeps its own cursor, so a slow space does not hold back a fast one. A part that fails makes the run fail, and the other parts keep their progress. The run history shows each part and the worker that ran it.
+
+The connection setting **Parts at the same time** (`parallelParts`, 1 to 32, 4 by default) sets how many parts of one connection run at once, across all workers. The rate setting of a connection holds across all workers too: each request takes the next free slot in the database. When the source answers with `Retry-After`, every worker waits for that time.
+
+Jobs run on six queues. Each queue has its own workers in each worker process, so that the bulk of one queue never holds the others back.
 
 | Queue | Jobs | Workers |
 |---|---|---|
-| `sync` | Sync and reconcile runs. Each connection runs one sync at a time. | `ASSAY_SYNC_WORKERS`, 4 by default |
-| `embed` | Embedding of new chunks. Each worker embeds one shard of the chunks. | `ASSAY_EMBED_WORKERS`, 4 by default |
+| `sync` | Sync and reconcile runs and their parts. Each connection runs one sync at a time. More worker processes run more parts at once. | `ASSAY_SYNC_WORKERS`, 4 by default |
+| `embed` | Embedding of new chunks. Each job embeds one shard of the chunks. `ASSAY_EMBED_SHARDS` (4 by default) sets the number of shards of all worker processes together. | `ASSAY_EMBED_WORKERS`, 4 by default |
 | `extract` | Extraction. Extraction for an answer or a page runs before the jobs of an admin extraction. | `ASSAY_EXTRACT_WORKERS`, 4 by default |
 | `design` | Design page builds and section regeneration. | `ASSAY_DESIGN_WORKERS`, 2 by default |
 | `resolve` | Resolution of mentions, merges and conflicts. | Always 1. Two runs would make the same card twice. |
-| `default` | Term drafts, the chunk hash fill and retention. | `ASSAY_JOB_WORKERS`, 10 by default |
+| `default` | Term drafts, the chunk hash fill, retention and the directory sync. | `ASSAY_JOB_WORKERS`, 10 by default |
 
-Each value is a number from 1 to 100. To change one, add the line to `.env` and run the install script again. The speed of one sync comes from the rate settings of its connection, not from the worker count. More extract workers make an admin extraction faster only up to the rate limit of the model provider.
+Each value is a number from 1 to 100. To change one, add the line to `.env` and run the install script again. The speed of one part comes from the rate settings of its connection, not from the worker count. More extract workers make an admin extraction faster only up to the rate limit of the model provider.
+
+## Sign-in with SSO
+
+Users can sign in with the company identity provider through OpenID Connect. Entra ID is the first identity provider, and any OpenID Connect issuer works.
+
+1. Register an app at the identity provider. Set the redirect URI to `<ASSAY_BASE_URL>/api/auth/oauth/sso/callback`.
+2. For Entra ID, turn on the groups claim with group IDs. For the directory sync, give the app the application permissions User.Read.All and GroupMember.Read.All.
+3. In Settings, Sign-in, set the issuer URL, the client ID and the client secret. For Entra ID, the issuer is `https://login.microsoftonline.com/<tenant ID>/v2.0`.
+4. Optionally, set an access group. Only its members can sign in.
+5. In Settings, Groups, map IdP groups to Assay groups. The identity provider then sets the members.
+6. Set the directory to Entra ID. A job reads the directory every 15 minutes by default. It deactivates leavers and sets the members of mapped groups.
+7. Sign in with SSO as a user, and give that user the admin role. Then you can turn off password sign-in.
+
+Each field has an environment variable: `ASSAY_OIDC_ISSUER`, `ASSAY_OIDC_CLIENT_ID`, `ASSAY_OIDC_CLIENT_SECRET`, `ASSAY_OIDC_BUTTON_LABEL`, `ASSAY_OIDC_ACCESS_GROUP`, `ASSAY_PASSWORD_SIGNIN`, `ASSAY_DIRECTORY_PROVIDER` and `ASSAY_DIRECTORY_INTERVAL`. A set variable wins, and Settings shows the field as locked. `ASSAY_DIRECTORY_GRAPH_URL` replaces the Microsoft Graph URL for a national cloud.
 
 ## Rotate the secret key
 
@@ -129,18 +149,37 @@ A running container keeps the environment that it started with. A change to `.en
 ```sh
 cd ~/.assay
 printf 'ASSAY_SECRET_KEY_NEW=%s\n' "$(openssl rand -base64 32)" >> .env
-docker compose stop assay
+docker compose stop assay worker
 docker compose run --rm assay secrets rekey
 new=$(sed -n 's/^ASSAY_SECRET_KEY_NEW=//p' .env)
 sed -i.bak -e "s|^ASSAY_SECRET_KEY=.*|ASSAY_SECRET_KEY=$new|" -e '/^ASSAY_SECRET_KEY_NEW=/d' .env
 rm .env.bak
-docker compose up -d --force-recreate assay
+docker compose up -d --force-recreate assay worker
 ```
 
 1. The first two lines add a new key to `.env` as `ASSAY_SECRET_KEY_NEW`: 32 random bytes in base64.
-2. `docker compose stop assay` stops Assay, so that no request uses the old key during the rekey.
+2. `docker compose stop assay worker` stops Assay, so that no request or job uses the old key during the rekey.
 3. `docker compose run --rm assay secrets rekey` encrypts all secrets again with the new key. If it fails, no secret changes.
 4. The `sed` line sets `ASSAY_SECRET_KEY` to the new key and removes `ASSAY_SECRET_KEY_NEW`.
-5. `docker compose up -d --force-recreate assay` starts Assay in a new container with the new key.
+5. `docker compose up -d --force-recreate assay worker` starts Assay in new containers with the new key.
 
 Keep a backup of the new `.env`.
+
+A new key also gives a new OAuth signing key. Every MCP client that connected with OAuth must connect again.
+
+## Kubernetes with Helm
+
+The chart in `deploy/helm/assay` installs the same image on Kubernetes. It has a web Deployment with a Service and an optional Ingress, and a worker Deployment. The chart has no database. Assay needs PostgreSQL with the extensions pgvector, pg_trgm and unaccent.
+
+```sh
+helm install assay deploy/helm/assay \
+  --set database.url='postgres://assay:PASSWORD@db.example.com:5432/assay' \
+  --set baseURL=https://assay.example.com
+```
+
+- `database.existingSecret` names a Secret with the key `ASSAY_DATABASE_URL`, in place of `database.url`.
+- With no `keys.existingSecret`, the chart generates the secret key and the setup token on install and keeps them on upgrade and uninstall. Read the setup token with `kubectl get secret assay-assay-keys -o jsonpath='{.data.ASSAY_SETUP_TOKEN}' | base64 -d`. Back up the secret key.
+- `env`, `web.env` and `worker.env` set other variables, such as `ASSAY_SYNC_WORKERS` or `HTTPS_PROXY`.
+- `worker.replicas` sets the number of workers. With `worker.autoscaling.enabled`, a KEDA ScaledObject scales the workers on the jobs that wait on the `sync`, `embed` and `extract` queues. KEDA must be installed in the cluster.
+
+The chart of a release has the version of the release, and its image is the image of that release.

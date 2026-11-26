@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/alternayte/auth-all/humaauth"
+	"github.com/alternayte/auth-all/plugins/oauthprovider"
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
 	"github.com/go-chi/chi/v5"
@@ -25,14 +26,38 @@ var authRoutes = map[string]bool{
 	"DELETE /sessions/{id}":     true,
 	"POST /sessions/revoke-all": true,
 	"POST /password/change":     true,
+	// Sign-in with the identity provider. The provider ID is fixed.
+	"GET /oauth/sso":          true,
+	"GET /oauth/sso/callback": true,
+	// The OAuth authorization server of MCP clients. The routes of owned
+	// clients and of RFC 7592 client management stay closed.
+	"GET " + oauthprovider.PathAuthorize: true,
+	"POST " + oauthprovider.PathToken:    true,
+	"POST " + oauthprovider.PathRevoke:   true,
+	"POST " + oauthprovider.PathRegister: true,
+	"GET " + oauthprovider.PathJWKS:      true,
+	"GET " + oauthprovider.PathUserInfo:  true,
+	"POST " + oauthprovider.PathUserInfo: true,
+	"GET " + oauthprovider.PathRequest:   true,
+	"POST " + oauthprovider.PathDecide:   true,
+	"GET " + oauthprovider.PathConsents:  true,
 }
 
+// authRouteAllowed reports whether Assay serves the auth-all route. path is
+// the escaped path under the base path, so that an escaped slash stays in
+// its segment.
 func authRouteAllowed(method, path string) bool {
 	if authRoutes[method+" "+path] {
 		return true
 	}
-	if method == http.MethodDelete && strings.HasPrefix(path, "/sessions/") && !strings.Contains(path[len("/sessions/"):], "/") {
-		return true
+	if method != http.MethodDelete {
+		return false
+	}
+	// Sign out one session, and withdraw the consent of one client.
+	for _, prefix := range []string{"/sessions/", oauthprovider.PathConsents + "/"} {
+		if rest, ok := strings.CutPrefix(path, prefix); ok && rest != "" && !strings.Contains(rest, "/") {
+			return true
+		}
 	}
 	return false
 }
@@ -74,15 +99,41 @@ func (s *Server) newAPI(r chi.Router) (huma.API, error) {
 	return a, nil
 }
 
+// newHookAPI builds the huma API of the webhook route on r. It serves no
+// document: the route is for source systems, not for API clients.
+func newHookAPI(r chi.Router) huma.API {
+	cfg := huma.DefaultConfig("Assay webhooks", Version)
+	cfg.OpenAPIPath, cfg.DocsPath, cfg.SchemasPath = "", "", ""
+	cfg.CreateHooks = nil
+	return humachi.New(r, cfg)
+}
+
 // authHandler serves the allowed auth-all routes.
 func (s *Server) authHandler() http.Handler {
 	h := s.auth.Handler()
 	base := s.auth.BasePath()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, base)
-		if !authRouteAllowed(r.Method, rel) {
+		if !authRouteAllowed(r.Method, strings.TrimPrefix(r.URL.EscapedPath(), base)) {
 			http.NotFound(w, r)
 			return
+		}
+		if strings.HasPrefix(rel, "/oauth2/") {
+			s.agents.ServeAuthRoute(w, r, rel, h)
+			return
+		}
+		// With password sign-in off, the password route does not exist.
+		if r.Method == http.MethodPost && rel == "/sign-in/email" {
+			on, err := s.sso.PasswordOn(r.Context())
+			if err != nil {
+				s.log.Error("read the sign-in setting", "error", err.Error())
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			if !on {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		h.ServeHTTP(w, r)
 	})

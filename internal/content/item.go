@@ -5,7 +5,7 @@ import "time"
 // Item is one fetched source object with a normalized Markdown body.
 type Item struct {
 	ExternalID string
-	Kind       string // page, issue or file
+	Kind       string // page, issue, file, code, pull_request, work_item or thread
 	Title      string
 	URL        string
 	Author     string
@@ -19,6 +19,10 @@ type Item struct {
 	// Revision is the version of the item in its source, such as the blob
 	// ID of a repository file. Sync skips a file whose revision is stored.
 	Revision string
+	// Part is the scope unit of the connection that lists the item, such as
+	// a space or a repository. Reconciliation of a part tombstones only the
+	// items of that part.
+	Part     string
 	Metadata map[string]any
 	// Entity is the thing that the item is, such as an issue or a
 	// decision. Nil when the item is only a document.
@@ -43,6 +47,13 @@ type EntityRef struct {
 	Key     string   `json:"key"`
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases,omitempty"`
+	// Metadata are source facts about the entity that are not claims, such
+	// as the email of a person. They merge into the stored metadata.
+	Metadata map[string]any `json:"metadata,omitempty"`
+	// KeepType keeps the type of a stored entity with the key. A reference
+	// to an entity that another source owns, such as a Jira issue that a
+	// pull request names, sets it: the other source knows the type.
+	KeepType bool `json:"keepType,omitempty"`
 }
 
 // Fact is one deterministic claim. The object is an entity or a text.
@@ -60,4 +71,10 @@ type Fact struct {
 	// Line is the source line of the quote, or 0. It selects the passage
 	// when the same quote is in several passages.
 	Line int `json:",omitempty"`
+	// At dates a value of a time-scoped predicate, such as a status change
+	// of a changelog. The claim is the one with valid_from At. The facts
+	// with At of an item replace its earlier field evidence for their
+	// subject and predicate. Zero keeps the newest value when it is
+	// unchanged.
+	At time.Time `json:",omitzero"`
 }

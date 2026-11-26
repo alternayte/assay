@@ -1,0 +1,57 @@
+{
+  "team": {"id": "T0ACME", "name": "Acme", "url": "https://acme-chat.slack.test/", "bot": "assay-bot"},
+  "users": [
+    {"id": "U0DANA", "name": "dana.ito", "realName": "Dana Ito", "displayName": "dana"},
+    {"id": "U0RAVI", "name": "ravi.mehta", "realName": "Ravi Mehta", "displayName": "ravi"},
+    {"id": "U0LENA", "name": "lena.park", "realName": "Lena Park", "displayName": "lena"},
+    {"id": "U0DEPLOY", "name": "deploybot", "realName": "Deploy Bot", "bot": true}
+  ],
+  "channels": [
+    {
+      "id": "C0PAYMENTS", "name": "payments", "member": true,
+      "threads": [
+        {"messages": [
+          {"user": "U0DANA", "hoursAgo": 1500, "text": "The Kestrel settlement job reads the ledger export each night at 02:00 UTC."},
+          {"user": "U0RAVI", "hoursAgo": 1400, "text": "It also writes a summary to the finance channel."}
+        ]},
+        {"messages": [
+          {"user": "U0RAVI", "hoursAgo": 1200, "text": "Reminder: the on-call rota for the Kestrel retry queue moves to the platform calendar on Monday."}
+        ]},
+        {"messages": [
+          {"user": "U0DANA", "hoursAgo": 600, "text": "Proposal: the Kestrel retry queue stops retrying a declined card charge after three attempts. Do we agree?"},
+          {"user": "U0RAVI", "hoursAgo": 596, "text": "Agreed. Each retry waits 2, 8 and then 30 minutes. After that the charge goes to the dead letter queue."},
+          {"user": "U0DEPLOY", "bot": "B0DEPLOY", "subtype": "bot_message", "hoursAgo": 595, "text": "Deploy of kestrel-worker 4.2.1 finished."},
+          {"user": "U0LENA", "hoursAgo": 590, "text": "*Decision:* the payments team keeps three retries with backoff for declined charges, and the Kestrel retry queue drops a charge after 24 hours."}
+        ]},
+        {"messages": [
+          {"user": "U0LENA", "subtype": "channel_join", "hoursAgo": 400, "text": "<@U0LENA> has joined the channel"}
+        ]},
+        {"messages": [
+          {"user": "U0DEPLOY", "bot": "B0DEPLOY", "subtype": "bot_message", "hoursAgo": 100, "text": "Nightly Kestrel backup finished."}
+        ]},
+        {"messages": [
+          {"user": "U0LENA", "hoursAgo": 30, "text": "<!here> The _Kestrel ledger export_ moved to <https://wiki.acme.test/display/ENG/Ledger|the ledger page>. Ask <@U0DANA> in <#C0PLATFORM|platform> for access &amp; keys."},
+          {"user": "U0DANA", "hoursAgo": 29, "text": "The export command is:\n```assay-export --since 2026-01-01 &gt; ledger.csv```\n&gt; Run it from the bastion host only."},
+          {"user": "U0RAVI", "hoursAgo": 28, "text": "<javascript:alert(1)|Do not click> is not a link we keep."}
+        ]}
+      ]
+    },
+    {
+      "id": "C0PLATFORM", "name": "platform", "member": true,
+      "threads": [
+        {"messages": [
+          {"user": "U0RAVI", "hoursAgo": 200, "text": "The Kestrel worker pool runs on three nodes in the eu-west cluster."},
+          {"user": "U0LENA", "hoursAgo": 150, "text": "We add a fourth node before the sales week."}
+        ]}
+      ]
+    },
+    {
+      "id": "C0RANDOM", "name": "random", "member": false,
+      "threads": [
+        {"messages": [
+          {"user": "U0DANA", "hoursAgo": 50, "text": "Lunch on Friday is at the Kestrel cafe."}
+        ]}
+      ]
+    }
+  ]
+}

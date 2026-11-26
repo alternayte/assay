@@ -145,12 +145,12 @@ func (w *world) scalar(t *testing.T, sql string, args ...any) any {
 	return v
 }
 
-func TestSCN_AGT_001_EightToolsWithAuditRows(t *testing.T) {
+func TestSCN_AGT_001_NineToolsWithAuditRows(t *testing.T) {
 	w := start(t)
 	s := connect(t, w, token(t, w.member, "read", "propose"))
 	tools := toolsOf(t, s)
-	want := []string{"search_context", "get_entity", "get_knowledge_page", "get_design_page", "trace_relationships", "get_decisions", "get_terms",
-		"propose_finding"}
+	want := []string{"search_context", "get_entity", "get_knowledge_page", "get_design_page", "get_item", "trace_relationships", "get_decisions",
+		"get_terms", "propose_finding"}
 	names := make([]string, 0, len(tools))
 	for n := range tools {
 		names = append(names, n)
@@ -166,6 +166,11 @@ func TestSCN_AGT_001_EightToolsWithAuditRows(t *testing.T) {
 	search := call(t, s, tools, "search_context", map[string]any{"query": "Who owns the Payments API?"})
 	if len(search["results"].([]any)) == 0 || len(search["claims"].([]any)) == 0 {
 		t.Fatalf("search_context: %v", search)
+	}
+	hit := search["results"].([]any)[0].(map[string]any)
+	gi := call(t, s, tools, "get_item", map[string]any{"item_id": hit["itemId"]})
+	if gi["item"].(map[string]any)["itemId"] != hit["itemId"] || len(gi["passages"].([]any)) == 0 {
+		t.Fatalf("get_item: %v", gi)
 	}
 	e := call(t, s, tools, "get_entity", map[string]any{"key": paymentsAPI})
 	if e["entity"].(map[string]any)["key"] != paymentsAPI || len(e["claims"].([]any)) == 0 {
@@ -203,8 +208,8 @@ func TestSCN_AGT_001_EightToolsWithAuditRows(t *testing.T) {
 	}
 
 	// Each call writes an audit row with the token.
-	if n := w.env.Count("SELECT count(*) FROM audit_log WHERE action LIKE 'mcp.%' AND actor_token_id IS NOT NULL"); n != 8 {
-		t.Fatalf("%d audit rows for 8 calls", n)
+	if n := w.env.Count("SELECT count(*) FROM audit_log WHERE action LIKE 'mcp.%' AND actor_token_id IS NOT NULL"); n != 9 {
+		t.Fatalf("%d audit rows for 9 calls", n)
 	}
 }
 
@@ -213,7 +218,7 @@ func TestSCN_AGT_002_MaxTokensAndExcerpts(t *testing.T) {
 	s := connect(t, w, token(t, w.member))
 	tools := toolsOf(t, s)
 
-	full := call(t, s, tools, "search_context", map[string]any{"query": "payments retry queue ledger"})
+	full := call(t, s, tools, "search_context", map[string]any{"query": "payments retry queue ledger", "limit": 5})
 	if full["truncated"] != false {
 		t.Fatalf("the default limit cut a small output")
 	}
@@ -259,6 +264,108 @@ func TestSCN_AGT_002_MaxTokensAndExcerpts(t *testing.T) {
 	if r.Status != http.StatusUnauthorized {
 		t.Fatalf("a session on /mcp: %d", r.Status)
 	}
+}
+
+func TestSCN_AGT_007_GetItemPagesAndHides(t *testing.T) {
+	w := start(t)
+	s := connect(t, w, token(t, w.member))
+	tools := toolsOf(t, s)
+
+	// Calls with from set to next return every passage of the item once, in
+	// ordinal order.
+	item := w.scalar(t, `SELECT p.item_id FROM passages p JOIN connections c ON c.id = p.connection_id
+WHERE c.name = 'acme-eng' GROUP BY p.item_id ORDER BY count(*) DESC, p.item_id LIMIT 1`).(int64)
+	var want []float64
+	rows, err := w.env.Server.Pool().Query(context.Background(), "SELECT ordinal FROM passages WHERE item_id = $1 ORDER BY ordinal", item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var o int32
+		if err := rows.Scan(&o); err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, float64(o))
+	}
+	var got []float64
+	args := map[string]any{"item_id": item, "max_tokens": 300}
+	calls := 0
+	for {
+		out := call(t, s, tools, "get_item", args)
+		calls++
+		for _, p := range out["passages"].([]any) {
+			got = append(got, p.(map[string]any)["ordinal"].(float64))
+		}
+		next, ok := out["next"]
+		if out["truncated"] == false {
+			if ok {
+				t.Fatalf("next %v on an output that is not cut", next)
+			}
+			break
+		}
+		if !ok || calls > len(want) {
+			t.Fatalf("call %d: truncated without a way forward: %v", calls, out)
+		}
+		args["from"] = next
+	}
+	if calls < 2 || !slices.Equal(got, want) {
+		t.Fatalf("%d calls gave the ordinals %v, want %v", calls, got, want)
+	}
+
+	// A hidden item and a missing item give the same error, by ID and by URL.
+	hidden := w.scalar(t, `SELECT i.id FROM source_items i JOIN connections c ON c.id = i.connection_id
+WHERE c.name = 'acme-restricted' ORDER BY i.id LIMIT 1`).(int64)
+	hiddenURL := w.scalar(t, "SELECT url FROM source_items WHERE id = $1", hidden).(string)
+	for _, a := range []map[string]any{{"item_id": hidden}, {"item_id": 99999999}, {"url": hiddenURL}, {"url": "https://wiki.acme.test/none"}} {
+		if msg := callErr(t, s, "get_item", a); msg != "The object does not exist." {
+			t.Errorf("get_item %v: %q", a, msg)
+		}
+	}
+	for _, a := range []map[string]any{{}, {"item_id": item, "url": hiddenURL}} {
+		if msg := callErr(t, s, "get_item", a); msg != "Give item_id or url." {
+			t.Errorf("get_item %v: %q", a, msg)
+		}
+	}
+
+	// Of two visible items with one URL, the newest source update wins, then
+	// the lowest ID.
+	pool := w.env.Server.Pool()
+	var a, b int64
+	if err := pool.QueryRow(context.Background(), `SELECT min(i.id), max(i.id) FROM source_items i JOIN connections c ON c.id = i.connection_id
+WHERE c.name IN ('acme-eng', 'acme-jira')`).Scan(&a, &b); err != nil {
+		t.Fatal(err)
+	}
+	const dup = "https://wiki.acme.test/shared-copy"
+	byURL := func() any {
+		return call(t, s, tools, "get_item", map[string]any{"url": "  " + dup + " "})["item"].(map[string]any)["itemId"]
+	}
+	if _, err := pool.Exec(context.Background(), `UPDATE source_items SET url = $1,
+source_updated_at = CASE WHEN id = $3 THEN '2026-03-02T00:00:00Z'::timestamptz ELSE '2026-03-01T00:00:00Z'::timestamptz END
+WHERE id IN ($2, $3)`, dup, a, b); err != nil {
+		t.Fatal(err)
+	}
+	if got := byURL(); got != float64(b) {
+		t.Fatalf("the newer copy %d lost to %v", b, got)
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE source_items SET source_updated_at = '2026-03-02T00:00:00Z' WHERE id IN ($1, $2)", a, b); err != nil {
+		t.Fatal(err)
+	}
+	if got := byURL(); got != float64(a) {
+		t.Fatalf("on a tie the lowest ID %d lost to %v", a, got)
+	}
+}
+
+// callErr calls a tool that must fail and returns its error text.
+func callErr(t *testing.T, s *mcp.ClientSession, name string, args map[string]any) string {
+	t.Helper()
+	r, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	if !r.IsError || len(r.Content) != 1 {
+		t.Fatalf("%s %v: no tool error: %+v", name, args, r)
+	}
+	return r.Content[0].(*mcp.TextContent).Text
 }
 
 func walk(v any, key string, fn func(key, v string)) {

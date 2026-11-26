@@ -235,6 +235,33 @@ func TestSCN_DSG_003_BuildWritesCitedRepositoryPage(t *testing.T) {
 	w.member.Must(http.StatusNotFound, http.MethodGet, designPath("github:"+strings.ToLower(w.host)+":team:acme/payments-team"), nil)
 }
 
+// TestSCN_DSG_011_ComponentCitesPullRequestReason checks that a component
+// section of the Acme fixture gives a reason with a "because" sentence that
+// cites a passage of the merged pull request that changed the component.
+func TestSCN_DSG_011_ComponentCitesPullRequestReason(t *testing.T) {
+	t.Parallel()
+	w := start(t)
+	comp := find(get(t, w.member, repoKey(w.host, "acme/payments-api")), "component:internal/payments")
+	pr := map[string]bool{}
+	for _, c := range comp.Cites {
+		if !c.Code && strings.HasSuffix(c.URL, "/github/acme/payments-api/pull/14") {
+			pr[c.ID] = true
+		}
+	}
+	reason := regexp.MustCompile(`[^.]*\bbecause\b[^.]*\[(S\d+)\]`).FindStringSubmatch(comp.Markdown)
+	if reason == nil || !pr[reason[1]] {
+		t.Fatalf("no because sentence cites pull request #14:\n%s\ncites %+v", comp.Markdown, comp.Cites)
+	}
+	cited(t, comp)
+	// A pull request that changed no file of a component is not in its
+	// context.
+	for _, c := range find(get(t, w.member, repoKey(w.host, "acme/payments-api")), "component:cmd/server").Cites {
+		if strings.Contains(c.URL, "/pull/") {
+			t.Fatalf("cmd/server cites %s", c.URL)
+		}
+	}
+}
+
 // TestSCN_DSG_004_ChangesRegenerateOnlyTheirSections changes a cited
 // declaration and then adds a package. Only the sections that cite the
 // changed passage regenerate, and the new package gets a section.

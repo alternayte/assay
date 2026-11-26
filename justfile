@@ -14,6 +14,8 @@ setup:
     GOBIN={{bin}} go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
     GOBIN={{bin}} go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
     GOTOOLCHAIN=go1.27.1 GOBIN={{bin}} go install github.com/goreleaser/goreleaser/v2@v2.18.3
+    GOBIN={{bin}} go install helm.sh/helm/v3/cmd/helm@v3.17.3
+    GOBIN={{bin}} go install sigs.k8s.io/kind@v0.27.0
     go mod download
     cd web && bun install --frozen-lockfile
     cd web && bunx playwright install chromium
@@ -93,12 +95,24 @@ bench: web-build
     ASSAY_BENCH_REPORT={{reports}}/bench.jsonl go test -tags bench -run "$run" -json ./... > {{reports}}/bench.json || { go run ./tools/testreport {{reports}}/bench.json; exit 1; }
     go run ./tools/testreport {{reports}}/bench.json
 
+# helm lint and helm template of the chart, with each option on.
+helm:
+    helm lint --strict deploy/helm/assay --set database.url=postgres://assay:assay@db:5432/assay
+    helm template assay deploy/helm/assay --set database.url=postgres://assay:assay@db:5432/assay >/dev/null
+    helm template assay deploy/helm/assay --set database.existingSecret=db --set keys.existingSecret=keys \
+        --set ingress.enabled=true --set ingress.tls=true --set worker.autoscaling.enabled=true \
+        --set env.ASSAY_LOG_LEVEL=debug --set worker.env.ASSAY_SYNC_WORKERS=8 >/dev/null
+
+# Installs the chart in kind with an external database and checks it.
+helm-smoke:
+    sh scripts/helm-smoke.sh
+
 # Placeholder and private words.
 forbid:
     sh scripts/forbid.sh
 
 # The public gate.
-ci: gen-check fmt-check lint test contract e2e smoke bench forbid
+ci: gen-check fmt-check lint helm test contract e2e smoke bench forbid
 
 # Needs .build/SDD.md.
 # Links the specification, the ledger and the test reports.
@@ -126,3 +140,14 @@ eval:
     : "${ASSAY_EVAL_URL:?set ASSAY_EVAL_URL}" "${ASSAY_EVAL_TOKEN:?set ASSAY_EVAL_TOKEN}"
     mkdir -p {{reports}}
     go run ./cmd/assay eval --url "$ASSAY_EVAL_URL" --token "$ASSAY_EVAL_TOKEN" --file "${ASSAY_EVAL_FILE:-evals/questions.yaml}" --out {{reports}}/eval.md
+
+# ASSAY_EVAL_URL and ASSAY_EVAL_TOKEN select the instance; an admin token
+# also reads the embed and rerank settings for the report header.
+# ASSAY_EVAL_FILE defaults to evals/questions.yaml.
+# Retrieval evaluation: scores search alone and writes retrieval.md.
+eval-retrieval:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${ASSAY_EVAL_URL:?set ASSAY_EVAL_URL}" "${ASSAY_EVAL_TOKEN:?set ASSAY_EVAL_TOKEN}"
+    mkdir -p {{reports}}
+    go run ./cmd/assay eval --retrieval --url "$ASSAY_EVAL_URL" --token "$ASSAY_EVAL_TOKEN" --file "${ASSAY_EVAL_FILE:-evals/questions.yaml}" --out {{reports}}/retrieval.md

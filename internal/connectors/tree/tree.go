@@ -1,8 +1,9 @@
 // Package tree reads the knowledge files and the source code of
-// repositories. GitHub and Azure DevOps Server list the tree of a branch
-// with a blob ID per file. Sync fetches only the files whose blob ID
-// changed. Catalog and CODEOWNERS files become facts. Source files become
-// items of kind code with one passage per declaration.
+// repositories. GitHub, Azure DevOps Server, GitLab and Bitbucket Data
+// Center list the tree of a branch with a version per file. Sync fetches
+// only the files whose version changed. Catalog and CODEOWNERS files
+// become facts. Source files become items of kind code with one passage
+// per declaration.
 package tree
 
 import (
@@ -28,8 +29,9 @@ import (
 
 // Repo is one repository of a host.
 type Repo struct {
-	// ID is owner/name on GitHub and project/name on Azure DevOps. It is
-	// the prefix of the item IDs.
+	// ID is owner/name on GitHub, project/name on Azure DevOps, the path
+	// with namespace on GitLab and project key/slug on Bitbucket. It is the
+	// prefix of the item IDs.
 	ID     string
 	Name   string
 	Branch string
@@ -42,12 +44,15 @@ type Repo struct {
 // Entry is one file of a tree.
 type Entry struct {
 	Path string
+	// Blob is the version of the file: its blob ID, or on Bitbucket the
+	// last commit that changed it.
 	Blob string
 	// Size is the file size in bytes, or -1 when the host does not list it.
 	Size int64
 }
 
-// Host is one repository host. GitHub and Azure DevOps Server implement it.
+// Host is one repository host. GitHub, Azure DevOps Server, GitLab and
+// Bitbucket Data Center implement it.
 type Host interface {
 	// User returns the source user of the token.
 	User(ctx context.Context) (string, error)
@@ -65,6 +70,9 @@ type Host interface {
 	Commit(ctx context.Context, r Repo) (string, error)
 	// CommitURL is the browse URL of a file at the commit of the listing.
 	CommitURL(r Repo, file string) string
+	// LastCommit returns the message of the last commit of the default
+	// branch that changed a file, or "" when the host lists none.
+	LastCommit(ctx context.Context, r Repo, file string) (string, error)
 	// Provider and WebHost qualify entity keys, such as github and
 	// github.com.
 	Provider() string
@@ -74,6 +82,7 @@ type Host interface {
 // DefaultGlobs are the default include globs of a repository connection
 // (SDD section 8).
 var DefaultGlobs = []string{"README*", "docs/**/*.md", "**/adr/**/*.md", "**/decisions/**/*.md", "CODEOWNERS", ".github/CODEOWNERS",
+	".gitlab/CODEOWNERS", ".bitbucket/CODEOWNERS",
 	"**/catalog-info.yaml", "**/openapi*.{yaml,yml,json}", "**/*.proto", "go.mod", "package.json", "*.csproj",
 	"Directory.Packages.props", "Chart.yaml", "**/values*.yaml", "deploy/**/*.yaml", "k8s/**/*.yaml",
 	"**/swagger*.{yaml,yml,json}", "**/asyncapi*.{yaml,yml,json}", "**/*.{graphql,gql}", "**/*.avsc", "**/*.schema.json"}
@@ -139,6 +148,11 @@ type Connector struct {
 	globs  Globs
 	limits connectors.Limits
 
+	// LastChange adds the message of the last commit of a file to each
+	// file that sync fetches. Sync fetches a file only when its blob
+	// changed, so this costs one request per changed file.
+	LastChange bool
+
 	mu       gosync.Mutex
 	listings map[string]*listing
 }
@@ -152,7 +166,7 @@ type listing struct {
 	// knowledge files and source files have their own limits.
 	rank    map[string]int
 	code    map[string]bool
-	owners  string         // the CODEOWNERS file that GitHub uses
+	owners  string         // the CODEOWNERS file that the host uses
 	skipped map[string]int // skip glob to the number of files
 }
 
@@ -200,40 +214,66 @@ func (k *Connector) Scopes(ctx context.Context) ([]connectors.Scope, error) {
 	return out, nil
 }
 
-// Changed lists every matching file with its blob ID as the version. A
-// tree has no update times, so since is not used. Sync fetches only the
-// files whose stored revision differs. Files past the file limit stay in
-// the list, so that the run shows them as skipped.
-func (k *Connector) Changed(ctx context.Context, _ time.Time, fn func(connectors.Ref) error) error {
-	return k.each(ctx, false, func(id string, e Entry) error { return fn(connectors.Ref{ID: id, Version: e.Blob}) })
-}
-
-// ListIDs lists the matching files up to the file limit. Reconciliation
-// tombstones a stored file past the limit, because sync no longer updates
-// it.
-func (k *Connector) ListIDs(ctx context.Context, fn func(string) error) error {
-	return k.each(ctx, true, func(id string, _ Entry) error { return fn(id) })
-}
-
-// each calls fn for the files of each selected repository. A repository
-// that the host no longer has gives no files, so that reconciliation
-// tombstones its files and the other repositories still sync.
-func (k *Connector) each(ctx context.Context, limit bool, fn func(string, Entry) error) error {
+// Parts are the selected repositories, one part per repository.
+func (k *Connector) Parts(context.Context) ([]connectors.Part, error) {
+	out := make([]connectors.Part, 0, len(k.repos))
 	for _, id := range k.repos {
-		l, err := k.list(ctx, id, true)
-		if errors.Is(err, connectors.ErrNotFound) {
+		out = append(out, connectors.Part{Key: id})
+	}
+	return out, nil
+}
+
+// Changed lists every matching file of a repository with its blob ID as the
+// version. A tree has no update times, so since is not used. Sync fetches
+// only the files whose stored revision differs. Files past the file limit
+// stay in the list, so that the run shows them as skipped.
+func (k *Connector) Changed(ctx context.Context, part connectors.Part, _ time.Time, fn func(connectors.Ref) error) error {
+	return k.each(ctx, part.Key, false, func(id string, e Entry) error { return fn(connectors.Ref{ID: id, Version: e.Blob}) })
+}
+
+// Files lists every matching file of a selected repository with its blob ID
+// as the version, as Changed does for the part of the repository.
+func (k *Connector) Files(ctx context.Context, repo string, fn func(connectors.Ref) error) error {
+	return k.Changed(ctx, connectors.Part{Key: repo}, time.Time{}, fn)
+}
+
+// PartOf returns the repository of a file. A file of a repository outside
+// the selection is out of scope.
+func (k *Connector) PartOf(_ context.Context, it *content.Item) (string, bool, error) {
+	repo, _, ok := strings.Cut(it.ExternalID, ":")
+	if !ok || !slices.Contains(k.repos, repo) {
+		return "", false, nil
+	}
+	return repo, true, nil
+}
+
+// ListIDs lists the matching files of a repository up to the file limit.
+// Reconciliation tombstones a stored file past the limit, because sync no
+// longer updates it.
+func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(string) error) error {
+	return k.each(ctx, part.Key, true, func(id string, _ Entry) error { return fn(id) })
+}
+
+// each calls fn for the files of one selected repository. A repository that
+// the host no longer has gives no files, so that reconciliation tombstones
+// its files and the other repositories still sync.
+func (k *Connector) each(ctx context.Context, id string, limit bool, fn func(string, Entry) error) error {
+	if !slices.Contains(k.repos, id) {
+		return nil
+	}
+	l, err := k.list(ctx, id, true)
+	if errors.Is(err, connectors.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, e := range l.files {
+		if limit && k.overLimit(l, e.Path) {
 			continue
 		}
-		if err != nil {
+		if err := fn(ItemID(id, e.Path), e); err != nil {
 			return err
-		}
-		for _, e := range l.files {
-			if limit && k.overLimit(l, e.Path) {
-				continue
-			}
-			if err := fn(ItemID(id, e.Path), e); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -299,7 +339,7 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 			knowledge++
 		}
 	}
-	for _, p := range []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"} {
+	for _, p := range ownersFiles(k.host.Provider()) {
 		if _, ok := l.index[p]; ok {
 			l.owners = p
 			break
@@ -309,6 +349,19 @@ func (k *Connector) list(ctx context.Context, id string, fresh bool) (*listing, 
 	k.listings[id] = l
 	k.mu.Unlock()
 	return l, nil
+}
+
+// ownersFiles are the CODEOWNERS paths that a host reads, in the order
+// that it looks for them. The first that exists is the file of the
+// repository.
+func ownersFiles(provider string) []string {
+	switch provider {
+	case "gitlab":
+		return []string{"CODEOWNERS", "docs/CODEOWNERS", ".gitlab/CODEOWNERS"}
+	case "bitbucket":
+		return []string{".bitbucket/CODEOWNERS"}
+	}
+	return []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
 }
 
 // Fetch reads one file. A file that is gone from the tree, or from the
@@ -349,6 +402,22 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 	if !utf8.Valid(b) || slices.Contains(b, 0) {
 		return nil, &connectors.SkipError{Reason: "binary"}
 	}
+	it, err := k.item(id, l, file, e, b, isCode)
+	if err != nil {
+		return nil, err
+	}
+	if k.LastChange {
+		msg, err := k.host.LastCommit(ctx, l.repo, file)
+		if err != nil && !errors.Is(err, connectors.ErrNotFound) {
+			return nil, err
+		}
+		content.AddLastChange(it, msg)
+	}
+	return it, nil
+}
+
+// item builds the item of a file.
+func (k *Connector) item(id string, l *listing, file string, e Entry, b []byte, isCode bool) (*content.Item, error) {
 	repo := content.EntityRef{Type: "repository", Key: l.repo.Key, Name: l.repo.Name, Aliases: []string{l.repo.ID}}
 	if isCode {
 		if Generated(b) {

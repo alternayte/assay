@@ -1,0 +1,72 @@
+# Image tags default to the chart's appVersion.
+image:
+  repository: ghcr.io/alternayte/assay
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# PostgreSQL with the extensions pgvector, pg_trgm and unaccent. The chart has
+# no database. Name an existing Secret with an ASSAY_DATABASE_URL key, or set
+# url and the chart writes the Secret.
+database:
+  existingSecret: ""
+  url: ""
+
+# The secret key encrypts the stored tokens, and the setup token creates the
+# first admin at /setup. With no existing Secret, the chart generates both on
+# install and keeps them on upgrade. Back up the key: without it, Assay cannot
+# read the stored tokens. An existing Secret holds ASSAY_SECRET_KEY (32 random
+# bytes in base64) and, optionally, ASSAY_SETUP_TOKEN.
+keys:
+  existingSecret: ""
+
+# The URL people use, such as https://assay.example.com.
+baseURL: ""
+
+# Other ASSAY_ variables for the web and the worker pods, such as
+# ASSAY_LOG_LEVEL or HTTPS_PROXY.
+env: {}
+
+web:
+  replicas: 1
+  # Variables for the web pods only.
+  env: {}
+  tolerations: []
+  nodeSelector: {}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: assay.example.com
+  tls: false
+  tlsSecret: ""
+  annotations: {}
+
+# The workers run the sync parts, the embedding, the extraction, the design
+# pages and the other jobs. More replicas run more sync parts at once. The
+# rate limit of each connection holds across all replicas.
+worker:
+  replicas: 1
+  # Variables for the worker pods only, such as ASSAY_SYNC_WORKERS.
+  env: {}
+  tolerations: []
+  nodeSelector: {}
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  # A KEDA ScaledObject scales the workers on the jobs that wait on the sync,
+  # embed and extract queues. KEDA must be installed in the cluster.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 8
+    # The waiting jobs that one worker replica takes.
+    jobsPerReplica: 20
+    pollingInterval: 30
+    cooldownPeriod: 300

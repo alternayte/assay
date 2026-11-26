@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,21 @@ type Comment struct {
 	Body    string
 }
 
+// Change is one entry of the changelog of a Jira issue.
+type Change struct {
+	Author  string
+	Created time.Time
+	Items   []ChangeItem
+}
+
+// ChangeItem is one changed field. From and To are the values as names: a
+// status name, a user name or a version name. Empty is no value.
+type ChangeItem struct {
+	Field string // status, assignee, Fix Version or another field
+	From  string
+	To    string
+}
+
 // Issue is a Jira issue of the corpus.
 type Issue struct {
 	Key         string
@@ -65,6 +81,8 @@ type Issue struct {
 	Updated     time.Time
 	Description string // wiki markup
 	Comments    []Comment
+	// History is the changelog, oldest first.
+	History []Change
 }
 
 // Fault is a scripted failure of the next requests to a path prefix.
@@ -82,7 +100,8 @@ type Hit struct {
 	Method string
 	Path   string
 	Query  string
-	// Auth is the scheme of the Authorization header, such as Basic.
+	// Auth is the scheme of the Authorization header, such as Basic, or
+	// PRIVATE-TOKEN when the GitLab token header carries the token.
 	Auth string
 	At   time.Time
 }
@@ -95,22 +114,47 @@ type Sources struct {
 	spaces   [][2]string
 	projects [][2]string
 	pages    map[string]*Page
-	issues   map[string]*Issue
-	repos    map[string]*Repo // by host:id
-	faults   map[string]*Fault
-	hits     []Hit
-	tokens   map[string]bool
-	now      func() time.Time
+	// attachments are the files of the pages by attachment ID.
+	attachments map[string]*Attachment
+	issues      map[string]*Issue
+	repos       map[string]*Repo // by host:id
+	faults      map[string]*Fault
+	hits        []Hit
+	tokens      map[string]bool
+	now         func() time.Time
 	// catalog holds the Backstage catalog entities by ref.
 	catalog      map[string]map[string]any
 	catalogOrder []string
+	// noNextPageStart makes the Bitbucket file list omit nextPageStart, as
+	// Bitbucket before 7.14 does.
+	noNextPageStart bool
+	// hidden are the users whose email the Cloud answers leave out.
+	hidden map[string]bool
+	// adf holds the recorded Cloud ADF of the corpus issues.
+	adf map[string]*recordedADF
+	// web holds the files of the developer portal by path below /web.
+	web     map[string]*WebPage
+	offsite string
+	// history holds the pull requests, issues and commit messages of the
+	// repositories by host:id, and azdoProjects the work items and wikis
+	// of the Azure DevOps projects. Their times count back from
+	// historyBase, so that they stay inside the history window.
+	history      map[string]*RepoHistory
+	azdoProjects map[string]*ProjectHistory
+	historyBase  time.Time
+	// slack is the Slack workspace under /slack/api.
+	slack *slackState
 }
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
-	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
-		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{}}
+	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, attachments: map[string]*Attachment{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
+		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{},
+		hidden: map[string]bool{}, adf: map[string]*recordedADF{},
+		web: map[string]*WebPage{}, offsite: DefaultOffsite}
 	s.loadCatalog()
+	s.loadWeb()
+	s.slack = loadSlack(s.now())
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
 		s.users[name] = display
@@ -143,17 +187,42 @@ func NewSources() *Sources {
 			Summary: h["summary"], Status: h["status"], Assignee: h["assignee"], Reporter: h["reporter"], Priority: h["priority"],
 			Labels: list(h["labels"]), Components: list(h["components"]), FixVersions: list(h["fixVersions"]), Due: h["due"],
 			Parent: h["parent"], Epic: h["epic"], Links: list(h["links"]), Created: when(h["created"]), Updated: when(h["updated"])}
-		parts := strings.Split(body, "\n=== comment ")
+		parts := strings.Split(body, "\n=== ")
 		is.Description = strings.TrimSpace(parts[0])
 		for _, c := range parts[1:] {
 			head, text, _ := strings.Cut(c, "\n")
+			kind, head, _ := strings.Cut(head, " ")
 			author, at, _ := strings.Cut(head, " ")
-			is.Comments = append(is.Comments, Comment{Author: author, Created: when(at), Body: strings.TrimSpace(text)})
+			switch kind {
+			case "comment":
+				is.Comments = append(is.Comments, Comment{Author: author, Created: when(at), Body: strings.TrimSpace(text)})
+			case "history":
+				ch := Change{Author: author, Created: when(at)}
+				for _, l := range strings.Split(strings.TrimSpace(text), "\n") {
+					field, v, _ := strings.Cut(l, ":")
+					from, to, _ := strings.Cut(v, "->")
+					ch.Items = append(ch.Items, ChangeItem{Field: strings.TrimSpace(field), From: strings.TrimSpace(from), To: strings.TrimSpace(to)})
+				}
+				is.History = append(is.History, ch)
+			default:
+				panic("fixtures: unknown section " + kind + " in " + p)
+			}
+		}
+		// A bot thread: generated build comments after the written ones.
+		if n, err := strconv.Atoi(h["botComments"]); err == nil {
+			for i := range n {
+				is.Comments = append(is.Comments, Comment{Author: "sam.acme", Created: is.Created.Add(time.Duration(i+1) * time.Minute),
+					Body: fmt.Sprintf("Build %d of the retry queue checks passed.", i+1)})
+			}
 		}
 		s.issues[is.Key] = is
 		return nil
 	})
+	s.loadAttachments()
+	s.loadADF()
 	s.loadRepos()
+	s.historyBase = time.Now().UTC().Truncate(time.Hour)
+	s.loadHistory()
 	return s
 }
 
@@ -226,11 +295,19 @@ func token(h string) string {
 
 // ServeHTTP serves the Confluence API under /confluence, the Jira API under
 // /jira, the GitHub API under /github, the GitHub Enterprise Server API
-// under /ghes/api/v3, the Azure DevOps Server API under /azdo and the
-// Backstage catalog API under /backstage.
+// under /ghes/api/v3, the Azure DevOps Server API under /azdo, the GitLab
+// API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket,
+// the Backstage catalog API under /backstage, the Atlassian Cloud site
+// under /cloud with its API host under /atlassian, and a developer portal
+// under /web with the robots.txt of the host, and the Slack Web API under
+// /slack/api. The portal takes its own auth header.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
+	tok := token(r.Header.Get("Authorization"))
+	if pt := r.Header.Get("PRIVATE-TOKEN"); scheme == "" && pt != "" {
+		scheme, tok = "PRIVATE-TOKEN", pt
+	}
 	s.hits = append(s.hits, Hit{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Auth: scheme, At: time.Now()})
 	var fault *Fault
 	for prefix, f := range s.faults {
@@ -244,10 +321,14 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	authorized := s.tokens[token(r.Header.Get("Authorization"))]
+	authorized := s.tokens[tok]
 	s.mu.Unlock()
 	if r.URL.Path == "/manifest.json" && r.Method == http.MethodGet {
 		s.serveManifest(w, r)
+		return
+	}
+	if r.URL.Path == CloudSitePath+"/_edge/tenant_info" && r.Method == http.MethodGet {
+		tenantInfo(w)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -259,6 +340,18 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Retry-After", fault.RetryAfter)
 		}
 		http.Error(w, `{"message":"scripted failure"}`, fault.Status)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, MediaPath+"/") {
+		s.media(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/web/") || r.URL.Path == "/robots.txt" {
+		s.serveWeb(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/slack/api/") {
+		s.serveSlack(w, r, authorized && scheme == "Bearer")
 		return
 	}
 	if !authorized {
@@ -274,12 +367,18 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.backstage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jira/"):
 		s.jira(w, r)
+	case strings.HasPrefix(r.URL.Path, CloudSitePath+"/"), strings.HasPrefix(r.URL.Path, CloudAPIPath+"/"):
+		s.cloud(w, r)
 	case strings.HasPrefix(r.URL.Path, "/github/"):
 		s.github(w, r, "/github", "/github")
 	case strings.HasPrefix(r.URL.Path, "/ghes/api/v3/"):
 		s.github(w, r, "/ghes/api/v3", "/ghes")
 	case strings.HasPrefix(r.URL.Path, "/azdo/"+AzdoCollection+"/"):
 		s.azdo(w, r)
+	case strings.HasPrefix(r.URL.Path, "/gitlab/api/v4/"):
+		s.gitlab(w, r)
+	case strings.HasPrefix(r.URL.Path, "/bitbucket/"):
+		s.bitbucket(w, r)
 	default:
 		http.NotFound(w, r)
 	}

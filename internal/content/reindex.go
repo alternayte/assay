@@ -41,11 +41,17 @@ func Reindex(ctx context.Context, pool *pgxpool.Pool) (Reindexed, error) {
 			err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 				var code []Passage
 				_, file, _ := strings.Cut(it.ExternalID, ":")
+				// The last change section follows the file. Sync splits
+				// the file alone and adds the section as Markdown.
+				head, last := CutLastChange(it.Body)
 				switch {
 				case it.Kind == "code" && SplitSource != nil:
-					code = SplitSource(file, it.Body)
+					code = SplitSource(file, head)
 				case it.Kind == "file" && SplitFile != nil:
-					code = SplitFile(file, it.Body)
+					code = SplitFile(file, head)
+				}
+				if code != nil && last != "" {
+					code = appendLastChange(code, last)
 				}
 				ps, chunks, err := writeIndex(ctx, New(tx), it.ID, it.VersionID, it.ConnectionID, it.Title, it.Body, code)
 				out.Passages += len(ps)

@@ -1,14 +1,14 @@
 -- name: GetItemByExternalID :one
 -- vis:system
-SELECT id, content_hash, revision, index_hash FROM source_items
+SELECT id, content_hash, revision, index_hash, part FROM source_items
 WHERE connection_id = @connection_id AND external_id = @external_id;
 
 -- name: InsertItem :one
 -- vis:system
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision, index_hash)
+                          revision, index_hash, part)
 VALUES (@connection_id, @external_id, @kind, @title, @url, @author, @source_created_at, @source_updated_at, @content_hash,
-        @revision, @index_hash)
+        @revision, @index_hash, @part)
 RETURNING id;
 
 -- name: UpdateItem :exec
@@ -16,7 +16,7 @@ RETURNING id;
 UPDATE source_items
 SET kind = @kind, title = @title, url = @url, author = @author, source_created_at = @source_created_at,
     source_updated_at = @source_updated_at, content_hash = @content_hash, version_id = @version_id, revision = @revision,
-    index_hash = @index_hash, updated_at = now()
+    index_hash = @index_hash, part = @part, updated_at = now()
 WHERE id = @id;
 
 -- name: SetItemEntity :exec
@@ -25,7 +25,7 @@ UPDATE source_items SET entity_id = @entity_id WHERE id = @id;
 
 -- name: SetRevision :exec
 -- vis:system
-UPDATE source_items SET revision = @revision WHERE id = @id;
+UPDATE source_items SET revision = @revision, part = @part WHERE id = @id;
 
 -- name: InsertVersion :one
 INSERT INTO source_versions (item_id, connection_id, content_hash, title, body, metadata, edited_by, source_updated_at)
@@ -104,10 +104,20 @@ SET state = CASE WHEN EXISTS (SELECT 1 FROM passages p WHERE p.item_id = e.item_
 WHERE e.item_id = @item_id AND e.kind <> 'human';
 
 -- name: UpsertEntity :one
--- A type that a person set stays.
-INSERT INTO entities (type, key, domain_id) VALUES (@type, @key, @domain_id)
+-- A type that a person set stays. The metadata of the source, such as the
+-- email of a person, merges into the stored metadata.
+INSERT INTO entities (type, key, domain_id, metadata) VALUES (@type, @key, @domain_id, @metadata::jsonb)
 ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
-    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
+RETURNING id;
+
+-- name: UpsertEntityKeepType :one
+-- A reference to an entity that another source owns: a stored entity keeps
+-- its type.
+INSERT INTO entities (type, key, domain_id, metadata) VALUES (@type, @key, @domain_id, @metadata::jsonb)
+ON CONFLICT (key) DO UPDATE SET domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
 RETURNING id;
 
 -- name: AddEntitySource :exec
@@ -192,17 +202,49 @@ WHERE c.id = ANY(@ids::bigint[]) AND c.retracted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM claim_evidence e WHERE e.claim_id = c.id);
 
 -- name: GetVisibleItem :one
+-- The entity of the item is empty when it has no visible source. A merged
+-- entity shows as its winner.
 SELECT i.id, i.connection_id, c.name AS connection_name, c.kind AS connection_kind, i.kind, i.title, i.url, i.author,
-       i.source_updated_at
+       i.source_updated_at, coalesce(ent.key, '')::text AS entity_key, coalesce(ent.name, '')::text AS entity_name,
+       coalesce(ent.type, '')::text AS entity_type
 FROM source_items i
 JOIN connections c ON c.id = i.connection_id
+LEFT JOIN LATERAL (
+    SELECT coalesce(entity_visible_key(w.id, @visible::bigint[]), w.key)::text AS key,
+           coalesce(entity_display_name(w.id, @visible::bigint[]), w.key)::text AS name, w.type
+    FROM entities e
+    JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
+    WHERE e.id = i.entity_id
+      AND EXISTS (SELECT 1 FROM entity_sources s
+                  WHERE s.entity_id = ANY(entity_members(w.id))
+                    AND s.connection_id = ANY(@visible::bigint[]))
+) ent ON true
 WHERE i.id = @id AND i.connection_id = ANY(@visible::bigint[]);
 
+-- name: VisibleItemByURL :one
+-- The visible item with the URL. Of several, the newest source update wins,
+-- then the lowest ID.
+SELECT i.id
+FROM source_items i
+WHERE i.url = @url AND i.connection_id = ANY(@visible::bigint[])
+ORDER BY i.source_updated_at DESC NULLS LAST, i.id
+LIMIT 1;
+
 -- name: VisiblePassages :many
-SELECT hash, ordinal, kind, heading_path, text
+SELECT hash, ordinal, kind, heading_path, text, start_line, end_line
 FROM passages
 WHERE item_id = @item_id AND connection_id = ANY(@visible::bigint[])
 ORDER BY ordinal;
+
+-- name: DropUndatedEvidence :many
+-- The field evidence of an item for a subject and a predicate on the claims
+-- that the dated facts of the item no longer give.
+-- vis:system
+DELETE FROM claim_evidence e
+USING claims c
+WHERE e.claim_id = c.id AND e.item_id = @item_id AND e.kind = 'field'
+  AND c.subject_id = @subject_id AND c.predicate = @predicate AND NOT (c.id = ANY(@keep::bigint[]))
+RETURNING e.claim_id;
 
 -- name: DeleteStaleItemEvidence :exec
 -- vis:system

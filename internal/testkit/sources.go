@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/content/files"
 	"github.com/alternayte/assay/internal/fixtures"
 	"github.com/alternayte/assay/internal/outbound"
 )
@@ -35,17 +36,27 @@ func SourceClient(t testing.TB, baseURL string) *connectors.Client {
 
 // DefaultRules are the default connector rules.
 var DefaultRules = connectors.Rules{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks",
-	DecisionLabels: []string{"decision", "adr"}, GlossaryLabels: []string{"glossary"}}
+	DecisionLabels: []string{"decision", "adr"}, GlossaryLabels: []string{"glossary"}, MaxCommentsPerIssue: connectors.DefaultMaxComments,
+	AttachmentTypes: files.Types, MaxAttachmentBytes: 10240 << 10}
 
 // Connection is a connection to create in a test.
 type Connection struct {
-	Name    string
-	Kind    string // confluence, jira, github, azdo or backstage
-	BaseURL string // the fixture server URL; Path is added
-	Path    string // the API path on the fixture server; empty is /<kind>
-	Scope   map[string]any
-	Token   string // empty uses the fixture token
-	Rate    float64
+	Name string
+	Kind string // confluence, jira, github, azdo, gitlab, bitbucket, backstage, web, teams or slack
+	// BaseURL is the fixture server URL; Path is added. For teams it is the
+	// fake Entra ID tenant of FakeIdentity.
+	BaseURL string
+	// Path is the API path on the fixture server; empty is /<kind>, or the
+	// Slack and Graph API paths.
+	Path  string
+	Scope map[string]any
+	// Options are the connection options, such as the deployment and email
+	// of an Atlassian Cloud connection, or historyMonths.
+	Options map[string]any
+	// Token empty uses the fixture token, the fixture auth header for web or
+	// the client secret of the fake tenant for teams.
+	Token string
+	Rate  float64
 	// Code are the code globs. Nil indexes no source code: parsing code is
 	// slow under the race detector, and most tests do not read it.
 	Code []string
@@ -56,18 +67,37 @@ func CreateConnection(t testing.TB, admin *Client, c Connection) int64 {
 	t.Helper()
 	if c.Token == "" {
 		c.Token = fixtures.SourceToken
+		switch c.Kind {
+		case "web":
+			c.Token = fixtures.WebAuthHeader
+		case "teams":
+			c.Token = fixtures.IdentityClientSecret
+		}
 	}
 	if c.Rate == 0 {
 		c.Rate = 100
 	}
 	if c.Path == "" {
 		c.Path = "/" + c.Kind
+		switch c.Kind {
+		case "slack":
+			c.Path = "/slack/api"
+		case "teams":
+			c.Path = "/graph/v1.0"
+		}
+	}
+	if c.Kind == "teams" {
+		opts := map[string]any{"tenant": fixtures.IdentityTenant, "clientId": fixtures.IdentityClientID}
+		for k, v := range c.Options {
+			opts[k] = v
+		}
+		c.Options = opts
 	}
 	var out struct {
 		ID int64 `json:"id"`
 	}
 	admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/connections", map[string]any{
-		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope,
+		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope, "options": orObject(c.Options),
 		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": c.Rate, "codeGlobs": orEmpty(c.Code),
 	}).JSON(t, &out)
 	return out.ID
@@ -133,6 +163,13 @@ func ShareWithEveryone(t testing.TB, env *Env, admin *Client, connectionID int64
 	}
 	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", connectionID),
 		map[string]any{"groupIds": []int64{everyone}, "confirm": true})
+}
+
+func orObject(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 func orEmpty(s []string) []string {

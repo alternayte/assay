@@ -398,3 +398,192 @@ func TestSCN_VIS_001_AdminGetsNoRestrictedContent(t *testing.T) {
 	}
 
 }
+
+func TestSCN_VIS_012_WebConnectionSharedWithOneGroup(t *testing.T) {
+	w := start(t, false)
+	insider, insiderID := w.env.Invite(w.owner, "insider@acme.test", "member", "insider-password-1")
+	var g struct {
+		ID int64 `json:"id"`
+	}
+	w.owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/groups", map[string]string{"name": "Payments"}).JSON(t, &g)
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/groups/%d/members/%s", g.ID, insiderID), nil)
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-portal", Kind: "web", BaseURL: base})
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", conn),
+		map[string]any{"groupIds": []int64{g.ID}, "confirm": true})
+	if r := w.env.RunNow(w.owner, conn, "sync"); r.Status != "succeeded" || r.Created == 0 {
+		t.Fatalf("sync %+v", r)
+	}
+	values := w.ids(t)
+
+	// The title words and the page URLs of the portal are in no other
+	// source. The canary is not a marker here: a question that names it
+	// comes back in the answer, and a search snippet splits it. A topic word
+	// such as idempotency is not a marker either: the repository history of
+	// the payments API uses it too.
+	leaked := func(body string) string {
+		for _, m := range []string{"developer portal", "/web/guides/", "/web/reference/", "/web/releases/"} {
+			if strings.Contains(strings.ToLower(body), m) {
+				return m
+			}
+		}
+		return ""
+	}
+	// The group member reads the pages, so the suite reads real data.
+	if leaked(get(insider, http.MethodGet, "/api/v1/search?q=idempotency", nil)) == "" {
+		t.Fatal("the group member does not find the portal pages")
+	}
+
+	for _, reader := range []struct {
+		name string
+		cl   *testkit.Client
+	}{{"member", w.member}, {"admin2", w.admin2}} {
+		checked := 0
+		check := func(where, body string) {
+			checked++
+			if m := leaked(body); m != "" {
+				t.Errorf("%s: %s shows %q from the portal of the group", reader.name, where, m)
+			}
+		}
+		for _, p := range paths(t, values) {
+			check("GET "+p, get(reader.cl, http.MethodGet, p, nil))
+			check("GET "+p+"?q=", get(reader.cl, http.MethodGet, p+"?q=idempotency", nil))
+		}
+		for name, body := range posts(reader.cl) {
+			check("POST "+name, body)
+		}
+		check("POST ask retries", get(reader.cl, http.MethodPost, "/api/v1/ask", map[string]string{"question": "How does a client retry a payment?"}))
+		for name, body := range mcpCalls(t, w.mcpSession(t, reader.cl), values["key"]) {
+			check("MCP "+name, body)
+		}
+		if checked < 200 {
+			t.Fatalf("%s: only %d responses checked", reader.name, checked)
+		}
+	}
+}
+
+func TestSCN_VIS_013_TwoUsersOfOneOAuthClientReadOwnVisibleSet(t *testing.T) {
+	w := start(t, true)
+	values := w.ids(t)
+	// One MCP client, such as a Claude connector, that both users connect.
+	client := w.env.RegisterOAuthClient("Acme agent")
+	owner := w.oauthSession(t, w.env.OAuthToken(w.owner, client, "read offline_access"))
+	member := w.oauthSession(t, w.env.OAuthToken(w.member, client, "read offline_access"))
+
+	var items []int64
+	rows, err := w.env.Server.Pool().Query(context.Background(), `SELECT id FROM source_items ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, id)
+	}
+	rows.Close()
+	calls := func(s *mcp.ClientSession) map[string]string {
+		out := mcpCalls(t, s, values["key"])
+		for _, id := range items {
+			r, err := s.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_item", Arguments: map[string]any{"item_id": id}})
+			if err != nil {
+				t.Fatalf("get_item %d: %v", id, err)
+			}
+			b, _ := json.Marshal(r)
+			out[fmt.Sprintf("get_item %d", id)] = string(b)
+		}
+		return out
+	}
+
+	// The owner reads the restricted space through the client, so the
+	// calls reach real data.
+	seen := false
+	for _, body := range calls(owner) {
+		seen = seen || strings.Contains(strings.ToLower(body), canary)
+	}
+	if !seen {
+		t.Fatal("the owner gets no canary through the OAuth client")
+	}
+	for name, body := range calls(member) {
+		if strings.Contains(strings.ToLower(body), canary) {
+			t.Errorf("member through the OAuth client: MCP %s shows the canary", name)
+		}
+	}
+}
+
+// oauthSession opens an MCP session with an OAuth access token.
+func (w *world) oauthSession(t *testing.T, token string) *mcp.ClientSession {
+	t.Helper()
+	c := mcp.NewClient(&mcp.Implementation{Name: "leak-oauth", Version: "1"}, nil)
+	s, err := c.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: w.env.HTTP.URL + "/mcp",
+		HTTPClient: &http.Client{Transport: bearer(token)}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
+func TestSCN_VIS_014_SlackConnectionSharedWithOneGroup(t *testing.T) {
+	w := start(t, false)
+	insider, insiderID := w.env.Invite(w.owner, "insider@acme.test", "member", "insider-password-1")
+	var g struct {
+		ID int64 `json:"id"`
+	}
+	w.owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/groups", map[string]string{"name": "Payments"}).JSON(t, &g)
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/groups/%d/members/%s", g.ID, insiderID), nil)
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-slack", Kind: "slack", BaseURL: base,
+		Scope: map[string]any{"channels": []string{fixtures.SlackPayments, fixtures.SlackPlatform}}})
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", conn),
+		map[string]any{"groupIds": []int64{g.ID}, "confirm": true})
+	if r := w.env.RunNow(w.owner, conn, "sync"); r.Status != "succeeded" || r.Created == 0 {
+		t.Fatalf("sync %+v", r)
+	}
+	values := w.ids(t)
+
+	// The thread words, the permalink host and the person keys of the
+	// workspace are in no other source. The search word is no marker: a
+	// response can repeat the query.
+	leaked := func(body string) string {
+		for _, m := range []string{"dead letter", "bastion host", "acme-chat.slack.test", "slack:t0acme:"} {
+			if strings.Contains(strings.ToLower(body), m) {
+				return m
+			}
+		}
+		return ""
+	}
+	// The group member reads the threads, so the suite reads real data.
+	if leaked(get(insider, http.MethodGet, "/api/v1/search?q=declined+charge", nil)) == "" {
+		t.Fatal("the group member does not find the threads")
+	}
+
+	for _, reader := range []struct {
+		name string
+		cl   *testkit.Client
+	}{{"member", w.member}, {"admin2", w.admin2}} {
+		checked := 0
+		check := func(where, body string) {
+			checked++
+			if m := leaked(body); m != "" {
+				t.Errorf("%s: %s shows %q from the Slack threads of the group", reader.name, where, m)
+			}
+		}
+		for _, p := range paths(t, values) {
+			check("GET "+p, get(reader.cl, http.MethodGet, p, nil))
+			check("GET "+p+"?q=", get(reader.cl, http.MethodGet, p+"?q=declined+charge", nil))
+		}
+		for name, body := range posts(reader.cl) {
+			check("POST "+name, body)
+		}
+		check("POST ask retries", get(reader.cl, http.MethodPost, "/api/v1/ask",
+			map[string]string{"question": "What did the payments team decide about retries?"}))
+		for name, body := range mcpCalls(t, w.mcpSession(t, reader.cl), values["key"]) {
+			check("MCP "+name, body)
+		}
+		if checked < 200 {
+			t.Fatalf("%s: only %d responses checked", reader.name, checked)
+		}
+	}
+}

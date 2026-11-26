@@ -58,7 +58,7 @@ test("SCN-AGT-005 the snippet has the instance MCP URL and Copy works; glossary.
   await page.goto("/connect");
   const config = page.getByTestId("mcp-config");
   await expect(config).toContainText(`"url": "${base}/mcp"`);
-  await page.getByRole("button", { name: "Copy" }).click();
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
   await expect(page.getByRole("button", { name: "Copied." })).toBeVisible();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(JSON.parse(copied).mcpServers.assay.url).toBe(`${base}/mcp`);

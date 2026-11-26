@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
+	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/ask"
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/content"
@@ -19,6 +20,7 @@ import (
 	"github.com/alternayte/assay/internal/models"
 	"github.com/alternayte/assay/internal/resolve"
 	"github.com/alternayte/assay/internal/settings"
+	"github.com/alternayte/assay/internal/sso"
 	syncer "github.com/alternayte/assay/internal/sync"
 )
 
@@ -92,6 +94,8 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &RetentionWorker{pool: s.pool, log: s.log, now: s.now})
+	river.AddWorker(workers, &sso.Worker{S: s.sso})
+	river.AddWorker(workers, &agents.KeyWorker{S: s.agents})
 	s.sync.Workers(workers)
 	river.AddWorker(workers, &content.EmbedWorker{E: s.embedder})
 	river.AddWorker(workers, &content.ChunkHashWorker{Pool: s.pool})
@@ -107,20 +111,24 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		Workers: workers,
 		Logger:  s.log.With("component", "river"),
 		// A job is stuck only after the longest worker timeout, the six
-		// hours of a sync run. The default of one hour starts a long sync
+		// hours of a sync part. The default of one hour starts a long sync
 		// again while it still runs.
 		RescueStuckJobsAfter: 7 * time.Hour,
 	}
 	if s.cfg.Role != RoleWeb {
 		// Syncs, embedding, extraction and design have their own queues, so
-		// that the bulk of one never holds the others back.
+		// that the bulk of one never holds the others back. The sync
+		// workers work run and part jobs: more processes run more parts.
+		// The embed workers work the shards of the cluster.
 		cfg.Queues = map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: orDefault(s.cfg.JobWorkers, 10)},
 			syncer.Queue:       {MaxWorkers: orDefault(s.cfg.SyncWorkers, 4)},
-			content.EmbedQueue: {MaxWorkers: s.embedder.Shards},
+			content.EmbedQueue: {MaxWorkers: orDefault(s.cfg.EmbedWorkers, 4)},
 			extract.Queue:      {MaxWorkers: orDefault(s.cfg.ExtractWorkers, 4)},
 			design.Queue:       {MaxWorkers: orDefault(s.cfg.DesignWorkers, 2)},
-			resolve.Queue:      {MaxWorkers: 1},
+			// Resolve matches descriptions across connections. Two at once
+			// would make duplicate unnamed entities.
+			resolve.Queue: {MaxWorkers: 1},
 		}
 		cfg.PeriodicJobs = []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour), func() (river.JobArgs, *river.InsertOpts) {
@@ -131,6 +139,8 @@ func (s *Server) newRiver() (*river.Client[pgx.Tx], error) {
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.embedder.PeriodicJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, content.ChunkHashJobs()...)
 		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.resolve.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.sso.PeriodicJobs()...)
+		cfg.PeriodicJobs = append(cfg.PeriodicJobs, s.agents.PeriodicJobs()...)
 	}
 	return river.NewClient(riverpgxv5.New(s.pool), cfg)
 }

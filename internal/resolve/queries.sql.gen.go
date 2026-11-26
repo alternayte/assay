@@ -2374,6 +2374,7 @@ SELECT a.predicate, a.object_text::text AS a_text, a.object_norm AS a_norm, b.ob
        ARRAY(SELECT DISTINCT ev.connection_id FROM claim_evidence ev WHERE ev.claim_id IN (a.id, b.id) ORDER BY 1)::bigint[] AS connections
 FROM claims a
 JOIN claims b ON b.subject_id = a.subject_id AND b.predicate = a.predicate AND a.object_norm < b.object_norm
+  AND a.valid_from IS NOT DISTINCT FROM b.valid_from
 WHERE a.predicate = ANY($1::text[]) AND a.object_text IS NOT NULL AND b.object_text IS NOT NULL
   AND a.retracted_at IS NULL AND b.retracted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM text_equivalence t WHERE t.a_norm = a.object_norm AND t.b_norm = b.object_norm)
@@ -2391,7 +2392,8 @@ type TextPairsRow struct {
 }
 
 // Differing text values of one subject and single-valued predicate with no
-// cached equivalence.
+// cached equivalence. Values of a time-scoped predicate with different
+// dates are a timeline, not a conflict.
 // vis:system
 func (q *Queries) TextPairs(ctx context.Context, predicates []string) ([]TextPairsRow, error) {
 	rows, err := q.db.Query(ctx, textPairs, predicates)

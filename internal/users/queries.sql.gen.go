@@ -184,6 +184,18 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	return i, err
 }
 
+const groupMapped = `-- name: GroupMapped :one
+SELECT EXISTS (SELECT 1 FROM group_mappings WHERE group_id = $1)
+`
+
+// A mapped group takes its members only from the identity provider.
+func (q *Queries) GroupMapped(ctx context.Context, groupID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, groupMapped, groupID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const insertGroup = `-- name: InsertGroup :one
 INSERT INTO groups (name) VALUES ($1) RETURNING id
 `
@@ -341,8 +353,10 @@ SELECT g.id, g.name, g.builtin,
             THEN (SELECT count(*) FROM auth_users u WHERE u.disabled_at IS NULL)
             ELSE (SELECT count(*) FROM group_members m JOIN auth_users u ON u.id = m.user_id
                   WHERE m.group_id = g.id AND u.disabled_at IS NULL)
-       END::bigint AS member_count
+       END::bigint AS member_count,
+       coalesce(gm.external_id, '') AS mapped_id, coalesce(gm.external_name, '') AS mapped_name
 FROM groups g
+LEFT JOIN group_mappings gm ON gm.group_id = g.id
 ORDER BY g.builtin DESC, lower(g.name)
 `
 
@@ -351,6 +365,8 @@ type ListGroupsRow struct {
 	Name        string
 	Builtin     bool
 	MemberCount int64
+	MappedID    string
+	MappedName  string
 }
 
 func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
@@ -367,6 +383,8 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 			&i.Name,
 			&i.Builtin,
 			&i.MemberCount,
+			&i.MappedID,
+			&i.MappedName,
 		); err != nil {
 			return nil, err
 		}

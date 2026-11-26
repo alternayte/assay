@@ -4,6 +4,177 @@
  */
 
 export interface paths {
+    "/api/auth/oauth2/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Start the authorization code flow */
+        get: operations["oauthProviderAuthorize"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/consents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the standing consents of the user */
+        get: operations["oauthProviderConsents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/consents/{clientID}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Withdraw the consent of one client */
+        delete: operations["oauthProviderWithdrawConsent"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve or deny one authorization request */
+        post: operations["oauthProviderDecide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/jwks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the published key set */
+        get: operations["oauthProviderJWKS"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register one client */
+        post: operations["oauthProviderRegister"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one authorization request */
+        get: operations["oauthProviderRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke one token */
+        post: operations["oauthProviderRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a code, a refresh token, or client credentials */
+        post: operations["oauthProviderToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth2/userinfo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the claims of an access token */
+        get: operations["oauthProviderUserInfo"];
+        put?: never;
+        /** Read the claims of an access token */
+        post: operations["oauthProviderUserInfoPost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/password/change": {
         parameters: {
             query?: never;
@@ -137,7 +308,7 @@ export interface paths {
         put?: never;
         /**
          * Ask a question
-         * @description Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.
+         * @description Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice. The thread of another user gives 404.
          */
         post: operations["ask"];
         delete?: never;
@@ -363,6 +534,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connected-apps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the MCP clients that you approved
+         * @description Disconnect a client with the withdraw route of the OAuth provider.
+         */
+        get: operations["listConnectedApps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connections": {
         parameters: {
             query?: never;
@@ -395,7 +586,7 @@ export interface paths {
         put?: never;
         /**
          * List the scope options of a source
-         * @description Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.
+         * @description Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.
          */
         post: operations["listConnectionScopes"];
         delete?: never;
@@ -444,6 +635,26 @@ export interface paths {
          * @description Deletes the connection and all its data. The registry cannot be purged.
          */
         delete: operations["purgeConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/connections/{id}/cloud": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch a Data Center connection to Cloud
+         * @description Validates the Cloud site, email and API token, saves the old host as previousHost and queues a full sync. The sync rewrites the keys of the items and entities of the connection, so claims, evidence, reviews and pages stay. A reconciliation after it tombstones the items that matched nothing.
+         */
+        post: operations["switchConnectionToCloud"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -562,6 +773,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections/{id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new webhook URL and secret
+         * @description Makes the webhook URL and secret of a connection, or replaces them. The old URL then returns 404. The response is the only place that shows them.
+         */
+        post: operations["rotateConnectionWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decisions": {
         parameters: {
             query?: never;
@@ -673,6 +904,26 @@ export interface paths {
         put?: never;
         /** Run the installation checks */
         post: operations["runDiagnostics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnostics/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the questions to improve
+         * @description Questions of all users of the last 90 days with no evidence or a not-helpful mark, grouped by the first thing that each names. A question shows only when all connections of its answer are visible to the caller. No row names the asker or holds the answer.
+         */
+        get: operations["listQuestionsToImprove"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1062,6 +1313,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/feedback/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the rated questions for an evaluation set
+         * @description assay eval --from-feedback reads it. Each question has a mark, and all connections of its answer are visible to the caller. An up-marked answer gives the titles of its cited items. No row names the asker.
+         */
+        get: operations["listFeedbackQuestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/findings": {
         parameters: {
             query?: never;
@@ -1136,6 +1407,30 @@ export interface paths {
         head?: never;
         /** Rename a group */
         patch: operations["renameGroup"];
+        trace?: never;
+    };
+    "/api/v1/groups/{id}/mapping": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Map an IdP group to a group
+         * @description The IdP then sets the members. The current members are removed, and sign-in and the directory poll add the IdP members.
+         */
+        put: operations["setGroupMapping"];
+        post?: never;
+        /**
+         * Remove the IdP mapping of a group
+         * @description The members stay, and admins change them again.
+         */
+        delete: operations["deleteGroupMapping"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/groups/{id}/members": {
@@ -1257,6 +1552,23 @@ export interface paths {
          * @description A hidden item and a missing item give the same 404.
          */
         get: operations["getItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mcp/oauth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the state of OAuth sign-in of MCP clients */
+        get: operations["getMCPOAuth"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1540,8 +1852,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List your questions
-         * @description The history is private. Each user sees only their own questions.
+         * List your question threads
+         * @description The history is private. Each user sees only their own questions. Each row is one thread.
          */
         get: operations["listQuestions"];
         put?: never;
@@ -1560,11 +1872,31 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get one of your questions with its answer
-         * @description The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.
+         * Get the thread of one of your questions
+         * @description Any turn gives the whole thread. The question of another user gives 404. When a source of a turn is no longer visible, the answer of that turn is hidden.
          */
         get: operations["getQuestion"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/questions/{id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Mark one of your answers as helpful or not helpful
+         * @description One mark per answer. A new mark replaces the old one. Only a down mark keeps the reason and the wrong-citation flag. The question of another user gives 404.
+         */
+        put: operations["setFeedback"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1801,6 +2133,83 @@ export interface paths {
          * @description Needs the setup token from ASSAY_SETUP_TOKEN. Returns 404 after the first admin exists.
          */
         post: operations["completeSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sign-in/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the sign-in methods
+         * @description The sign-in page calls it before sign-in.
+         */
+        get: operations["getSignInOptions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the state of SSO and the directory sync */
+        get: operations["getSSOStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/directory/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List directory groups
+         * @description Reads the groups of the directory for the group picker.
+         */
+        get: operations["listDirectoryGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sso/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the client secret
+         * @description The secret is write-only.
+         */
+        put: operations["setSSOSecret"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2060,17 +2469,12 @@ export interface components {
             isName: boolean;
         };
         Answer: {
-            /**
-             * Format: uri
-             * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/v1/schemas/Answer.json
-             */
-            readonly $schema?: string;
             cited: string[];
             claims: components["schemas"]["ContextClaim"][];
             conflicts: components["schemas"]["ConflictBlock"][];
             /** Format: date-time */
             createdAt: string;
+            feedback?: components["schemas"]["Feedback"];
             links: components["schemas"]["Linked"];
             lint: components["schemas"]["Finding"][];
             /** @description Markers such as [S1] link to sources and claims. */
@@ -2078,10 +2482,23 @@ export interface components {
             noEvidence: boolean;
             notice?: components["schemas"]["Notice"];
             question: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 when Assay refused the question and did not store it.
+             */
             questionId: number;
             results: components["schemas"]["Result"][];
             sources: components["schemas"]["Source"][];
+            /**
+             * Format: int64
+             * @description The ID of the first question of the thread.
+             */
+            threadId: number;
+            /**
+             * Format: int64
+             * @description The position in the thread, from 1.
+             */
+            turn: number;
             /** @description Sentences without a valid citation. */
             uncited: string[];
             unknowns: string[];
@@ -2097,6 +2514,15 @@ export interface components {
             /** Format: int64 */
             tokensOut: number;
         };
+        AppsOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AppsOutBody.json
+             */
+            readonly $schema?: string;
+            apps: components["schemas"]["ConnectedApp"][];
+        };
         AskInBody: {
             /**
              * Format: uri
@@ -2105,6 +2531,11 @@ export interface components {
              */
             readonly $schema?: string;
             question: string;
+            /**
+             * Format: int64
+             * @description A thread of the caller. The question is a follow-up in it. A full thread starts a new thread.
+             */
+            threadId?: number;
         };
         AuthResponse: {
             emailVerificationRequired?: boolean;
@@ -2309,7 +2740,26 @@ export interface components {
             docsUrl: string;
             glossaryUrl: string;
             mcpUrl: string;
+            /** @description True when a hosted MCP client can sign in with OAuth at the MCP URL. */
+            oauth: boolean;
             openapiUrl: string;
+        };
+        ConnectedApp: {
+            clientId: string;
+            /**
+             * Format: date-time
+             * @description The time of the last approval.
+             */
+            connectedAt: string;
+            /** @description The host of the client. A client cannot fake it. */
+            host: string;
+            /**
+             * @description static is verified by Assay. dynamic and cimd registered themselves.
+             * @enum {string}
+             */
+            kind: "static" | "dynamic" | "cimd";
+            name: string;
+            scopes: string[];
         };
         ConnectionBody: {
             /**
@@ -2327,21 +2777,28 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             name: string;
+            /** @description Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads). */
             options?: {
                 [key: string]: unknown;
             };
             /**
              * Format: int32
+             * @description The parts of a run, such as spaces or repositories, that run at once across all worker processes.
              * @default 4
              */
-            rateConcurrency: number;
+            parallelParts: number;
+            /**
+             * Format: int32
+             * @description Leave it out for the default: 4, or 2 for Slack.
+             */
+            rateConcurrency?: number;
             /**
              * Format: double
-             * @default 5
+             * @description Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack.
              */
-            ratePerSecond: number;
+            ratePerSecond?: number;
             /**
              * Format: int32
              * @default 24
@@ -2355,7 +2812,7 @@ export interface components {
              * @default 30
              */
             syncMinutes: number;
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         ConnectionRecord: {
@@ -2372,6 +2829,11 @@ export interface components {
             createdAt: string;
             /** Format: int64 */
             defaultDomainId: number | null;
+            /**
+             * @description Data Center or Cloud, for Jira and Confluence.
+             * @enum {string}
+             */
+            deployment?: "dc" | "cloud";
             excludeGlobs: string[];
             hasToken: boolean;
             /** Format: int64 */
@@ -2380,7 +2842,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -2394,6 +2856,11 @@ export interface components {
             };
             ownerEmail: string;
             ownerId: string | null;
+            /**
+             * Format: int32
+             * @description The parts of a run, such as spaces or repositories, that run at once across all worker processes.
+             */
+            parallelParts: number;
             /** Format: date-time */
             permissionsCheckedAt: string | null;
             /** Format: int32 */
@@ -2408,9 +2875,13 @@ export interface components {
             /** @enum {string} */
             status: "active" | "paused";
             statusReason: string;
+            /** @description True from a switch to Cloud until a sync rewrote the keys. */
+            switching: boolean;
             /** Format: int32 */
             syncMinutes: number;
             visibility: components["schemas"]["GroupRef"][];
+            /** @description The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none. */
+            webhook?: components["schemas"]["WebhookRecord"];
         };
         ContextClaim: {
             /** Format: int64 */
@@ -2670,6 +3141,11 @@ export interface components {
             op: "=" | "+" | "-";
             text: string;
         };
+        DirectoryGroup: {
+            /** @description The IdP group ID. */
+            id: string;
+            name: string;
+        };
         Domain: {
             description: string;
             /** Format: int64 */
@@ -2876,6 +3352,32 @@ export interface components {
             /** @enum {string} */
             rule: "sentence_length" | "summary_length" | "banned_word" | "deprecated_term" | "uncited";
         };
+        Feedback: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Feedback.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            reason: string;
+            wrongCitation: boolean;
+        };
+        FeedbackInBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/FeedbackInBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            /** @description Only a down mark keeps it. */
+            reason?: string;
+            /** @description A citation of the answer is wrong. Only a down mark keeps it. */
+            wrongCitation?: boolean;
+        };
         FieldError: {
             location: string;
             message: string;
@@ -2977,6 +3479,7 @@ export interface components {
             builtin: boolean;
             /** Format: int64 */
             id: number;
+            mapping?: components["schemas"]["Mapping"];
             /** Format: int64 */
             memberCount: number;
             name: string;
@@ -2988,6 +3491,15 @@ export interface components {
             /** Format: int64 */
             id: number;
             name: string;
+        };
+        GroupsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/GroupsOutputBody.json
+             */
+            readonly $schema?: string;
+            groups: components["schemas"]["DirectoryGroup"][];
         };
         HistoryOutputBody: {
             /**
@@ -3033,6 +3545,35 @@ export interface components {
             /** Format: int64 */
             updated: number;
         };
+        ImproveGroup: {
+            entityKey: string;
+            entityName: string;
+            questions: components["schemas"]["ImproveQuestion"][];
+        };
+        ImproveOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImproveOutBody.json
+             */
+            readonly $schema?: string;
+            groups: components["schemas"]["ImproveGroup"][];
+        };
+        ImproveQuestion: {
+            /** Format: date-time */
+            askedAt: string;
+            /** Format: int64 */
+            id: number;
+            noEvidence: boolean;
+            /**
+             * @description Empty without a mark.
+             * @enum {string}
+             */
+            rating: "" | "up" | "down";
+            reason: string;
+            text: string;
+            wrongCitation: boolean;
+        };
         Invite: {
             /** Format: date-time */
             createdAt: string;
@@ -3060,7 +3601,7 @@ export interface components {
             kind: string;
             passages: components["schemas"]["PassageRecord"][];
             /** @enum {string} */
-            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo";
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             title: string;
             /** Format: date-time */
             updatedAt: string | null;
@@ -3282,6 +3823,21 @@ export interface components {
             email: string;
             role: string;
         };
+        Mapping: {
+            externalId: string;
+            externalName: string;
+        };
+        MappingInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MappingInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description The IdP group ID. Entra ID uses the object ID. */
+            externalId: string;
+            externalName: string;
+        };
         Match: {
             /** Format: int64 */
             end: number;
@@ -3389,8 +3945,19 @@ export interface components {
         };
         Notice: {
             /** @enum {string} */
-            code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden";
+            code: "answer_off" | "budget_exceeded" | "answer_failed" | "hidden" | "thread_hidden";
             message: string;
+        };
+        OAuthStatus: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/OAuthStatus.json
+             */
+            readonly $schema?: string;
+            /** @description The environment variable that sets the field. Empty when none does. */
+            lockedBy: string;
+            on: boolean;
         };
         OutBody: {
             /**
@@ -3510,6 +4077,28 @@ export interface components {
             /** @enum {string} */
             state: "fresh" | "stale" | "missing" | "insufficient" | "needs_edit" | "off" | "failed";
         };
+        PartRecord: {
+            /** Format: int32 */
+            created: number;
+            /** Format: int32 */
+            deleted: number;
+            error: string;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** @description The worker process that ran the part. */
+            host: string;
+            part: string;
+            /** Format: int32 */
+            seen: number;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** @enum {string} */
+            status: "queued" | "running" | "succeeded" | "failed";
+            /** Format: int32 */
+            unchanged: number;
+            /** Format: int32 */
+            updated: number;
+        };
         PassageRecord: {
             hash: string;
             headingPath: string[];
@@ -3537,6 +4126,19 @@ export interface components {
             readonly $schema?: string;
             /** @description True pauses the connection: its sync and reconcile runs stop, and its content stays visible. False resumes it and queues a sync and a reconciliation. */
             paused: boolean;
+        };
+        PollStatus: {
+            /** @description The error of the last poll. Empty after a good poll. */
+            lastError: string;
+            /** Format: date-time */
+            lastErrorAt: string | null;
+            /** Format: date-time */
+            lastStartedAt: string | null;
+            /**
+             * Format: date-time
+             * @description The end of the last good poll.
+             */
+            lastSuccessAt: string | null;
         };
         Precision: {
             /** Format: int64 */
@@ -3680,11 +4282,39 @@ export interface components {
             value: unknown;
         };
         QuestionSummary: {
-            /** Format: date-time */
-            createdAt: string;
+            /**
+             * Format: int64
+             * @description The thread ID: the ID of the first question.
+             */
+            id: number;
+            /**
+             * Format: date-time
+             * @description The time of the last turn.
+             */
+            lastAt: string;
+            /** @description The first question of the thread. */
+            text: string;
+            /** Format: int64 */
+            turns: number;
+        };
+        RatedOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RatedOutBody.json
+             */
+            readonly $schema?: string;
+            questions: components["schemas"]["RatedQuestion"][];
+        };
+        RatedQuestion: {
             /** Format: int64 */
             id: number;
-            text: string;
+            noEvidence: boolean;
+            question: string;
+            /** @enum {string} */
+            rating: "up" | "down";
+            /** @description The titles of the cited items of an up-marked answer, as the reader sees them. */
+            sources: string[];
         };
         Record: {
             action: string;
@@ -3829,6 +4459,32 @@ export interface components {
         RevokeAllResponse: {
             revoked: number;
         };
+        Rewrite: {
+            /**
+             * Format: int32
+             * @description Entity keys that got the Cloud host.
+             */
+            entities: number;
+            /** @description The Data Center host. */
+            from: string;
+            /**
+             * Format: int32
+             * @description Stored items that matched a Cloud item.
+             */
+            items: number;
+            /**
+             * Format: int32
+             * @description Data Center people that matched a Cloud account by email.
+             */
+            people: number;
+            /** @description The Cloud host. */
+            to: string;
+            /**
+             * Format: int32
+             * @description Cloud people that matched no person. Each is a new person entity.
+             */
+            unmatched: number;
+        };
         RoleInputBody: {
             /**
              * Format: uri
@@ -3861,8 +4517,11 @@ export interface components {
             id: number;
             /** @enum {string} */
             kind: "sync" | "reconcile";
+            parts: components["schemas"]["PartRecord"][];
             /** Format: date-time */
             queuedAt: string;
+            /** @description The key rewrite of the first sync after a switch to Cloud. */
+            rewrite?: components["schemas"]["Rewrite"];
             /** Format: int32 */
             seen: number;
             skipped: components["schemas"]["Skip"][];
@@ -3885,6 +4544,31 @@ export interface components {
              */
             readonly $schema?: string;
             runs: components["schemas"]["RunRecord"][];
+        };
+        SSOStatus: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SSOStatus.json
+             */
+            readonly $schema?: string;
+            /** @description True when an enabled admin has a linked SSO account. */
+            adminLinked: boolean;
+            /** @description The redirect URI to register at the identity provider. */
+            callbackUrl: string;
+            directory: components["schemas"]["PollStatus"];
+            directoryOn: boolean;
+            /** @description The configuration after the environment variables. */
+            effective: components["schemas"]["SignInConfig"];
+            /** @description The fields that an environment variable sets, with the variable name. */
+            locks: {
+                [key: string]: string;
+            };
+            /** @description True when password sign-in is served now. */
+            passwordOn: boolean;
+            /** @description True when the issuer, the client ID and the client secret are set. */
+            ready: boolean;
+            secretSet: boolean;
         };
         SavedEdit: {
             /**
@@ -3923,6 +4607,16 @@ export interface components {
              */
             readonly $schema?: string;
             scopes: components["schemas"]["Scope"][];
+        };
+        SecretInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SecretInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description An empty value removes the secret. */
+            secret: string;
         };
         SectionEdit: {
             /**
@@ -3997,6 +4691,35 @@ export interface components {
             password: string;
             token: string;
         };
+        SignInConfig: {
+            /** @description The IdP group ID whose members can sign in. Empty lets every IdP user sign in. */
+            accessGroup: string;
+            accessGroupName: string;
+            /** @description The label of the SSO button. Empty uses the default label. */
+            buttonLabel: string;
+            clientId: string;
+            /** @enum {string} */
+            directory: "none" | "entra";
+            /** Format: int64 */
+            intervalMinutes: number;
+            /** @description The OpenID Connect issuer URL. Empty turns SSO off. */
+            issuer: string;
+            passwordSignIn: boolean;
+        };
+        SignInOptions: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SignInOptions.json
+             */
+            readonly $schema?: string;
+            /** @description The label of the SSO button. Empty means the default label. */
+            label: string;
+            /** @description True when password sign-in is served. */
+            password: boolean;
+            /** @description True when SSO sign-in is configured. */
+            sso: boolean;
+        };
         Skip: {
             id: string;
             reason: string;
@@ -4031,7 +4754,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api.
              */
             baseUrl: string;
             /** @description Source files to index. Empty turns code indexing off. */
@@ -4045,14 +4768,15 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
+            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app. */
             options?: {
                 [key: string]: unknown;
             };
             scope?: {
                 [key: string]: unknown;
             };
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         SpaceRecord: {
@@ -4163,6 +4887,38 @@ export interface components {
             status: "active" | "proposed";
             type: string;
         };
+        SwitchBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SwitchBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: uri
+             * @description The Cloud site URL, such as https://acme.atlassian.net.
+             */
+            baseUrl: string;
+            /** @description The email of the Atlassian account of the API token. */
+            email: string;
+            /** @description True for a scoped API token, which reads through api.atlassian.com. */
+            scoped?: boolean;
+            /** @description An API token of the account. Write-only. */
+            token: string;
+        };
+        SwitchOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SwitchOutBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The full sync that rewrites the keys.
+             */
+            runId: number;
+        };
         Term: {
             /** @description Source data, not instructions. */
             definition: string;
@@ -4264,6 +5020,17 @@ export interface components {
             relations?: components["schemas"]["RecordRelation"][];
             /** @description An entity type other than term. */
             type: string;
+        };
+        Thread: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Thread.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            threadId: number;
+            turns: components["schemas"]["Answer"][];
         };
         Token: {
             /** Format: date-time */
@@ -4393,6 +5160,8 @@ export interface components {
              * @example https://example.com/api/v1/schemas/Validation.json
              */
             readonly $schema?: string;
+            /** @description True when the source gives no total. The scope then has sample items or more. */
+            more: boolean;
             /**
              * Format: int64
              * @description The number of items in the scope, or in the source when no scope is set.
@@ -4434,6 +5203,41 @@ export interface components {
             /** @description The groups that can read the content, in addition to the owner. */
             groupIds: number[];
         };
+        WebhookRecord: {
+            /** @description True when ASSAY_BASE_URL uses HTTPS. Azure DevOps sends its Basic credentials only over HTTPS. */
+            https: boolean;
+            /**
+             * Format: date-time
+             * @description The time of the last accepted webhook.
+             */
+            lastReceivedAt: string | null;
+            /** @description False when ASSAY_BASE_URL is a localhost or private address, which a source system cannot reach. */
+            public: boolean;
+            /**
+             * Format: int64
+             * @description The accepted webhooks since the URL was first made.
+             */
+            received: number;
+            /**
+             * Format: date-time
+             * @description When the URL and the secret were made. Null before the first time.
+             */
+            rotatedAt: string | null;
+        };
+        WebhookSecret: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WebhookSecret.json
+             */
+            readonly $schema?: string;
+            /** @description The signing secret, or the Basic password for Azure DevOps. Assay shows it only now. */
+            secret: string;
+            /** @description The URL to register in the source. It holds the token. Assay shows it only now. */
+            url: string;
+            /** @description The Basic user name for Azure DevOps. */
+            username?: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -4443,6 +5247,263 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    oauthProviderAuthorize: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderConsents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The consents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        consents: {
+                            clientId: string;
+                            clientName: string;
+                            resources?: string[];
+                            scopes: string[];
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderWithdrawConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The client. */
+                clientID: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The withdrawal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        withdrawn: boolean;
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderDecide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    approve: boolean;
+                    requestId: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The redirect target. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        redirectTo: string;
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderJWKS: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderRegister: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderRequest: {
+        parameters: {
+            query: {
+                /** @description The authorization request. */
+                request_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The authorization request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        clientHost: string;
+                        clientId: string;
+                        /** @enum {string} */
+                        clientKind: "static" | "dynamic" | "cimd";
+                        clientName: string;
+                        consentGranted: boolean;
+                        firstParty: boolean;
+                        logoUri?: string;
+                        needsSignIn: boolean;
+                        requestId: string;
+                        resources?: string[];
+                        scopes: string[];
+                    };
+                };
+            };
+        };
+    };
+    oauthProviderRevoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderUserInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    oauthProviderUserInfoPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The answer of the route, as its RFC defines it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     passwordChange: {
         parameters: {
             query?: never;
@@ -5187,6 +6248,35 @@ export interface operations {
             };
         };
     };
+    listConnectedApps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppsOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listConnections: {
         parameters: {
             query?: never;
@@ -5396,6 +6486,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    switchConnectionToCloud: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchOutBody"];
+                };
             };
             /** @description Error */
             default: {
@@ -5664,6 +6789,37 @@ export interface operations {
             };
         };
     };
+    rotateConnectionWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSecret"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listDecisions: {
         parameters: {
             query?: {
@@ -5832,6 +6988,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutBody1"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listQuestionsToImprove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImproveOutBody"];
                 };
             };
             /** @description Error */
@@ -6615,6 +7800,35 @@ export interface operations {
             };
         };
     };
+    listFeedbackQuestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatedOutBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     proposeFinding: {
         parameters: {
             query?: never;
@@ -6792,6 +8006,68 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Group"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setGroupMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MappingInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteGroupMapping: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {
@@ -7070,6 +8346,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ItemRecord"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getMCPOAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OAuthStatus"];
                 };
             };
             /** @description Error */
@@ -7619,7 +8924,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Answer"];
+                    "application/json": components["schemas"]["Thread"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setFeedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackInBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Feedback"];
                 };
             };
             /** @description Error */
@@ -7906,7 +9246,7 @@ export interface operations {
                 /** @description Search source code only. Off by default: results hold no source code. */
                 code?: boolean;
                 /** @description The kind of the source connection. */
-                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "";
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack" | "";
                 connection?: number;
                 /** @description Items about an entity of this type. */
                 entityType?: string;
@@ -8148,6 +9488,127 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserRecord"];
                 };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSignInOptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOptions"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSSOStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SSOStatus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listDirectoryGroups: {
+        parameters: {
+            query?: {
+                /** @description The start of the group name. */
+                prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupsOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setSSOSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecretInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Error */
             default: {

@@ -1,17 +1,18 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowUpRight, CornerDownLeft, X } from "lucide-react";
+import { ArrowUpRight, CornerDownLeft, Plus, ThumbsDown, ThumbsUp, X } from "lucide-react";
 import { Dialog as D } from "radix-ui";
 import type * as React from "react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
-import { api, type Schemas, unwrap } from "@/api/client";
+import { ApiError, api, type Schemas, unwrap } from "@/api/client";
+import { ProposeFinding } from "@/components/finding";
 import { ReportProblem } from "@/components/report";
 import { type Linked, linkMarkdown, splitLinks, TermLink, termOf } from "@/components/terms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
+import { Field, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { Empty, Sheet } from "@/components/ui/sheet";
 import { SkeletonRows } from "@/components/ui/skeleton";
@@ -21,6 +22,8 @@ import { formatAgo, formatTime } from "@/lib/format";
 import { readEvents } from "@/lib/sse";
 
 type Answer = Schemas["Answer"];
+type Thread = Schemas["Thread"];
+type Feedback = Pick<Schemas["Feedback"], "rating" | "reason" | "wrongCitation">;
 type Result = Schemas["Result"];
 type Entity = Schemas["Entity"];
 type Source = Schemas["Source"];
@@ -270,23 +273,23 @@ function Blocks({ answer, onOpen }: { answer: Answer; onOpen: (o: Opened) => voi
   );
 }
 
-function HowWeKnow({ answer, onOpen }: { answer: Answer; onOpen: (o: Opened) => void }) {
+function HowWeKnow({ answer, onOpen, down }: { answer: Answer; onOpen: (o: Opened) => void; down: boolean }) {
   const claims = answer.claims.filter((c) => answer.cited.includes(c.id));
   const sources = answer.sources.filter((s) => answer.cited.includes(s.id));
   return (
-    <details className="group rounded-sm border border-rule bg-paper">
+    <details key={down ? "down" : "up"} open={down} className="group rounded-sm border border-rule bg-paper">
       <summary className="cursor-pointer list-none px-3 py-2 font-medium text-accent marker:hidden hover:bg-paper-sunk">
         {t("ask.howTitle")}
       </summary>
       <div className="flex flex-col gap-3 border-t border-rule px-3 py-3">
-        <p className="text-sm text-ink-muted">{t("ask.howBody")}</p>
+        <p className="text-sm text-ink-muted">{down ? t("feedback.fixHint") : t("ask.howBody")}</p>
         {claims.length === 0 && sources.length === 0 && <p>{t("ask.howEmpty")}</p>}
         {claims.length > 0 && (
           <div>
             <h4 className="label mb-1">{t("ask.howClaims")}</h4>
             <ul className="flex flex-col gap-1">
               {claims.map((c) => (
-                <li key={c.id} className="flex items-baseline gap-2">
+                <li key={c.id} className="flex flex-wrap items-baseline gap-2">
                   <button
                     type="button"
                     onClick={() => onOpen({ kind: "claim", claim: c })}
@@ -298,6 +301,11 @@ function HowWeKnow({ answer, onOpen }: { answer: Answer; onOpen: (o: Opened) => 
                   <span className="font-mono text-xs text-ink-muted">
                     {[...new Set(c.evidence.map((e) => e.connectionName))].join(", ")}
                   </span>
+                  {down && (
+                    <ReportProblem
+                      claim={{ id: c.claimId, title: claimText(c), entity: Boolean(c.objectKey) }}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -320,6 +328,7 @@ function HowWeKnow({ answer, onOpen }: { answer: Answer; onOpen: (o: Opened) => 
                   <span className="font-mono text-xs text-ink-muted">
                     {sourceType(s.sourceType)} · {s.connectionName}
                   </span>
+                  {down && <ProposeFinding source={{ itemId: s.itemId, title: s.title }} />}
                 </li>
               ))}
             </ul>
@@ -503,7 +512,9 @@ function History({ current }: { current?: number }) {
                 {q.text}
               </Link>
               <span className="font-mono text-xs text-ink-muted">
-                {t("ask.asked", { when: formatAgo(q.createdAt) })}
+                {q.turns > 1
+                  ? `${t("ask.historyTurns", { count: q.turns })} · ${t("ask.lastAsked", { when: formatAgo(q.lastAt) })}`
+                  : t("ask.asked", { when: formatAgo(q.lastAt) })}
               </span>
             </li>
           ))}
@@ -519,12 +530,140 @@ type Live = {
   answer?: Answer;
   error?: boolean;
   pending: boolean;
+  question: string;
 };
 
-function AnswerSheet({ live, onOpen }: { live: Live; onOpen: (o: Opened) => void }) {
+/** The marks of the asker on one answer. A down mark takes a reason and the wrong-citation flag. */
+function Marks({
+  answer,
+  privacy,
+  onSaved,
+}: {
+  answer: Answer;
+  privacy: boolean;
+  onSaved: (f: Feedback) => void;
+}) {
+  const mark = answer.feedback;
+  const [reason, setReason] = useState(mark?.reason ?? "");
+  const [wrong, setWrong] = useState(mark?.wrongCitation ?? false);
+  const [saved, setSaved] = useState(false);
+  const save = useMutation({
+    mutationFn: async (f: Feedback) =>
+      unwrap(
+        await api.PUT("/api/v1/questions/{id}/feedback", {
+          params: { path: { id: answer.questionId } },
+          body: f,
+        }),
+      ),
+    onSuccess: (f) => {
+      setSaved(true);
+      onSaved(f);
+    },
+  });
+  const rate = (rating: "up" | "down") => {
+    setSaved(false);
+    save.mutate(
+      rating === "up"
+        ? { rating, reason: "", wrongCitation: false }
+        : { rating, reason: reason.trim(), wrongCitation: wrong },
+    );
+  };
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    rate("down");
+  };
+  const reasonId = useId();
+  const wrongId = useId();
+  return (
+    <div className="flex flex-col gap-3 border-t border-rule pt-3">
+      <fieldset className="flex flex-wrap items-center gap-2">
+        <legend className="sr-only">{t("feedback.question")}</legend>
+        <span aria-hidden className="text-base text-ink-muted">
+          {t("feedback.question")}
+        </span>
+        <Button
+          size="sm"
+          variant={mark?.rating === "up" ? "primary" : "secondary"}
+          aria-pressed={mark?.rating === "up"}
+          disabled={save.isPending}
+          onClick={() => rate("up")}
+        >
+          <ThumbsUp aria-hidden />
+          {t("feedback.up")}
+        </Button>
+        <Button
+          size="sm"
+          variant={mark?.rating === "down" ? "primary" : "secondary"}
+          aria-pressed={mark?.rating === "down"}
+          disabled={save.isPending}
+          onClick={() => rate("down")}
+        >
+          <ThumbsDown aria-hidden />
+          {t("feedback.down")}
+        </Button>
+        {saved && !save.isPending && (
+          <span role="status" className="text-sm text-ink-muted">
+            {t("feedback.saved")}
+          </span>
+        )}
+      </fieldset>
+      {save.isError && (
+        <Notice tone="danger">
+          {save.error instanceof ApiError ? save.error.message : t("errors.network")}
+        </Notice>
+      )}
+      {mark?.rating === "down" && (
+        <form onSubmit={submit} className="flex flex-col gap-2">
+          <label htmlFor={reasonId} className="label">
+            {t("feedback.reason")}
+          </label>
+          <Textarea
+            id={reasonId}
+            aria-describedby={`${reasonId}-hint`}
+            rows={2}
+            maxLength={2000}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <p id={`${reasonId}-hint`} className="text-sm text-ink-muted">
+            {t("feedback.reasonHint")}
+          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <label htmlFor={wrongId} className="flex items-center gap-2 text-base">
+              <input
+                id={wrongId}
+                type="checkbox"
+                checked={wrong}
+                onChange={(e) => setWrong(e.target.checked)}
+                className="size-4 accent-accent"
+              />
+              {t("feedback.wrongCitation")}
+            </label>
+            <Button type="submit" size="sm" disabled={save.isPending}>
+              {t("feedback.save")}
+            </Button>
+          </div>
+        </form>
+      )}
+      {privacy && <p className="text-sm text-ink-muted">{t("feedback.privacy")}</p>}
+    </div>
+  );
+}
+
+function AnswerSheet({
+  live,
+  title,
+  onOpen,
+  footer,
+}: {
+  live: Live;
+  title: string;
+  onOpen: (o: Opened) => void;
+  footer?: React.ReactNode;
+}) {
   const a = live.answer;
   return (
-    <Sheet title={t("ask.answer")} description={a?.question}>
+    <Sheet title={title} description={live.question}>
       <div className="flex flex-col gap-4" aria-live="polite" aria-busy={live.pending}>
         {live.error && <Notice tone="danger">{t("ask.error")}</Notice>}
         {a?.notice && <Notice>{a.notice.message}</Notice>}
@@ -545,39 +684,56 @@ function AnswerSheet({ live, onOpen }: { live: Live; onOpen: (o: Opened) => void
           <p className="text-sm text-ink-muted">{t("ask.uncited", { count: a.uncited.length })}</p>
         )}
         {a && <Blocks answer={a} onOpen={onOpen} />}
-        {a && a.markdown !== "" && <HowWeKnow answer={a} onOpen={onOpen} />}
+        {a && a.markdown !== "" && (
+          <HowWeKnow answer={a} onOpen={onOpen} down={a.feedback?.rating === "down"} />
+        )}
+        {footer}
       </div>
     </Sheet>
   );
 }
 
-/** Ask: the home page. A question streams its answer; an ID opens a stored one. */
+const done = (a: Answer): Live => ({ draft: "", pending: false, answer: a, question: a.question });
+
+/** Ask: the home page. A question streams its answer; an ID opens its thread with a follow-up field. */
 export function AskPage() {
   const { id } = useParams({ strict: false }) as { id?: string };
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [question, setQuestion] = useState("");
+  const [followUp, setFollowUp] = useState("");
   const [live, setLive] = useState<Live>();
+  const [started, setStarted] = useState<number>();
   const [opened, setOpened] = useState<Opened>();
   const abort = useRef<AbortController>(null);
+  const shownId = useRef(id);
 
   const stored = useQuery({
     queryKey: ["question", id],
-    enabled: id !== undefined && live === undefined,
+    enabled: id !== undefined,
     queryFn: async () =>
       unwrap(await api.GET("/api/v1/questions/{id}", { params: { path: { id: Number(id) } } })),
   });
+  const thread = stored.data;
 
   useEffect(() => () => abort.current?.abort(), []);
+  // Another thread, or a new question, drops the answer in progress.
+  useEffect(() => {
+    if (shownId.current === id) return;
+    shownId.current = id;
+    abort.current?.abort();
+    setLive(undefined);
+    setFollowUp("");
+  }, [id]);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const q = question.trim();
-    if (!q) return;
+  const setThread = (key: string, update: (th?: Thread) => Thread | undefined) =>
+    qc.setQueryData<Thread>(["question", key], update);
+
+  const ask = async (q: string, threadId?: number) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
-    let state: Live = { draft: "", pending: true };
+    let state: Live = { draft: "", pending: true, question: q };
     const update = (next: Partial<Live>) => {
       state = { ...state, ...next };
       setLive(state);
@@ -585,7 +741,7 @@ export function AskPage() {
     update({});
     try {
       const r = await api.POST("/api/v1/ask", {
-        body: { question: q },
+        body: { question: q, threadId },
         parseAs: "stream",
         signal: ctl.signal,
       });
@@ -598,81 +754,154 @@ export function AskPage() {
         if (ev.event === "error") update({ error: true, pending: false });
       });
       update({ pending: false });
-      if (state.answer) {
-        qc.invalidateQueries({ queryKey: ["questions"] });
-        qc.setQueryData(["question", String(state.answer.questionId)], state.answer);
-        navigate({ to: "/questions/$id", params: { id: String(state.answer.questionId) } });
+      const a = state.answer;
+      // A refused follow-up is not stored. It stays on the page with its notice.
+      if (!a || a.questionId === 0) return;
+      qc.invalidateQueries({ queryKey: ["questions"] });
+      if (threadId !== undefined && a.threadId === threadId) {
+        setThread(String(threadId), (th) => th && { ...th, turns: [...th.turns, a] });
+        setFollowUp("");
+        setLive(undefined);
+        return;
       }
+      if (threadId !== undefined) setStarted(a.threadId);
+      setThread(String(a.threadId), () => ({ threadId: a.threadId, turns: [a] }));
+      navigate({ to: "/questions/$id", params: { id: String(a.threadId) } });
     } catch {
       if (!ctl.signal.aborted) update({ error: true, pending: false });
     }
   };
 
-  // A stored question shows as a finished live answer.
-  const shown: Live | undefined =
-    live ??
-    (stored.data
-      ? {
-          draft: "",
-          pending: false,
-          answer: stored.data,
-          results: { entities: [], results: stored.data.results, degraded: false },
-        }
-      : undefined);
-  useEffect(() => {
-    if (id === undefined) setLive(undefined);
-  }, [id]);
-  useEffect(() => {
-    if (live?.answer && id === String(live.answer.questionId)) setLive(undefined);
-  }, [id, live]);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const q = question.trim();
+    if (q) ask(q);
+  };
+  const submitFollowUp = (e: FormEvent) => {
+    e.preventDefault();
+    const q = followUp.trim();
+    if (q && thread) ask(q, thread.threadId);
+  };
+  const saved = (questionId: number) => (f: Feedback) =>
+    setThread(
+      id ?? "",
+      (th) =>
+        th && {
+          ...th,
+          turns: th.turns.map((a) => (a.questionId === questionId ? { ...a, feedback: f } : a)),
+        },
+    );
+
+  const turns = thread?.turns ?? [];
+  const last = turns[turns.length - 1];
+  const results =
+    live?.results ?? (last ? { entities: [], results: last.results, degraded: false } : undefined);
+  const pending = live?.pending ?? false;
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-semibold tracking-tight">{t("ask.title")}</h1>
-        <p className="text-base text-ink-muted">{t("ask.body")}</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-3xl font-semibold tracking-tight">{t("ask.title")}</h1>
+          <p className="text-base text-ink-muted">{t("ask.body")}</p>
+        </div>
+        {id !== undefined && (
+          <Button asChild>
+            <Link to="/">
+              <Plus aria-hidden />
+              {t("ask.newQuestion")}
+            </Link>
+          </Button>
+        )}
       </header>
-      <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <Field label={t("ask.label")} className="flex-1">
-          {(p) => (
-            <input
-              {...p}
-              type="search"
-              required
-              maxLength={1000}
-              autoComplete="off"
-              placeholder={t("ask.placeholder")}
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              className="h-11 w-full rounded-sm border border-rule-strong bg-paper-raised px-3 text-lg text-ink placeholder:text-ink-faint transition-ink focus-visible:border-accent"
-            />
-          )}
-        </Field>
-        <Button type="submit" variant="primary" disabled={shown?.pending} className="h-11">
-          <CornerDownLeft aria-hidden />
-          {shown?.pending ? t("ask.asking") : t("ask.submit")}
-        </Button>
-      </form>
+      {id === undefined && (
+        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <Field label={t("ask.label")} className="flex-1">
+            {(p) => (
+              <input
+                {...p}
+                type="search"
+                required
+                maxLength={1000}
+                autoComplete="off"
+                placeholder={t("ask.placeholder")}
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                className="h-11 w-full rounded-sm border border-rule-strong bg-paper-raised px-3 text-lg text-ink placeholder:text-ink-faint transition-ink focus-visible:border-accent"
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary" disabled={pending} className="h-11">
+            <CornerDownLeft aria-hidden />
+            {pending ? t("ask.asking") : t("ask.submit")}
+          </Button>
+        </form>
+      )}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="flex min-w-0 flex-col gap-6">
-          {id !== undefined && !shown && stored.isPending && (
+          {id !== undefined && stored.isPending && !live && (
             <SkeletonRows label={t("app.loading")} rows={4} />
           )}
-          {id !== undefined && stored.isError && !live && (
-            <Notice tone="danger">{t("app.notFoundBody")}</Notice>
+          {id !== undefined && stored.isError && <Notice tone="danger">{t("app.notFoundBody")}</Notice>}
+          {started !== undefined && thread?.threadId === started && <Notice>{t("ask.threadStarted")}</Notice>}
+          {turns.map((a) => (
+            <AnswerSheet
+              key={a.questionId}
+              live={done(a)}
+              title={turns.length > 1 || live ? t("ask.turn", { n: a.turn }) : t("ask.answer")}
+              onOpen={setOpened}
+              footer={
+                a.notice?.code === "hidden" ? undefined : (
+                  <Marks
+                    key={a.questionId}
+                    answer={a}
+                    privacy={a === last && !live}
+                    onSaved={saved(a.questionId)}
+                  />
+                )
+              }
+            />
+          ))}
+          {live && (
+            <AnswerSheet
+              live={live}
+              title={thread ? t("ask.turn", { n: turns.length + 1 }) : t("ask.answer")}
+              onOpen={setOpened}
+            />
           )}
-          {shown && <AnswerSheet live={shown} onOpen={setOpened} />}
-          {shown?.results && (
+          {thread && (
+            <form onSubmit={submitFollowUp} className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <Field label={t("ask.followUpLabel")} hint={t("ask.followUpHint")} className="flex-1">
+                  {(p) => (
+                    <input
+                      {...p}
+                      type="search"
+                      required
+                      maxLength={1000}
+                      autoComplete="off"
+                      placeholder={t("ask.followUpPlaceholder")}
+                      value={followUp}
+                      onChange={(e) => setFollowUp(e.target.value)}
+                      className="h-11 w-full rounded-sm border border-rule-strong bg-paper-raised px-3 text-lg text-ink placeholder:text-ink-faint transition-ink focus-visible:border-accent"
+                    />
+                  )}
+                </Field>
+                <Button type="submit" variant="primary" disabled={pending} className="h-11 sm:mb-6">
+                  <CornerDownLeft aria-hidden />
+                  {pending ? t("ask.asking") : t("ask.submit")}
+                </Button>
+              </div>
+              {turns.length >= 6 && <p className="text-sm text-ink-muted">{t("ask.threadFull")}</p>}
+            </form>
+          )}
+          {results && (
             <Sheet title={t("ask.results")}>
-              <ResultList
-                entities={shown.results.entities}
-                results={shown.results.results}
-                degraded={shown.results.degraded}
-              />
+              <ResultList entities={results.entities} results={results.results} degraded={results.degraded} />
             </Sheet>
           )}
         </div>
-        <History current={id ? Number(id) : undefined} />
+        <History current={thread?.threadId} />
       </div>
       <Drawer opened={opened} onClose={() => setOpened(undefined)} />
     </div>

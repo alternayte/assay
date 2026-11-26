@@ -11,6 +11,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,10 +24,18 @@ import (
 	"github.com/alternayte/assay/internal/connectors"
 	"github.com/alternayte/assay/internal/connectors/azdo"
 	"github.com/alternayte/assay/internal/connectors/backstage"
+	"github.com/alternayte/assay/internal/connectors/bitbucket"
 	"github.com/alternayte/assay/internal/connectors/confluence"
+	"github.com/alternayte/assay/internal/connectors/entra"
 	"github.com/alternayte/assay/internal/connectors/github"
+	"github.com/alternayte/assay/internal/connectors/gitlab"
 	"github.com/alternayte/assay/internal/connectors/jira"
+	"github.com/alternayte/assay/internal/connectors/slack"
+	"github.com/alternayte/assay/internal/connectors/teams"
 	"github.com/alternayte/assay/internal/connectors/tree"
+	"github.com/alternayte/assay/internal/connectors/web"
+	"github.com/alternayte/assay/internal/content/files"
+	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
@@ -45,19 +56,46 @@ type RulesConfig struct {
 	SkipGlobs           []string `json:"skipGlobs" doc:"Paths of generated and vendored code. Sync skips them with the reason generated."`
 	MaxCodeFileKB       int      `json:"maxCodeFileKb" minimum:"1" doc:"Source files larger than this are skipped."`
 	MaxCodeFilesPerRepo int      `json:"maxCodeFilesPerRepo" minimum:"1" doc:"The most source files that sync reads in one repository."`
+	MaxCommentsPerIssue int      `json:"maxCommentsPerIssue" minimum:"1" doc:"The most Jira comments of one issue. Above it, the item holds the newest comments."`
 }
 
 // Rules is the definition of the connector rules setting.
 var Rules = settings.Define("connectors", "Rules that connectors use to read sources.",
 	RulesConfig{InitiativeTypes: []string{"Epic", "Initiative"}, BlockLinkType: "Blocks", DecisionLabels: []string{"decision", "adr"},
 		GlossaryLabels: []string{"glossary"}, DefaultGlobs: tree.DefaultGlobs, MaxFileKB: 512, MaxFilesPerRepo: 2000,
-		DefaultCodeGlobs: tree.DefaultCodeGlobs, SkipGlobs: tree.DefaultSkipGlobs, MaxCodeFileKB: 256, MaxCodeFilesPerRepo: 10000},
+		DefaultCodeGlobs: tree.DefaultCodeGlobs, SkipGlobs: tree.DefaultSkipGlobs, MaxCodeFileKB: 256, MaxCodeFilesPerRepo: 10000,
+		MaxCommentsPerIssue: connectors.DefaultMaxComments},
 	func(c RulesConfig) error {
-		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 || c.MaxCodeFileKB < 1 || c.MaxCodeFilesPerRepo < 1 {
+		if c.MaxFileKB < 1 || c.MaxFilesPerRepo < 1 || c.MaxCodeFileKB < 1 || c.MaxCodeFilesPerRepo < 1 || c.MaxCommentsPerIssue < 1 {
 			return errors.New("the limits must be 1 or more")
 		}
 		if c.BlockLinkType == "" {
 			return errors.New("set the block link type")
+		}
+		return nil
+	})
+
+// AttachmentsConfig is the attachments setting: the file types that
+// Confluence connections read and the largest file.
+type AttachmentsConfig struct {
+	Types []string `json:"types" doc:"File types of the attachments to read: pdf, docx and drawio. An empty list reads no attachments."`
+	MaxKB int      `json:"maxKb" minimum:"1" doc:"Attachments larger than this are skipped with too_large."`
+}
+
+// Attachments is the definition of the attachments setting.
+var Attachments = settings.Define("attachments", "Attachments that Confluence connections read.",
+	AttachmentsConfig{Types: slices.Clone(files.Types), MaxKB: 10240},
+	func(c AttachmentsConfig) error {
+		if c.MaxKB < 1 {
+			return errors.New("the largest attachment must be 1 KB or more")
+		}
+		if c.Types == nil {
+			return errors.New("set the types; an empty list reads no attachments")
+		}
+		for _, t := range c.Types {
+			if !slices.Contains(files.Types, t) {
+				return fmt.Errorf("the type %q is not one of %s", t, strings.Join(files.Types, ", "))
+			}
 		}
 		return nil
 	})
@@ -100,6 +138,24 @@ type Service struct {
 	// AfterRun runs in the transaction that finishes a successful run of a
 	// connection with code globs. The design pages queue their build.
 	AfterRun func(ctx context.Context, tx pgx.Tx, connectionID int64) error
+	// Entities merges two entities when a key rewrite after a switch to
+	// Cloud meets a key that exists.
+	Entities *entities.Service
+	// AtlassianAPI is the API host of scoped Atlassian Cloud tokens. Empty
+	// means https://api.atlassian.com. Tests set the fixture server.
+	AtlassianAPI string
+	// AtlassianMedia is the media host that Confluence Cloud downloads
+	// redirect to. Empty means https://api.media.atlassian.com. Tests set
+	// the fixture server.
+	AtlassianMedia string
+	// EntraAuthority is the Entra ID sign-in host of Teams connections.
+	// Empty means https://login.microsoftonline.com. Tests set the fixture
+	// server.
+	EntraAuthority string
+	// BaseURL is ASSAY_BASE_URL, the start of the webhook URLs.
+	BaseURL string
+
+	hooks hookLimiter
 }
 
 func (s *Service) now() time.Time {
@@ -110,7 +166,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira", "github", "azdo", "backstage"}
+var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage", "web", "teams", "slack"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -124,6 +180,10 @@ type source struct {
 	Code        []string
 	Concurrency int
 	PerSecond   float64
+	// ConnectionID is the stored connection of the source. Its requests
+	// share the rate of the connection across processes. Zero for a
+	// source that is not stored.
+	ConnectionID int64
 }
 
 // open returns the connector of a source.
@@ -132,14 +192,42 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	if err != nil {
 		return nil, err
 	}
-	authorization := "Bearer " + src.Token
-	if src.Kind == "azdo" {
+	att, err := settings.Read[AttachmentsConfig](ctx, s.Pool, Attachments)
+	if err != nil {
+		return nil, err
+	}
+	opts := connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: "Bearer " + src.Token,
+		Concurrency: src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID}
+	switch src.Kind {
+	case "azdo":
 		// Azure DevOps Server takes a personal access token as the
 		// password of Basic authentication.
-		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
+		opts.Authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
+	case "gitlab":
+		opts.Authorization, opts.AuthHeader = src.Token, gitlab.TokenHeader
+	case "web":
+		// The secret of a web connection is an optional auth header.
+		if opts.AuthHeader, opts.Authorization, err = web.ParseAuth(src.Token); err != nil {
+			return nil, err
+		}
+		opts.UserAgent = web.Agent
+	case "teams":
+		// The secret of a Teams connection is the client secret of the
+		// Entra app. Each Graph request carries a cached app-only token.
+		o, err := teams.ParseOptions(src.Options)
+		if err != nil {
+			return nil, err
+		}
+		authority := s.EntraAuthority
+		if authority == "" {
+			authority = entra.Authority
+		}
+		if opts.Authorize, err = teams.Authorizer(s.Outbound, authority, src.BaseURL, src.Token, o); err != nil {
+			return nil, err
+		}
+		opts.Authorization = ""
 	}
-	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization,
-		Concurrency: src.Concurrency, PerSecond: src.PerSecond})
+	c, err := connectors.NewClient(s.Outbound, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -147,9 +235,13 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		c.Backoff = s.Backoff
 	}
 	r := connectors.Rules{InitiativeTypes: rules.InitiativeTypes, BlockLinkType: rules.BlockLinkType,
-		DecisionLabels: rules.DecisionLabels, GlossaryLabels: rules.GlossaryLabels}
+		DecisionLabels: rules.DecisionLabels, GlossaryLabels: rules.GlossaryLabels, MaxCommentsPerIssue: rules.MaxCommentsPerIssue,
+		AttachmentTypes: att.Types, MaxAttachmentBytes: att.MaxKB << 10}
 	limits := connectors.Limits{MaxItemBytes: rules.MaxFileKB << 10, MaxFilesPerRepo: rules.MaxFilesPerRepo,
 		MaxCodeItemBytes: rules.MaxCodeFileKB << 10, MaxCodeFilesPerRepo: rules.MaxCodeFilesPerRepo}
+	if deploymentOf(src.Kind, src.BaseURL, src.Options) == deployCloud {
+		return s.openCloud(ctx, src, r, limits)
+	}
 	switch src.Kind {
 	case "confluence":
 		return confluence.New(c, src.Scope, r, limits)
@@ -157,18 +249,60 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		return jira.New(c, src.Scope, r, limits)
 	case "backstage":
 		return backstage.New(c, src.Scope, src.Options, limits)
+	case "web":
+		return web.New(c, src.Scope, src.Token != "", limits)
+	case "teams":
+		return teams.New(c, src.Scope, src.Options, s.now)
+	case "slack":
+		return slack.New(c, src.Scope, src.Options, s.now)
 	}
 	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude, Code: src.Code, Skip: rules.SkipGlobs}
 	if len(globs.Include) == 0 {
 		globs.Include = rules.DefaultGlobs
 	}
+	hist, err := s.history(ctx, src.Options, rules)
+	if err != nil {
+		return nil, err
+	}
 	switch src.Kind {
 	case "github":
-		return github.New(c, src.Scope, globs, limits)
+		return github.New(c, src.Scope, globs, limits, hist)
 	case "azdo":
-		return azdo.New(c, src.Scope, src.Options, globs, limits)
+		return azdo.New(c, src.Scope, src.Options, globs, limits, hist)
+	case "gitlab":
+		return gitlab.New(c, src.Scope, globs, limits)
+	case "bitbucket":
+		return bitbucket.New(c, src.Scope, globs, limits)
 	}
 	return nil, fmt.Errorf("sync: connections of kind %s cannot sync", src.Kind)
+}
+
+// history reads the history options of a repository connection, with the
+// project keys of the Jira connections.
+func (s *Service) history(ctx context.Context, options json.RawMessage, rules RulesConfig) (connectors.History, error) {
+	h, err := connectors.ParseHistory(options)
+	if err != nil {
+		return h, err
+	}
+	h.Now, h.InitiativeTypes = s.now, rules.InitiativeTypes
+	rows, err := New(s.Pool).JiraConnections(ctx)
+	if err != nil {
+		return h, err
+	}
+	for _, r := range rows {
+		u, err := url.Parse(r.BaseUrl)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		var sc jira.Scope
+		if json.Unmarshal(r.Scope, &sc) != nil {
+			continue
+		}
+		for _, p := range sc.Projects {
+			h.Jira = append(h.Jira, connectors.JiraProject{Host: u.Host, Key: strings.ToUpper(strings.TrimSpace(p))})
+		}
+	}
+	return h, nil
 }
 
 func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id) }
@@ -176,7 +310,7 @@ func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id)
 // sourceOf returns the source of a stored connection with its token.
 func (s *Service) sourceOf(ctx context.Context, c Connection) (source, error) {
 	src := source{Kind: c.Kind, BaseURL: c.BaseUrl, Scope: c.Scope, Options: c.Options, Include: c.IncludeGlobs, Exclude: c.ExcludeGlobs, Code: c.CodeGlobs,
-		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond}
+		Concurrency: int(c.RateConcurrency), PerSecond: c.RatePerSecond, ConnectionID: c.ID}
 	if c.SecretID != nil {
 		tok, err := s.Secrets.GetByID(ctx, s.Pool, *c.SecretID)
 		if err != nil {
@@ -205,6 +339,8 @@ func sourceError(err error) string {
 		return pausedReason
 	case errors.Is(err, errPaused):
 		return "The connection is paused. Resume it to sync."
+	case errors.Is(err, errSwitching):
+		return "The connection switches to Cloud. A reconciliation runs after the first sync."
 	case errors.As(err, &skip):
 		return "Skipped: " + skip.Reason
 	case errors.Is(err, outbound.ErrForeignHost):

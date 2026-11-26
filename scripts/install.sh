@@ -234,7 +234,7 @@ fi
 if [ "$nodemo" -eq 1 ]; then
 	compose --profile demo rm -sf fixtures >/dev/null 2>&1 || true
 fi
-compose up -d --force-recreate assay
+compose up -d --force-recreate assay worker
 
 url="http://localhost:$port"
 say "Waiting for Assay at $url ..."
@@ -243,7 +243,7 @@ i=0
 until curl --noproxy '*' -fsS "$url/readyz" >/dev/null 2>&1; do
 	i=$((i + 1))
 	if [ "$i" -ge 120 ]; then
-		compose logs --tail 50 assay >&2 || true
+		compose logs --tail 50 assay worker >&2 || true
 		fail "Assay did not become ready in 120 seconds. The log is above."
 	fi
 	sleep 1

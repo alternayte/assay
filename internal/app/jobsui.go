@@ -33,7 +33,7 @@ func adminOnly(h http.Handler) http.Handler {
 			http.Redirect(w, r, "/sign-in?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
 		case p == nil:
 			http.Error(w, "Sign in to continue.", http.StatusUnauthorized)
-		case p.APIKey != nil || p.User.MustChangePassword || api.Role(p) != auth.RoleAdmin:
+		case p.APIKey != nil || p.OAuth != nil || p.User.MustChangePassword || api.Role(p) != auth.RoleAdmin:
 			http.Error(w, "Only an admin can open the job queue.", http.StatusForbidden)
 		default:
 			setSecurityHeaders(w)

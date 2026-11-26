@@ -1,7 +1,7 @@
 // Package outbound builds the HTTP clients for every outbound request: to
-// source systems and to model endpoints. A client uses the proxy and CA
-// settings, sends only to its own scheme and host and follows no redirect
-// to another scheme or host.
+// source systems, to model endpoints and to the identity provider. A client
+// uses the proxy and CA settings, sends only to its own scheme and host and
+// follows no redirect to another scheme or host.
 package outbound
 
 import (
@@ -70,14 +70,30 @@ func (s Settings) Proxy() func(*http.Request) (*url.URL, error) {
 
 // Options describe one client.
 type Options struct {
-	// BaseURL names the only host that the client sends to.
+	// BaseURL names the host that the client sends to.
 	BaseURL string
+	// AlsoURLs name other hosts that the client sends to, such as the API
+	// host of a scoped Atlassian Cloud token. Empty allows only BaseURL.
+	AlsoURLs []string
 	// Methods are the methods that the client sends. Empty allows all.
 	Methods []string
 	// Timeout bounds each request. Zero means no client timeout; the
 	// caller then sets a deadline on the context.
 	Timeout time.Duration
+	// OnlyURL, when true, limits the client to BaseURL itself: the same
+	// scheme, host, port and path, with no query. It follows no redirect.
+	// A token client that may POST uses it, so that the POST reaches no
+	// other path of the host.
+	OnlyURL bool
+	// AnyHost lets the client send to every host. Only the OpenID Connect
+	// sign-in uses it, because the discovery document of the issuer names
+	// the token and key endpoints.
+	AnyHost bool
 }
+
+// ErrForeignURL means that a client with OnlyURL got a request for another
+// URL.
+var ErrForeignURL = errors.New("outbound: the request goes to another URL")
 
 // New returns a client for one host.
 func New(s Settings, o Options) (*http.Client, error) {
@@ -99,13 +115,26 @@ func New(s Settings, o Options) (*http.Client, error) {
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}
-	host := hostKey(u)
-	guard := &guard{next: t, host: host, methods: o.Methods}
+	hosts := []string{hostKey(u)}
+	for _, a := range o.AlsoURLs {
+		au, err := url.Parse(a)
+		if err != nil || au.Host == "" || (au.Scheme != "http" && au.Scheme != "https") {
+			return nil, fmt.Errorf("outbound: %q is not an http or https URL", a)
+		}
+		hosts = append(hosts, hostKey(au))
+	}
+	g := &guard{next: t, hosts: hosts, methods: o.Methods, any: o.AnyHost}
+	if o.OnlyURL {
+		g.url = urlKey(u)
+	}
 	return &http.Client{
-		Transport: guard,
+		Transport: g,
 		Timeout:   o.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if hostKey(req.URL) != host {
+			if g.url != "" {
+				return fmt.Errorf("%w: a redirect to %s is not followed", ErrForeignURL, req.URL.Redacted())
+			}
+			if !g.any && !slices.Contains(hosts, hostKey(req.URL)) {
 				return fmt.Errorf("%w: a redirect to %s is not followed", ErrForeignHost, req.URL.Host)
 			}
 			if len(via) >= 5 {
@@ -118,18 +147,34 @@ func New(s Settings, o Options) (*http.Client, error) {
 
 type guard struct {
 	next    http.RoundTripper
-	host    string
+	hosts   []string
 	methods []string
+	// url is the only URL of an OnlyURL client.
+	url string
+	any bool
 }
 
 func (g *guard) RoundTrip(r *http.Request) (*http.Response, error) {
 	if len(g.methods) > 0 && !slices.Contains(g.methods, r.Method) {
 		return nil, fmt.Errorf("%w: %s", ErrMethod, r.Method)
 	}
-	if hostKey(r.URL) != g.host {
+	if g.url != "" && (r.URL.RawQuery != "" || urlKey(r.URL) != g.url) {
+		return nil, fmt.Errorf("%w: %s", ErrForeignURL, r.URL.Redacted())
+	}
+	if !g.any && !slices.Contains(g.hosts, hostKey(r.URL)) {
 		return nil, fmt.Errorf("%w: %s", ErrForeignHost, r.URL.Host)
 	}
 	return g.next.RoundTrip(r)
+}
+
+// urlKey is the host key with the path. A trailing slash is part of the
+// path.
+func urlKey(u *url.URL) string {
+	p := u.EscapedPath()
+	if p == "" {
+		p = "/"
+	}
+	return hostKey(u) + p
 }
 
 // hostKey is the scheme with the lowercase host and its effective port. The

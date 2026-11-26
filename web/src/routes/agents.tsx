@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Check, Copy, KeyRound, Plus } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field, Input } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -17,24 +18,6 @@ import { formatAgo, formatTime } from "@/lib/format";
 type Token = Schemas["Token"];
 
 const errorText = (e: unknown) => (e instanceof ApiError ? e.message : t("errors.network"));
-
-/** A button that copies text and says so for two seconds. */
-function CopyButton({ text, label, done }: { text: string; label: string; done: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      size="sm"
-      onClick={async () => {
-        await navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-    >
-      {copied ? <Check aria-hidden /> : <Copy aria-hidden />}
-      {copied ? done : label}
-    </Button>
-  );
-}
 
 function state(k: Token): { tone: "supported" | "neutral" | "stale"; text: string } {
   if (k.revokedAt) return { tone: "neutral", text: t("tokens.revoked") };
@@ -282,25 +265,52 @@ export function ConnectPage() {
         <h1 className="text-3xl font-semibold tracking-tight">{t("connect.title")}</h1>
         <p className="text-base text-ink-muted">{t("connect.body")}</p>
       </header>
-      <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
-        <li>
-          {t("connect.step1")}{" "}
-          <Link to="/tokens" className="text-accent underline underline-offset-2">
-            {t("connect.step1Link")}
-          </Link>
-        </li>
-        <li>{t("connect.step2")}</li>
-      </ol>
       <Sheet
-        title={t("connect.config")}
+        title={t("connect.hostedTitle")}
+        description={t("connect.hostedBody")}
+        actions={
+          c.oauth && <CopyButton text={c.mcpUrl} label={t("connect.copyUrl")} done={t("connect.copied")} />
+        }
+      >
+        {c.oauth ? (
+          <div className="flex flex-col gap-3">
+            <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
+              <li>{t("connect.hostedStep1")}</li>
+              <li>{t("connect.hostedStep2")}</li>
+            </ol>
+            <p
+              className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm break-all"
+              data-testid="mcp-url"
+            >
+              {c.mcpUrl}
+            </p>
+          </div>
+        ) : (
+          <p className="text-base text-ink-muted">{t("connect.hostedOff")}</p>
+        )}
+      </Sheet>
+      <Sheet
+        title={t("connect.localTitle")}
+        description={t("connect.localBody")}
         actions={<CopyButton text={config} label={t("connect.copy")} done={t("connect.copied")} />}
       >
-        <pre
-          className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm whitespace-pre-wrap break-all"
-          data-testid="mcp-config"
-        >
-          {config}
-        </pre>
+        <div className="flex flex-col gap-3">
+          <ol className="flex flex-col gap-2 pl-5 [list-style:decimal]">
+            <li>
+              {t("connect.step1")}{" "}
+              <Link to="/tokens" className="text-accent underline underline-offset-2">
+                {t("connect.step1Link")}
+              </Link>
+            </li>
+            <li>{t("connect.step2")}</li>
+          </ol>
+          <pre
+            className="rounded-sm bg-paper-sunk px-3 py-2 font-mono text-sm whitespace-pre-wrap break-all"
+            data-testid="mcp-config"
+          >
+            {config}
+          </pre>
+        </div>
       </Sheet>
       <Sheet title={t("connect.urls")}>
         <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-[max-content_1fr]">

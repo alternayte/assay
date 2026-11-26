@@ -13,10 +13,12 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
-	gosync "sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/outbound"
@@ -29,6 +31,10 @@ var (
 	// ErrNotFound is a 404. On fetch, sync tombstones the item.
 	ErrNotFound = errors.New("connectors: the source object does not exist")
 )
+
+// errAuthorize marks a failed Authorize call. A retry of the request
+// cannot help.
+var errAuthorize = errors.New("connectors: get the authorization")
 
 // StatusError is another error status of the source.
 type StatusError struct {
@@ -70,6 +76,9 @@ type Ref struct {
 type Validation struct {
 	User   string `json:"user" doc:"The source user of the token."`
 	Sample int    `json:"sample" doc:"The number of items in the scope, or in the source when no scope is set."`
+	// More is true when the source gives no total, such as Jira Cloud:
+	// Sample then counts one page, and the scope can hold more.
+	More bool `json:"more" doc:"True when the source gives no total. The scope then has sample items or more."`
 }
 
 // Scope is one option of a scope picker.
@@ -78,19 +87,31 @@ type Scope struct {
 	Name string `json:"name"`
 }
 
+// Part is one scope unit of a connection, such as a space, a project or a
+// repository. It is the largest piece of a sync that needs no shared state:
+// each part has its own cursor and runs as its own job.
+type Part struct {
+	// Key is stable in the source: a space key, a project key or the full
+	// name of a repository.
+	Key string
+}
+
 // Connector reads one source system. It never writes to it.
 type Connector interface {
 	// Validate checks the token and counts the items in scope.
 	Validate(ctx context.Context) (Validation, error)
 	// Scopes lists the scope options, such as spaces or projects.
 	Scopes(ctx context.Context) ([]Scope, error)
-	// Changed calls fn for each item in scope updated at or after since,
+	// Parts lists the scope units of the connection. A connector with one
+	// unit returns one part.
+	Parts(ctx context.Context) ([]Part, error)
+	// Changed calls fn for each item of a part updated at or after since,
 	// oldest first. A repository connector calls fn for every file with
 	// its blob ID as the version. Sync stores items inside fn, so a
 	// connector that lists page by page holds one page at a time.
-	Changed(ctx context.Context, since time.Time, fn func(Ref) error) error
-	// ListIDs calls fn for each item ID in scope.
-	ListIDs(ctx context.Context, fn func(id string) error) error
+	Changed(ctx context.Context, part Part, since time.Time, fn func(Ref) error) error
+	// ListIDs calls fn for each item ID of a part.
+	ListIDs(ctx context.Context, part Part, fn func(id string) error) error
 	// Fetch returns one item. It returns ErrNotFound on a 404.
 	Fetch(ctx context.Context, id string) (*content.Item, error)
 }
@@ -117,17 +138,72 @@ type SkipLister interface {
 	Skipped() []Skipped
 }
 
+// Known is an item that sync stored for a part, with its revision.
+type Known struct {
+	ID       string
+	Revision string
+}
+
+// Delta is a connector that reads the changes of a part from a link that
+// the source gave on the previous run, such as a Microsoft Graph delta link,
+// in place of an update time. Sync calls Delta in place of Changed with the
+// stored cursor of the part, empty on the first sync, and stores the cursor
+// that Delta returns when the part succeeds.
+type Delta interface {
+	Delta(ctx context.Context, part Part, cursor string, fn func(Ref) error) (string, error)
+}
+
+// RefLister is a connector whose reconciliation lists each item with its
+// revision. Reconciliation then also fetches the items whose stored revision
+// differs, such as a chat thread with a new reply that an incremental sync
+// cannot see. Sync calls ListRefs in place of ListIDs.
+type RefLister interface {
+	ListRefs(ctx context.Context, part Part, fn func(Ref) error) error
+}
+
+// Recaller is a connector whose listing starts from the items that sync
+// stored, such as the pages that a crawl of a web site found. Sync calls
+// Recall before Changed.
+type Recaller interface {
+	Recall(part Part, known []Known)
+}
+
+// Targeter is a connector that a webhook can name single items of. PartOf
+// returns the part of an item that Fetch read, and false when the item is
+// outside the scope of the connection, such as an issue of another project
+// or a pull request of a connection that reads none. Sync stores only items
+// in scope.
+type Targeter interface {
+	PartOf(ctx context.Context, it *content.Item) (part string, ok bool, err error)
+}
+
+// FileLister is a repository connector that lists the files of one
+// repository with their blob IDs, without the history. A webhook of a push
+// that names no paths compares them with the stored revisions.
+type FileLister interface {
+	Files(ctx context.Context, repo string, fn func(Ref) error) error
+}
+
 // Client is the HTTP client of one connection. It sends only GET and HEAD,
-// only to the connection host, and follows no redirect to another host. It
+// only to the connection host, and follows no redirect to another host. A
+// client with a site URL on another host, such as a scoped Atlassian Cloud
+// token that reads through api.atlassian.com, also sends to the site host. It
 // keeps the concurrency and rate limits of the connection, and retries rate
 // limit and 5xx responses with Retry-After, the rate limit reset or
-// exponential backoff with jitter.
+// exponential backoff with jitter. The rate of a stored connection holds
+// across all clients of all processes.
 type Client struct {
-	http    *http.Client
-	base    *url.URL
-	auth    string
-	sem     chan struct{}
-	limiter *limiter
+	http *http.Client
+	base *url.URL
+	// authHeader carries auth: Authorization, or another header such as
+	// PRIVATE-TOKEN for GitLab.
+	authHeader string
+	site       *url.URL
+	auth       string
+	authorize  func(context.Context) (string, error)
+	userAgent  string
+	sem        chan struct{}
+	pace       *pace
 	// Backoff is the first retry delay without Retry-After.
 	Backoff time.Duration
 	// Retries is the number of retries after the first attempt.
@@ -136,54 +212,120 @@ type Client struct {
 
 // ClientOptions configure a client.
 type ClientOptions struct {
-	BaseURL       string
+	BaseURL string
+	// SiteURL is the base of the links that people open, when it is not
+	// BaseURL. Entity keys use its host. Empty means BaseURL.
+	SiteURL       string
 	Authorization string // the Authorization header value
-	Concurrency   int
-	PerSecond     float64
+	// Authorize returns the Authorization header value for each request,
+	// such as a cached access token that expires. It wins over
+	// Authorization.
+	Authorize func(context.Context) (string, error)
+	// AuthHeader is the header that carries Authorization. Empty means
+	// Authorization.
+	AuthHeader string
+	// UserAgent is the User-Agent header. Empty sends the Go default.
+	UserAgent   string
+	Concurrency int
+	PerSecond   float64
+	// AlsoURLs name other hosts that the client follows redirects to, such
+	// as the media host of Atlassian Cloud downloads. The client sends no
+	// credentials there.
+	AlsoURLs []string
+	// Pool and ConnectionID share the rate of a stored connection: each
+	// request reserves a slot in PostgreSQL. A client without them, for a
+	// source that is not stored yet, spaces only its own requests.
+	Pool         *pgxpool.Pool
+	ConnectionID int64
 }
 
 // NewClient returns the client of a connection.
 func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
-	h, err := outbound.New(s, outbound.Options{BaseURL: o.BaseURL, Methods: []string{http.MethodGet, http.MethodHead}, Timeout: 60 * time.Second})
+	also := slices.Clone(o.AlsoURLs)
+	if o.SiteURL != "" {
+		also = append(also, o.SiteURL)
+	}
+	h, err := outbound.New(s, outbound.Options{BaseURL: o.BaseURL, AlsoURLs: also, Methods: []string{http.MethodGet, http.MethodHead},
+		Timeout: 60 * time.Second})
 	if err != nil {
 		return nil, err
 	}
 	u, _ := url.Parse(strings.TrimRight(o.BaseURL, "/"))
+	site := u
+	if o.SiteURL != "" {
+		site, _ = url.Parse(strings.TrimRight(o.SiteURL, "/"))
+	}
 	if o.Concurrency < 1 {
 		o.Concurrency = 1
 	}
 	if o.PerSecond <= 0 {
 		o.PerSecond = 5
 	}
+	header := o.AuthHeader
+	if header == "" {
+		header = "Authorization"
+	}
 	return &Client{
-		http: h, base: u, auth: o.Authorization,
+		http: h, base: u, site: site, auth: o.Authorization, authorize: o.Authorize, authHeader: header, userAgent: o.UserAgent,
 		sem:     make(chan struct{}, o.Concurrency),
-		limiter: &limiter{every: time.Duration(float64(time.Second) / o.PerSecond)},
+		pace:    newPace(o.Pool, o.ConnectionID, time.Duration(float64(time.Second)/o.PerSecond)),
 		Backoff: time.Second, Retries: 4,
 	}, nil
 }
 
-// URL returns the absolute URL of a path below the base URL.
+// URL returns the absolute URL of a path below the base URL. A path with
+// percent escapes, such as the URL-encoded project ID of GitLab, is sent
+// as it is.
 func (c *Client) URL(path string, q url.Values) string {
 	u := *c.base
+	raw := strings.TrimRight(u.EscapedPath(), "/") + path
+	if p, err := url.PathUnescape(raw); err == nil && strings.Contains(path, "%") {
+		u.Path, u.RawPath = p, raw
+	} else {
+		u.Path, u.RawPath = strings.TrimRight(u.Path, "/")+path, ""
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// Link returns the absolute URL of a path below the site URL, for people.
+func (c *Client) Link(path string, q url.Values) string {
+	u := *c.site
 	u.Path = strings.TrimRight(u.Path, "/") + path
 	u.RawQuery = q.Encode()
 	return u.String()
 }
 
-// Host is the host of the base URL.
-func (c *Client) Host() string { return c.base.Host }
+// Base is the base URL of the connection.
+func (c *Client) Base() *url.URL {
+	u := *c.base
+	return &u
+}
+
+// Slow spaces the requests of the client at least every apart, such as
+// for the Crawl-delay of a site. A shorter time keeps the rate.
+func (c *Client) Slow(every time.Duration) { c.pace.slow(every) }
+
+// Host is the host of the site URL. Entity keys use it.
+func (c *Client) Host() string { return c.site.Host }
 
 // GetJSON sends a GET request and decodes the JSON answer into out.
 func (c *Client) GetJSON(ctx context.Context, path string, q url.Values, out any) error {
-	b, err := c.Get(ctx, path, q, "application/json")
+	_, err := c.GetJSONHeader(ctx, path, q, out)
+	return err
+}
+
+// GetJSONHeader sends a GET request, decodes the JSON answer into out and
+// returns the response header, such as the Link header of a paged answer.
+func (c *Client) GetJSONHeader(ctx context.Context, path string, q url.Values, out any) (http.Header, error) {
+	b, h, err := c.get(ctx, path, q, "application/json")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("connectors: the answer for %s is not valid JSON: %w", path, err)
+		return nil, fmt.Errorf("connectors: the answer for %s is not valid JSON: %w", path, err)
 	}
-	return nil
+	return h, nil
 }
 
 // maxBody bounds one answer.
@@ -191,22 +333,66 @@ const maxBody = 64 << 20
 
 // Get sends a GET request and returns the body.
 func (c *Client) Get(ctx context.Context, path string, q url.Values, accept string) ([]byte, error) {
+	r, err := c.send(ctx, http.MethodGet, c.URL(path, q), path, accept, 0)
+	if err != nil {
+		return nil, err
+	}
+	return r.Body, nil
+}
+
+// get sends a GET request and returns the body and the response header.
+func (c *Client) get(ctx context.Context, path string, q url.Values, accept string) ([]byte, http.Header, error) {
+	r, err := c.send(ctx, http.MethodGet, c.URL(path, q), path, accept, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	return r.Body, r.Header, nil
+}
+
+// Response is the answer to Send.
+type Response struct {
+	Header http.Header
+	Body   []byte
+	// URL is the URL of the answer, after the redirects on the same host.
+	URL *url.URL
+	// TooLarge is true when the body is longer than the limit. Body is
+	// then empty.
+	TooLarge bool
+}
+
+// Send sends a GET or HEAD request to an absolute URL on the connection
+// host, with the retries of Get. A body longer than limit bytes is not
+// read; limit 0 reads up to the largest answer.
+func (c *Client) Send(ctx context.Context, method, rawURL, accept string, limit int) (*Response, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("connectors: %q is not a URL: %w", rawURL, err)
+	}
+	return c.send(ctx, method, rawURL, u.Path, accept, limit)
+}
+
+func (c *Client) send(ctx context.Context, method, target, path, accept string, limit int) (*Response, error) {
 	var last error
 	for attempt := 0; attempt <= c.Retries; attempt++ {
-		b, retry, err := c.once(ctx, path, q, accept)
+		r, retry, err := c.once(ctx, method, target, path, accept, limit)
 		if err == nil {
-			return b, nil
+			return r, nil
 		}
 		last = err
 		if retry < 0 {
 			return nil, err
 		}
-		wait := retry
-		if wait == 0 {
-			wait = c.Backoff << attempt
-			wait += time.Duration(rand.Int64N(int64(wait)/2 + 1)) //nolint:gosec // Jitter needs no secure source.
+		if retry > 0 {
+			// The source named the time to wait. Every request of the
+			// connection waits for it, in every process. The next attempt
+			// waits in its reservation.
+			if err := c.pace.hold(ctx, retry); err != nil {
+				return nil, err
+			}
+			continue
 		}
-		c.limiter.pause(wait)
+		wait := c.Backoff << attempt
+		wait += time.Duration(rand.Int64N(int64(wait)/2 + 1)) //nolint:gosec // Jitter needs no secure source.
 		if err := sleep(ctx, wait); err != nil {
 			return nil, err
 		}
@@ -216,23 +402,23 @@ func (c *Client) Get(ctx context.Context, path string, q url.Values, accept stri
 
 // once sends one request. retry is -1 when a retry cannot help, 0 for the
 // default backoff, or the Retry-After delay.
-func (c *Client) once(ctx context.Context, path string, q url.Values, accept string) ([]byte, time.Duration, error) {
+func (c *Client) once(ctx context.Context, method, target, path, accept string, limit int) (*Response, time.Duration, error) {
 	select {
 	case c.sem <- struct{}{}:
 	case <-ctx.Done():
 		return nil, -1, ctx.Err()
 	}
 	defer func() { <-c.sem }()
-	if err := c.limiter.wait(ctx); err != nil {
-		return nil, -1, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL(path, q), nil)
+	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
 		return nil, -1, err
 	}
 	req.Header.Set("Accept", accept)
 	resp, err := c.Do(req)
 	if err != nil {
+		if errors.Is(err, errPace) || errors.Is(err, errAuthorize) {
+			return nil, -1, err
+		}
 		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) || isCertificate(err) {
 			return nil, -1, err
 		}
@@ -257,18 +443,46 @@ func (c *Client) once(ctx context.Context, path string, q url.Values, accept str
 	case resp.StatusCode >= 300:
 		return nil, -1, &StatusError{Status: resp.StatusCode, Path: path}
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	out := &Response{Header: resp.Header, URL: resp.Request.URL}
+	if method == http.MethodHead {
+		return out, 0, nil
+	}
+	n := int64(maxBody)
+	if limit > 0 {
+		n = int64(limit) + 1
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, n))
 	if err != nil {
 		return nil, 0, err
 	}
-	return b, 0, nil
+	if limit > 0 && len(b) > limit {
+		out.TooLarge = true
+		return out, 0, nil
+	}
+	out.Body = b
+	return out, 0, nil
 }
 
-// Do sends a request with the connection credentials. The guard refuses
-// every method except GET and HEAD before anything is sent.
+// Do sends a request with the connection credentials in the next request
+// slot of the connection. The guard refuses every method except GET and HEAD
+// before anything is sent.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	if c.auth != "" {
-		req.Header.Set("Authorization", c.auth)
+	if err := c.pace.wait(req.Context()); err != nil {
+		return nil, err
+	}
+	auth := c.auth
+	if c.authorize != nil {
+		a, err := c.authorize(req.Context())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errAuthorize, err)
+		}
+		auth = a
+	}
+	if auth != "" {
+		req.Header.Set(c.authHeader, auth)
+	}
+	if c.userAgent != "" {
+		req.Header.Set("User-Agent", c.userAgent)
 	}
 	return c.http.Do(req)
 }
@@ -325,41 +539,24 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// limiter spaces requests evenly at the rate of the connection.
-type limiter struct {
-	mu    gosync.Mutex
-	next  time.Time
-	every time.Duration
-}
-
-func (l *limiter) wait(ctx context.Context) error {
-	l.mu.Lock()
-	now := time.Now()
-	at := l.next
-	if at.Before(now) {
-		at = now
-	}
-	l.next = at.Add(l.every)
-	l.mu.Unlock()
-	return sleep(ctx, time.Until(at))
-}
-
-// pause holds every request of the client for d.
-func (l *limiter) pause(d time.Duration) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if at := time.Now().Add(d); at.After(l.next) {
-		l.next = at
-	}
-}
-
 // Rules are the connector rules of the settings.
 type Rules struct {
 	InitiativeTypes []string
 	BlockLinkType   string
 	DecisionLabels  []string
 	GlossaryLabels  []string
+	// MaxCommentsPerIssue bounds the Jira comments of one item. Zero means
+	// DefaultMaxComments.
+	MaxCommentsPerIssue int
+	// AttachmentTypes are the file types of the attachments to read, such
+	// as pdf. Empty reads no attachments.
+	AttachmentTypes []string
+	// MaxAttachmentBytes bounds the file size of one attachment.
+	MaxAttachmentBytes int
 }
+
+// DefaultMaxComments is the default number of Jira comments of one item.
+const DefaultMaxComments = 500
 
 // Overlap widens the since time of a source query whose dates use the time
 // zone of the source user. Fourteen hours cover every UTC offset.

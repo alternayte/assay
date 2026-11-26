@@ -110,15 +110,6 @@
       "Answer": {
         "additionalProperties": false,
         "properties": {
-          "$schema": {
-            "description": "A URL to the JSON Schema for this object.",
-            "examples": [
-              "https://example.com/api/v1/schemas/Answer.json"
-            ],
-            "format": "uri",
-            "readOnly": true,
-            "type": "string"
-          },
           "cited": {
             "items": {
               "type": "string"
@@ -140,6 +131,9 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/Feedback"
           },
           "links": {
             "$ref": "#/components/schemas/Linked"
@@ -164,6 +158,7 @@
             "type": "string"
           },
           "questionId": {
+            "description": "0 when Assay refused the question and did not store it.",
             "format": "int64",
             "type": "integer"
           },
@@ -178,6 +173,16 @@
               "$ref": "#/components/schemas/Source"
             },
             "type": "array"
+          },
+          "threadId": {
+            "description": "The ID of the first question of the thread.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "turn": {
+            "description": "The position in the thread, from 1.",
+            "format": "int64",
+            "type": "integer"
           },
           "uncited": {
             "description": "Sentences without a valid citation.",
@@ -199,6 +204,8 @@
         },
         "required": [
           "questionId",
+          "threadId",
+          "turn",
           "question",
           "markdown",
           "cited",
@@ -242,6 +249,30 @@
         ],
         "type": "object"
       },
+      "AppsOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/AppsOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectedApp"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "apps"
+        ],
+        "type": "object"
+      },
       "AskInBody": {
         "additionalProperties": false,
         "properties": {
@@ -258,6 +289,11 @@
             "maxLength": 1000,
             "minLength": 1,
             "type": "string"
+          },
+          "threadId": {
+            "description": "A thread of the caller. The question is a follow-up in it. A full thread starts a new thread.",
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
@@ -882,6 +918,10 @@
           "mcpUrl": {
             "type": "string"
           },
+          "oauth": {
+            "description": "True when a hosted MCP client can sign in with OAuth at the MCP URL.",
+            "type": "boolean"
+          },
           "openapiUrl": {
             "type": "string"
           }
@@ -890,7 +930,52 @@
           "mcpUrl",
           "glossaryUrl",
           "openapiUrl",
-          "docsUrl"
+          "docsUrl",
+          "oauth"
+        ],
+        "type": "object"
+      },
+      "ConnectedApp": {
+        "additionalProperties": false,
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "connectedAt": {
+            "description": "The time of the last approval.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "host": {
+            "description": "The host of the client. A client cannot fake it.",
+            "type": "string"
+          },
+          "kind": {
+            "description": "static is verified by Assay. dynamic and cimd registered themselves.",
+            "enum": [
+              "static",
+              "dynamic",
+              "cimd"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "clientId",
+          "name",
+          "host",
+          "kind",
+          "scopes",
+          "connectedAt"
         ],
         "type": "object"
       },
@@ -939,7 +1024,12 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "gitlab",
+              "bitbucket",
+              "backstage",
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -950,17 +1040,26 @@
           },
           "options": {
             "additionalProperties": {},
+            "description": "Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads).",
             "type": "object"
           },
-          "rateConcurrency": {
+          "parallelParts": {
             "default": 4,
+            "description": "The parts of a run, such as spaces or repositories, that run at once across all worker processes.",
+            "format": "int32",
+            "maximum": 32,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "rateConcurrency": {
+            "description": "Leave it out for the default: 4, or 2 for Slack.",
             "format": "int32",
             "maximum": 32,
             "minimum": 1,
             "type": "integer"
           },
           "ratePerSecond": {
-            "default": 5,
+            "description": "Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack.",
             "format": "double",
             "maximum": 100,
             "minimum": 0.1,
@@ -985,7 +1084,7 @@
             "type": "integer"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -995,9 +1094,7 @@
           "baseUrl",
           "name",
           "syncMinutes",
-          "reconcileHours",
-          "rateConcurrency",
-          "ratePerSecond"
+          "reconcileHours"
         ],
         "type": "object"
       },
@@ -1034,6 +1131,14 @@
               "null"
             ]
           },
+          "deployment": {
+            "description": "Data Center or Cloud, for Jira and Confluence.",
+            "enum": [
+              "dc",
+              "cloud"
+            ],
+            "type": "string"
+          },
           "excludeGlobs": {
             "items": {
               "type": "string"
@@ -1064,7 +1169,12 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "gitlab",
+              "bitbucket",
+              "backstage",
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -1108,6 +1218,11 @@
               "null"
             ]
           },
+          "parallelParts": {
+            "description": "The parts of a run, such as spaces or repositories, that run at once across all worker processes.",
+            "format": "int32",
+            "type": "integer"
+          },
           "permissionsCheckedAt": {
             "format": "date-time",
             "type": [
@@ -1141,6 +1256,10 @@
           "statusReason": {
             "type": "string"
           },
+          "switching": {
+            "description": "True from a switch to Cloud until a sync rewrote the keys.",
+            "type": "boolean"
+          },
           "syncMinutes": {
             "format": "int32",
             "type": "integer"
@@ -1150,6 +1269,10 @@
               "$ref": "#/components/schemas/GroupRef"
             },
             "type": "array"
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/WebhookRecord",
+            "description": "The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none."
           }
         },
         "required": [
@@ -1160,6 +1283,7 @@
           "hasToken",
           "scope",
           "options",
+          "switching",
           "includeGlobs",
           "excludeGlobs",
           "codeGlobs",
@@ -1167,6 +1291,7 @@
           "reconcileHours",
           "rateConcurrency",
           "ratePerSecond",
+          "parallelParts",
           "ownerId",
           "ownerEmail",
           "status",
@@ -1979,6 +2104,23 @@
         ],
         "type": "object"
       },
+      "DirectoryGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The IdP group ID.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
       "Domain": {
         "additionalProperties": false,
         "properties": {
@@ -2585,6 +2727,73 @@
         ],
         "type": "object"
       },
+      "Feedback": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Feedback.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "wrongCitation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating",
+          "reason",
+          "wrongCitation"
+        ],
+        "type": "object"
+      },
+      "FeedbackInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/FeedbackInBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "description": "Only a down mark keeps it.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "wrongCitation": {
+            "description": "A citation of the answer is wrong. Only a down mark keeps it.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "type": "object"
+      },
       "FieldError": {
         "additionalProperties": false,
         "properties": {
@@ -2837,6 +3046,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "mapping": {
+            "$ref": "#/components/schemas/Mapping"
+          },
           "memberCount": {
             "format": "int64",
             "type": "integer"
@@ -2876,6 +3088,30 @@
           "name",
           "builtin",
           "confirmedAt"
+        ],
+        "type": "object"
+      },
+      "GroupsOutputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/GroupsOutputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryGroup"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
         ],
         "type": "object"
       },
@@ -2987,6 +3223,97 @@
         ],
         "type": "object"
       },
+      "ImproveGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "entityKey": {
+            "type": "string"
+          },
+          "entityName": {
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/ImproveQuestion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entityKey",
+          "entityName",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "ImproveOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/ImproveOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/ImproveGroup"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "groups"
+        ],
+        "type": "object"
+      },
+      "ImproveQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "askedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "noEvidence": {
+            "type": "boolean"
+          },
+          "rating": {
+            "description": "Empty without a mark.",
+            "enum": [
+              "",
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "wrongCitation": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "text",
+          "askedAt",
+          "noEvidence",
+          "rating",
+          "reason",
+          "wrongCitation"
+        ],
+        "type": "object"
+      },
       "Invite": {
         "additionalProperties": false,
         "properties": {
@@ -3063,7 +3390,13 @@
               "confluence",
               "jira",
               "github",
-              "azdo"
+              "azdo",
+              "gitlab",
+              "bitbucket",
+              "backstage",
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -3672,6 +4005,51 @@
         ],
         "type": "object"
       },
+      "Mapping": {
+        "additionalProperties": false,
+        "properties": {
+          "externalId": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "externalName"
+        ],
+        "type": "object"
+      },
+      "MappingInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/MappingInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "externalId": {
+            "description": "The IdP group ID. Entra ID uses the object ID.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "externalName": {
+            "maxLength": 300,
+            "type": "string"
+          }
+        },
+        "required": [
+          "externalId",
+          "externalName"
+        ],
+        "type": "object"
+      },
       "Match": {
         "additionalProperties": false,
         "properties": {
@@ -3973,7 +4351,8 @@
               "answer_off",
               "budget_exceeded",
               "answer_failed",
-              "hidden"
+              "hidden",
+              "thread_hidden"
             ],
             "type": "string"
           },
@@ -3984,6 +4363,32 @@
         "required": [
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "OAuthStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/OAuthStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "lockedBy": {
+            "description": "The environment variable that sets the field. Empty when none does.",
+            "type": "string"
+          },
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on",
+          "lockedBy"
         ],
         "type": "object"
       },
@@ -4407,6 +4812,78 @@
         ],
         "type": "object"
       },
+      "PartRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "created": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "deleted": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finishedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "description": "The worker process that ran the part.",
+            "type": "string"
+          },
+          "part": {
+            "type": "string"
+          },
+          "seen": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "unchanged": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "updated": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "part",
+          "status",
+          "host",
+          "seen",
+          "created",
+          "updated",
+          "unchanged",
+          "deleted",
+          "error",
+          "startedAt",
+          "finishedAt"
+        ],
+        "type": "object"
+      },
       "PassageRecord": {
         "additionalProperties": false,
         "properties": {
@@ -4481,6 +4958,44 @@
         },
         "required": [
           "paused"
+        ],
+        "type": "object"
+      },
+      "PollStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "lastError": {
+            "description": "The error of the last poll. Empty after a good poll.",
+            "type": "string"
+          },
+          "lastErrorAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastStartedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSuccessAt": {
+            "description": "The end of the last good poll.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "lastStartedAt",
+          "lastSuccessAt",
+          "lastErrorAt",
+          "lastError"
         ],
         "type": "object"
       },
@@ -4876,22 +5391,91 @@
       "QuestionSummary": {
         "additionalProperties": false,
         "properties": {
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
           "id": {
+            "description": "The thread ID: the ID of the first question.",
             "format": "int64",
             "type": "integer"
           },
-          "text": {
+          "lastAt": {
+            "description": "The time of the last turn.",
+            "format": "date-time",
             "type": "string"
+          },
+          "text": {
+            "description": "The first question of the thread.",
+            "type": "string"
+          },
+          "turns": {
+            "format": "int64",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "text",
-          "createdAt"
+          "turns",
+          "lastAt"
+        ],
+        "type": "object"
+      },
+      "RatedOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/RatedOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/RatedQuestion"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "questions"
+        ],
+        "type": "object"
+      },
+      "RatedQuestion": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "noEvidence": {
+            "type": "boolean"
+          },
+          "question": {
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "type": "string"
+          },
+          "sources": {
+            "description": "The titles of the cited items of an up-marked answer, as the reader sees them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "question",
+          "rating",
+          "noEvidence",
+          "sources"
         ],
         "type": "object"
       },
@@ -5323,6 +5907,48 @@
         ],
         "type": "object"
       },
+      "Rewrite": {
+        "additionalProperties": false,
+        "properties": {
+          "entities": {
+            "description": "Entity keys that got the Cloud host.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "from": {
+            "description": "The Data Center host.",
+            "type": "string"
+          },
+          "items": {
+            "description": "Stored items that matched a Cloud item.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "people": {
+            "description": "Data Center people that matched a Cloud account by email.",
+            "format": "int32",
+            "type": "integer"
+          },
+          "to": {
+            "description": "The Cloud host.",
+            "type": "string"
+          },
+          "unmatched": {
+            "description": "Cloud people that matched no person. Each is a new person entity.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "items",
+          "entities",
+          "people",
+          "unmatched"
+        ],
+        "type": "object"
+      },
       "RoleInputBody": {
         "additionalProperties": false,
         "properties": {
@@ -5403,9 +6029,19 @@
             ],
             "type": "string"
           },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartRecord"
+            },
+            "type": "array"
+          },
           "queuedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "rewrite": {
+            "$ref": "#/components/schemas/Rewrite",
+            "description": "The key rewrite of the first sync after a switch to Cloud."
           },
           "seen": {
             "format": "int32",
@@ -5463,7 +6099,8 @@
           "error",
           "queuedAt",
           "startedAt",
-          "finishedAt"
+          "finishedAt",
+          "parts"
         ],
         "type": "object"
       },
@@ -5488,6 +6125,68 @@
         },
         "required": [
           "runs"
+        ],
+        "type": "object"
+      },
+      "SSOStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SSOStatus.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "adminLinked": {
+            "description": "True when an enabled admin has a linked SSO account.",
+            "type": "boolean"
+          },
+          "callbackUrl": {
+            "description": "The redirect URI to register at the identity provider.",
+            "type": "string"
+          },
+          "directory": {
+            "$ref": "#/components/schemas/PollStatus"
+          },
+          "directoryOn": {
+            "type": "boolean"
+          },
+          "effective": {
+            "$ref": "#/components/schemas/SignInConfig",
+            "description": "The configuration after the environment variables."
+          },
+          "locks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The fields that an environment variable sets, with the variable name.",
+            "type": "object"
+          },
+          "passwordOn": {
+            "description": "True when password sign-in is served now.",
+            "type": "boolean"
+          },
+          "ready": {
+            "description": "True when the issuer, the client ID and the client secret are set.",
+            "type": "boolean"
+          },
+          "secretSet": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "effective",
+          "locks",
+          "secretSet",
+          "callbackUrl",
+          "ready",
+          "adminLinked",
+          "passwordOn",
+          "directoryOn",
+          "directory"
         ],
         "type": "object"
       },
@@ -5580,6 +6279,29 @@
         },
         "required": [
           "scopes"
+        ],
+        "type": "object"
+      },
+      "SecretInputBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SecretInputBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "secret": {
+            "description": "An empty value removes the secret.",
+            "maxLength": 1024,
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret"
         ],
         "type": "object"
       },
@@ -5798,6 +6520,86 @@
         ],
         "type": "object"
       },
+      "SignInConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "accessGroup": {
+            "description": "The IdP group ID whose members can sign in. Empty lets every IdP user sign in.",
+            "type": "string"
+          },
+          "accessGroupName": {
+            "type": "string"
+          },
+          "buttonLabel": {
+            "description": "The label of the SSO button. Empty uses the default label.",
+            "type": "string"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "directory": {
+            "enum": [
+              "none",
+              "entra"
+            ],
+            "type": "string"
+          },
+          "intervalMinutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "issuer": {
+            "description": "The OpenID Connect issuer URL. Empty turns SSO off.",
+            "type": "string"
+          },
+          "passwordSignIn": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "issuer",
+          "clientId",
+          "buttonLabel",
+          "passwordSignIn",
+          "accessGroup",
+          "accessGroupName",
+          "directory",
+          "intervalMinutes"
+        ],
+        "type": "object"
+      },
+      "SignInOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SignInOptions.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "label": {
+            "description": "The label of the SSO button. Empty means the default label.",
+            "type": "string"
+          },
+          "password": {
+            "description": "True when password sign-in is served.",
+            "type": "boolean"
+          },
+          "sso": {
+            "description": "True when SSO sign-in is configured.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sso",
+          "label",
+          "password"
+        ],
+        "type": "object"
+      },
       "Skip": {
         "additionalProperties": false,
         "properties": {
@@ -5900,7 +6702,7 @@
             "type": "string"
           },
           "baseUrl": {
-            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL.",
+            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api.",
             "format": "uri",
             "type": "string"
           },
@@ -5935,12 +6737,18 @@
               "jira",
               "github",
               "azdo",
-              "backstage"
+              "gitlab",
+              "bitbucket",
+              "backstage",
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
           "options": {
             "additionalProperties": {},
+            "description": "For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app.",
             "type": "object"
           },
           "scope": {
@@ -5948,7 +6756,7 @@
             "type": "object"
           },
           "token": {
-            "description": "A read-only personal access token. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -6240,6 +7048,70 @@
           "domain",
           "domainId",
           "changedAt"
+        ],
+        "type": "object"
+      },
+      "SwitchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SwitchBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "baseUrl": {
+            "description": "The Cloud site URL, such as https://acme.atlassian.net.",
+            "format": "uri",
+            "type": "string"
+          },
+          "email": {
+            "description": "The email of the Atlassian account of the API token.",
+            "maxLength": 320,
+            "minLength": 3,
+            "type": "string"
+          },
+          "scoped": {
+            "description": "True for a scoped API token, which reads through api.atlassian.com.",
+            "type": "boolean"
+          },
+          "token": {
+            "description": "An API token of the account. Write-only.",
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseUrl",
+          "email",
+          "token"
+        ],
+        "type": "object"
+      },
+      "SwitchOutBody": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/SwitchOutBody.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "runId": {
+            "description": "The full sync that rewrites the keys.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "runId"
         ],
         "type": "object"
       },
@@ -6546,6 +7418,35 @@
         "required": [
           "type",
           "name"
+        ],
+        "type": "object"
+      },
+      "Thread": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/Thread.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "threadId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/Answer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "threadId",
+          "turns"
         ],
         "type": "object"
       },
@@ -6921,6 +7822,10 @@
             "readOnly": true,
             "type": "string"
           },
+          "more": {
+            "description": "True when the source gives no total. The scope then has sample items or more.",
+            "type": "boolean"
+          },
           "sample": {
             "description": "The number of items in the scope, or in the source when no scope is set.",
             "format": "int64",
@@ -6933,7 +7838,8 @@
         },
         "required": [
           "user",
-          "sample"
+          "sample",
+          "more"
         ],
         "type": "object"
       },
@@ -7028,6 +7934,79 @@
           "confirm"
         ],
         "type": "object"
+      },
+      "WebhookRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "https": {
+            "description": "True when ASSAY_BASE_URL uses HTTPS. Azure DevOps sends its Basic credentials only over HTTPS.",
+            "type": "boolean"
+          },
+          "lastReceivedAt": {
+            "description": "The time of the last accepted webhook.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public": {
+            "description": "False when ASSAY_BASE_URL is a localhost or private address, which a source system cannot reach.",
+            "type": "boolean"
+          },
+          "received": {
+            "description": "The accepted webhooks since the URL was first made.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rotatedAt": {
+            "description": "When the URL and the secret were made. Null before the first time.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "public",
+          "https",
+          "rotatedAt",
+          "received",
+          "lastReceivedAt"
+        ],
+        "type": "object"
+      },
+      "WebhookSecret": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/WebhookSecret.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "secret": {
+            "description": "The signing secret, or the Basic password for Azure DevOps. Assay shows it only now.",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL to register in the source. It holds the token. Assay shows it only now.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The Basic user name for Azure DevOps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secret"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -7044,6 +8023,388 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/auth/oauth2/authorize": {
+      "get": {
+        "operationId": "oauthProviderAuthorize",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Start the authorization code flow",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/consents": {
+      "get": {
+        "operationId": "oauthProviderConsents",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "consents": {
+                      "items": {
+                        "properties": {
+                          "clientId": {
+                            "type": "string"
+                          },
+                          "clientName": {
+                            "type": "string"
+                          },
+                          "resources": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          },
+                          "scopes": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "clientId",
+                          "clientName",
+                          "scopes"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "consents"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The consents."
+          }
+        },
+        "summary": "List the standing consents of the user",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/consents/{clientID}": {
+      "delete": {
+        "operationId": "oauthProviderWithdrawConsent",
+        "parameters": [
+          {
+            "description": "The client.",
+            "in": "path",
+            "name": "clientID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "withdrawn": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "withdrawn"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The withdrawal."
+          }
+        },
+        "summary": "Withdraw the consent of one client",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/decide": {
+      "post": {
+        "operationId": "oauthProviderDecide",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approve": {
+                    "type": "boolean"
+                  },
+                  "requestId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "approve"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "redirectTo": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "redirectTo"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The redirect target."
+          }
+        },
+        "summary": "Approve or deny one authorization request",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/jwks": {
+      "get": {
+        "operationId": "oauthProviderJWKS",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the published key set",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/register": {
+      "post": {
+        "operationId": "oauthProviderRegister",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Register one client",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/request": {
+      "get": {
+        "operationId": "oauthProviderRequest",
+        "parameters": [
+          {
+            "description": "The authorization request.",
+            "in": "query",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "clientHost": {
+                      "type": "string"
+                    },
+                    "clientId": {
+                      "type": "string"
+                    },
+                    "clientKind": {
+                      "enum": [
+                        "static",
+                        "dynamic",
+                        "cimd"
+                      ],
+                      "type": "string"
+                    },
+                    "clientName": {
+                      "type": "string"
+                    },
+                    "consentGranted": {
+                      "type": "boolean"
+                    },
+                    "firstParty": {
+                      "type": "boolean"
+                    },
+                    "logoUri": {
+                      "type": "string"
+                    },
+                    "needsSignIn": {
+                      "type": "boolean"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "resources": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "scopes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "requestId",
+                    "clientId",
+                    "clientName",
+                    "scopes",
+                    "firstParty",
+                    "clientKind",
+                    "clientHost",
+                    "needsSignIn",
+                    "consentGranted"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The authorization request."
+          }
+        },
+        "summary": "Read one authorization request",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/revoke": {
+      "post": {
+        "operationId": "oauthProviderRevoke",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Revoke one token",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/token": {
+      "post": {
+        "operationId": "oauthProviderToken",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Exchange a code, a refresh token, or client credentials",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
+    "/api/auth/oauth2/userinfo": {
+      "get": {
+        "operationId": "oauthProviderUserInfo",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the claims of an access token",
+        "tags": [
+          "oauth-provider"
+        ]
+      },
+      "post": {
+        "operationId": "oauthProviderUserInfoPost",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The answer of the route, as its RFC defines it."
+          }
+        },
+        "summary": "Read the claims of an access token",
+        "tags": [
+          "oauth-provider"
+        ]
+      }
+    },
     "/api/auth/password/change": {
       "post": {
         "operationId": "passwordChange",
@@ -7416,7 +8777,7 @@
     },
     "/api/v1/ask": {
       "post": {
-        "description": "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice.",
+        "description": "Streams server-sent events: results first, then delta events with the answer text, then the validated answer. Without the answer model, the answer event has the results and a notice. The thread of another user gives 404.",
         "operationId": "ask",
         "requestBody": {
           "content": {
@@ -8203,6 +9564,38 @@
         ]
       }
     },
+    "/api/v1/connected-apps": {
+      "get": {
+        "description": "Disconnect a client with the withdraw route of the OAuth provider.",
+        "operationId": "listConnectedApps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppsOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the MCP clients that you approved",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/connections": {
       "get": {
         "operationId": "listConnections",
@@ -8276,7 +9669,7 @@
     },
     "/api/v1/connections/scopes": {
       "post": {
-        "description": "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.",
+        "description": "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.",
         "operationId": "listConnectionScopes",
         "requestBody": {
           "content": {
@@ -8473,6 +9866,59 @@
           }
         },
         "summary": "Change a connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/cloud": {
+      "post": {
+        "description": "Validates the Cloud site, email and API token, saves the old host as previousHost and queues a full sync. The sync rewrites the keys of the items and entities of the connection, so claims, evidence, reviews and pages stay. A reconciliation after it tombstones the items that matched nothing.",
+        "operationId": "switchConnectionToCloud",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchOutBody"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Switch a Data Center connection to Cloud",
         "tags": [
           "connections"
         ]
@@ -8829,6 +10275,49 @@
         ]
       }
     },
+    "/api/v1/connections/{id}/webhook": {
+      "post": {
+        "description": "Makes the webhook URL and secret of a connection, or replaces them. The old URL then returns 404. The response is the only place that shows them.",
+        "operationId": "rotateConnectionWebhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSecret"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Make a new webhook URL and secret",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
     "/api/v1/decisions": {
       "get": {
         "description": "outcome=auto lists the auto-applied decisions. A decision shows only when all its inputs are visible to you.",
@@ -9061,6 +10550,38 @@
         "summary": "Run the installation checks",
         "tags": [
           "diagnostics"
+        ]
+      }
+    },
+    "/api/v1/diagnostics/questions": {
+      "get": {
+        "description": "Questions of all users of the last 90 days with no evidence or a not-helpful mark, grouped by the first thing that each names. A question shows only when all connections of its answer are visible to the caller. No row names the asker or holds the answer.",
+        "operationId": "listQuestionsToImprove",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImproveOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the questions to improve",
+        "tags": [
+          "ask"
         ]
       }
     },
@@ -10273,6 +11794,38 @@
         ]
       }
     },
+    "/api/v1/feedback/questions": {
+      "get": {
+        "description": "assay eval --from-feedback reads it. Each question has a mark, and all connections of its answer are visible to the caller. An up-marked answer gives the titles of its cited items. No row names the asker.",
+        "operationId": "listFeedbackQuestions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RatedOutBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List the rated questions for an evaluation set",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
     "/api/v1/findings": {
       "post": {
         "description": "Creates a finding card and a Proposed claim. Each quote must be an exact part of a visible item. A hidden item gives 404.",
@@ -10504,6 +12057,86 @@
           }
         },
         "summary": "Rename a group",
+        "tags": [
+          "groups"
+        ]
+      }
+    },
+    "/api/v1/groups/{id}/mapping": {
+      "delete": {
+        "description": "The members stay, and admins change them again.",
+        "operationId": "deleteGroupMapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Remove the IdP mapping of a group",
+        "tags": [
+          "groups"
+        ]
+      },
+      "put": {
+        "description": "The IdP then sets the members. The current members are removed, and sign-in and the directory poll add the IdP members.",
+        "operationId": "setGroupMapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MappingInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Map an IdP group to a group",
         "tags": [
           "groups"
         ]
@@ -10865,6 +12498,37 @@
         "summary": "Get a source item with its passages",
         "tags": [
           "items"
+        ]
+      }
+    },
+    "/api/v1/mcp/oauth": {
+      "get": {
+        "operationId": "getMCPOAuth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the state of OAuth sign-in of MCP clients",
+        "tags": [
+          "agents"
         ]
       }
     },
@@ -11469,7 +13133,7 @@
     },
     "/api/v1/questions": {
       "get": {
-        "description": "The history is private. Each user sees only their own questions.",
+        "description": "The history is private. Each user sees only their own questions. Each row is one thread.",
         "operationId": "listQuestions",
         "responses": {
           "200": {
@@ -11493,7 +13157,7 @@
             "description": "Error"
           }
         },
-        "summary": "List your questions",
+        "summary": "List your question threads",
         "tags": [
           "ask"
         ]
@@ -11501,7 +13165,7 @@
     },
     "/api/v1/questions/{id}": {
       "get": {
-        "description": "The question of another user gives 404. When a source of the answer is no longer visible, the answer is hidden.",
+        "description": "Any turn gives the whole thread. The question of another user gives 404. When a source of a turn is no longer visible, the answer of that turn is hidden.",
         "operationId": "getQuestion",
         "parameters": [
           {
@@ -11519,7 +13183,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Answer"
+                  "$ref": "#/components/schemas/Thread"
                 }
               }
             },
@@ -11536,7 +13200,60 @@
             "description": "Error"
           }
         },
-        "summary": "Get one of your questions with its answer",
+        "summary": "Get the thread of one of your questions",
+        "tags": [
+          "ask"
+        ]
+      }
+    },
+    "/api/v1/questions/{id}/feedback": {
+      "put": {
+        "description": "One mark per answer. A new mark replaces the old one. Only a down mark keeps the reason and the wrong-citation flag. The question of another user gives 404.",
+        "operationId": "setFeedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Feedback"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Mark one of your answers as helpful or not helpful",
         "tags": [
           "ask"
         ]
@@ -11954,6 +13671,12 @@
                 "jira",
                 "github",
                 "azdo",
+                "gitlab",
+                "bitbucket",
+                "backstage",
+                "web",
+                "teams",
+                "slack",
                 ""
               ],
               "type": "string"
@@ -12300,6 +14023,149 @@
         "summary": "Create the first admin",
         "tags": [
           "setup"
+        ]
+      }
+    },
+    "/api/v1/sign-in/options": {
+      "get": {
+        "description": "The sign-in page calls it before sign-in.",
+        "operationId": "getSignInOptions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptions"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the sign-in methods",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso": {
+      "get": {
+        "operationId": "getSSOStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Get the state of SSO and the directory sync",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso/directory/groups": {
+      "get": {
+        "description": "Reads the groups of the directory for the group picker.",
+        "operationId": "listDirectoryGroups",
+        "parameters": [
+          {
+            "description": "The start of the group name.",
+            "explode": false,
+            "in": "query",
+            "name": "prefix",
+            "schema": {
+              "description": "The start of the group name.",
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupsOutputBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "List directory groups",
+        "tags": [
+          "sign-in"
+        ]
+      }
+    },
+    "/api/v1/sso/secret": {
+      "put": {
+        "description": "The secret is write-only.",
+        "operationId": "setSSOSecret",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretInputBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Set the client secret",
+        "tags": [
+          "sign-in"
         ]
       }
     },

@@ -20,6 +20,10 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/connectors/chat"
+	"github.com/alternayte/assay/internal/connectors/slack"
+	"github.com/alternayte/assay/internal/connectors/teams"
+	"github.com/alternayte/assay/internal/connectors/web"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/settings"
 )
@@ -36,12 +40,14 @@ type GroupRef struct {
 // health. The token never leaves the server.
 type ConnectionRecord struct {
 	ID                   int64          `json:"id"`
-	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,backstage"`
+	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
 	Name                 string         `json:"name"`
 	BaseURL              string         `json:"baseUrl"`
 	HasToken             bool           `json:"hasToken"`
 	Scope                map[string]any `json:"scope"`
 	Options              map[string]any `json:"options"`
+	Deployment           string         `json:"deployment,omitempty" enum:"dc,cloud" doc:"Data Center or Cloud, for Jira and Confluence."`
+	Switching            bool           `json:"switching" doc:"True from a switch to Cloud until a sync rewrote the keys."`
 	IncludeGlobs         []string       `json:"includeGlobs"`
 	ExcludeGlobs         []string       `json:"excludeGlobs"`
 	CodeGlobs            []string       `json:"codeGlobs" doc:"Source files to index. Empty turns code indexing off."`
@@ -49,6 +55,7 @@ type ConnectionRecord struct {
 	ReconcileHours       int32          `json:"reconcileHours"`
 	RateConcurrency      int32          `json:"rateConcurrency"`
 	RatePerSecond        float64        `json:"ratePerSecond"`
+	ParallelParts        int32          `json:"parallelParts" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	OwnerID              *string        `json:"ownerId"`
 	OwnerEmail           string         `json:"ownerEmail"`
 	Status               string         `json:"status" enum:"active,paused"`
@@ -62,55 +69,127 @@ type ConnectionRecord struct {
 	PermissionsCheckedAt *time.Time     `json:"permissionsCheckedAt"`
 	LastError            string         `json:"lastError"`
 	CreatedAt            time.Time      `json:"createdAt"`
+	Webhook              *WebhookRecord `json:"webhook,omitempty" doc:"The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none."`
 }
 
-// RunRecord is one sync run.
-type RunRecord struct {
-	ID         int64      `json:"id"`
-	Kind       string     `json:"kind" enum:"sync,reconcile"`
-	Trigger    string     `json:"trigger" enum:"schedule,manual"`
+// PartRecord is one part of a sync run: a space, a project, a repository
+// or the catalog.
+type PartRecord struct {
+	Part       string     `json:"part"`
 	Status     string     `json:"status" enum:"queued,running,succeeded,failed"`
+	Host       string     `json:"host" doc:"The worker process that ran the part."`
 	Seen       int32      `json:"seen"`
 	Created    int32      `json:"created"`
 	Updated    int32      `json:"updated"`
 	Unchanged  int32      `json:"unchanged"`
 	Deleted    int32      `json:"deleted"`
-	Skipped    []Skip     `json:"skipped"`
 	Error      string     `json:"error"`
-	QueuedAt   time.Time  `json:"queuedAt"`
 	StartedAt  *time.Time `json:"startedAt"`
 	FinishedAt *time.Time `json:"finishedAt"`
+}
+
+// RunRecord is one sync run.
+type RunRecord struct {
+	ID         int64        `json:"id"`
+	Kind       string       `json:"kind" enum:"sync,reconcile"`
+	Trigger    string       `json:"trigger" enum:"schedule,manual"`
+	Status     string       `json:"status" enum:"queued,running,succeeded,failed"`
+	Seen       int32        `json:"seen"`
+	Created    int32        `json:"created"`
+	Updated    int32        `json:"updated"`
+	Unchanged  int32        `json:"unchanged"`
+	Deleted    int32        `json:"deleted"`
+	Skipped    []Skip       `json:"skipped"`
+	Error      string       `json:"error"`
+	QueuedAt   time.Time    `json:"queuedAt"`
+	StartedAt  *time.Time   `json:"startedAt"`
+	FinishedAt *time.Time   `json:"finishedAt"`
+	Parts      []PartRecord `json:"parts"`
+	// Rewrite is set on the first sync after a switch to Cloud.
+	Rewrite *Rewrite `json:"rewrite,omitempty" doc:"The key rewrite of the first sync after a switch to Cloud."`
 }
 
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
-	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL."`
-	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
+	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api."`
+	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
-	Options      map[string]any `json:"options,omitempty"`
+	Options      map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app."`
 	IncludeGlobs []string       `json:"includeGlobs,omitempty" doc:"Repository files to read. Empty uses the default globs."`
 	ExcludeGlobs []string       `json:"excludeGlobs,omitempty"`
 	CodeGlobs    []string       `json:"codeGlobs,omitempty" doc:"Source files to index. Empty turns code indexing off."`
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
-	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
+	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
-	Options         map[string]any `json:"options,omitempty"`
+	Options         map[string]any `json:"options,omitempty" doc:"Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads)."`
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
 	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
 	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
 	CodeGlobs       *[]string      `json:"codeGlobs,omitempty" doc:"Source files to index. Leave it out to use the default code globs on create and to keep the globs on update. An empty list turns code indexing off."`
 	SyncMinutes     int32          `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
 	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
-	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
-	RatePerSecond   float64        `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
+	RateConcurrency int32          `json:"rateConcurrency,omitempty" minimum:"1" maximum:"32" doc:"Leave it out for the default: 4, or 2 for Slack."`
+	RatePerSecond   float64        `json:"ratePerSecond,omitempty" minimum:"0.1" maximum:"100" doc:"Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack."`
+	ParallelParts   int32          `json:"parallelParts,omitempty" minimum:"1" maximum:"32" default:"4" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
+}
+
+// checkOptions validates the history options of a repository connection,
+// and the options and the scope of a chat connection.
+func checkOptions(kind string, options map[string]any) error {
+	switch kind {
+	case "teams":
+		if _, err := teams.ParseOptions(rawJSON(options)); err != nil {
+			return api.Problem(http.StatusUnprocessableEntity, "invalid_options", chatMessage(err, "teams: "))
+		}
+		return nil
+	case "slack":
+		if _, err := chat.ParseRetainDays(rawJSON(options)); err != nil {
+			return api.Problem(http.StatusUnprocessableEntity, "invalid_options", chatMessage(err, "chat: "))
+		}
+		return nil
+	}
+	if kind != "github" && kind != "azdo" {
+		return nil
+	}
+	if _, err := connectors.ParseHistory(rawJSON(options)); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_options",
+			"The history options are not valid. historyMonths is a whole number of 0 or more, and pullRequests, issues and wiki are true or false.")
+	}
+	return nil
+}
+
+// chatMessage is the message of an option or scope error for people.
+func chatMessage(err error, prefix string) string {
+	msg := strings.TrimPrefix(strings.TrimPrefix(err.Error(), prefix), "chat: ")
+	if msg == "" {
+		return msg
+	}
+	return strings.ToUpper(msg[:1]) + msg[1:] + "."
+}
+
+// checkScope validates the scope of a chat connection.
+func checkScope(kind string, scope map[string]any) error {
+	var err error
+	switch kind {
+	case "teams":
+		_, err = teams.ParseScope(rawJSON(scope))
+	case "slack":
+		_, err = slack.ParseScope(rawJSON(scope))
+	default:
+		return nil
+	}
+	if err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_scope", chatMessage(err, kind+": "))
+	}
+	return nil
 }
 
 func checkURL(raw string) error {
@@ -157,8 +236,13 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 	if err := checkURL(b.BaseURL); err != nil {
 		return source{}, err
 	}
+	opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+	if err != nil {
+		return source{}, err
+	}
 	src := source{Kind: b.Kind, BaseURL: strings.TrimRight(b.BaseURL, "/"), Token: b.Token, Scope: rawJSON(b.Scope),
-		Options: rawJSON(b.Options), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: 4, PerSecond: 5}
+		Options: rawJSON(opts), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: int(rateConcurrency(0, b.Kind)),
+		PerSecond: ratePerSecond(0, b.Kind, b.BaseURL, rawJSON(opts))}
 	if src.Token == "" && b.ConnectionID != nil {
 		c, err := New(s.Pool).GetConnection(ctx, *b.ConnectionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -172,14 +256,67 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 			return source{}, err
 		}
 		// The stored token goes only to the host that it belongs to (SI-04).
+		// The requests then share the rate of the stored connection.
 		if stored.Kind == src.Kind && stored.BaseURL == src.BaseURL {
-			src.Token = stored.Token
+			src.Token, src.ConnectionID = stored.Token, stored.ConnectionID
+			src.Concurrency, src.PerSecond = stored.Concurrency, stored.PerSecond
 		}
 	}
-	if src.Token == "" {
+	if src.Token == "" && src.Kind != "web" {
 		return source{}, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 	}
+	if err := checkWeb(src.Kind, src.Token, b.Scope); err != nil {
+		return source{}, err
+	}
+	if err := checkOptions(src.Kind, b.Options); err != nil {
+		return source{}, err
+	}
+	if err := checkScope(src.Kind, b.Scope); err != nil {
+		return source{}, err
+	}
 	return src, nil
+}
+
+// ratePerSecond is the rate of a connection: the given rate, or the
+// default of its deployment.
+func ratePerSecond(given float64, kind, baseURL string, options []byte) float64 {
+	if given > 0 {
+		return given
+	}
+	if kind == "slack" {
+		return slack.DefaultPerSecond
+	}
+	if deploymentOf(kind, baseURL, options) == deployCloud {
+		return defaultCloudPerSecond
+	}
+	return defaultPerSecond
+}
+
+// rateConcurrency is the concurrency of a connection: the given value, or
+// the default of its kind.
+func rateConcurrency(given int32, kind string) int32 {
+	if given > 0 {
+		return given
+	}
+	if kind == "slack" {
+		return slack.DefaultConcurrency
+	}
+	return 4
+}
+
+// checkWeb checks the auth header and the scope of a web connection. The
+// auth header is optional: a public site needs none.
+func checkWeb(kind, token string, scope map[string]any) error {
+	if kind != "web" {
+		return nil
+	}
+	if _, _, err := web.ParseAuth(token); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_auth_header", "Write the auth header as a name and a value, such as X-Portal-Token: abc.")
+	}
+	if _, err := web.ParseScope(rawJSON(scope)); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_scope", strings.TrimPrefix(err.Error(), "web: ")+".")
+	}
+	return nil
 }
 
 func sourceProblem(err error) error {
@@ -265,7 +402,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "listConnectionScopes", Method: http.MethodPost, Path: "/api/v1/connections/scopes", Tags: tags,
-		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.", Middlewares: admins,
+		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.", Middlewares: admins,
 	}, func(ctx context.Context, in *struct{ Body sourceBody }) (*scopesOut, error) {
 		src, err := s.resolve(ctx, in.Body)
 		if err != nil {
@@ -298,8 +435,24 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
-		if b.Token == "" {
+		if err := checkOptions(b.Kind, b.Options); err != nil {
+			return nil, err
+		}
+		if err := checkScope(b.Kind, b.Scope); err != nil {
+			return nil, err
+		}
+		if b.Token == "" && b.Kind != "web" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
+		}
+		if err := checkWeb(b.Kind, b.Token, b.Scope); err != nil {
+			return nil, err
+		}
+		opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+		if err != nil {
+			return nil, err
+		}
+		if atlassian(b.Kind) {
+			b.Options = opts
 		}
 		out := &idOut{}
 		id, err := s.create(ctx, api.Caller(ctx).User.ID, b)
@@ -320,6 +473,36 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
+		if err := checkOptions(b.Kind, b.Options); err != nil {
+			return nil, err
+		}
+		if err := checkScope(b.Kind, b.Scope); err != nil {
+			return nil, err
+		}
+		if err := checkWeb(b.Kind, b.Token, b.Scope); err != nil {
+			return nil, err
+		}
+		if atlassian(b.Kind) {
+			stored, err := New(s.Pool).GetConnection(ctx, in.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, api.ErrNotFound
+			}
+			if err != nil {
+				return nil, api.Internal(err)
+			}
+			if err := checkDeployment(stored, b); err != nil {
+				return nil, err
+			}
+			opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+			if err != nil {
+				return nil, err
+			}
+			// The old host of a switch stays on record.
+			if prev, ok := object(stored.Options)["previousHost"]; ok {
+				opts["previousHost"] = prev
+			}
+			b.Options = opts
+		}
 		reconcile := false
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 			q := New(tx)
@@ -336,14 +519,18 @@ func (s *Service) Register(a huma.API) {
 			if cur.Kind != b.Kind {
 				return api.Problem(http.StatusUnprocessableEntity, "kind_fixed", "The kind of a connection cannot change.")
 			}
+			if err := checkDeployment(cur, b); err != nil {
+				return err
+			}
 			// The stored token goes only to the host that it belongs to (SI-04).
-			if b.Token == "" && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
+			if b.Token == "" && cur.SecretID != nil && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
 				return api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter the token again for the new URL.")
 			}
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: codeGlobs(b.CodeGlobs),
-				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
+				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: rateConcurrency(b.RateConcurrency, b.Kind),
+				RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)), ParallelParts: b.ParallelParts,
 				DefaultDomainID: b.DefaultDomainID}); err != nil {
 				return dbError(err)
 			}
@@ -424,6 +611,8 @@ func (s *Service) Register(a huma.API) {
 			return out, nil
 		})
 	}
+	s.registerSwitch(a)
+	s.registerWebhookAdmin(a, tags)
 
 	type pauseIn struct {
 		ID   int64 `path:"id"`
@@ -435,7 +624,9 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "pauseConnection", Method: http.MethodPut, Path: "/api/v1/connections/{id}/paused", Tags: tags,
 		Summary: "Pause or resume a connection", DefaultStatus: http.StatusNoContent, Middlewares: admins,
 	}, func(ctx context.Context, in *pauseIn) (*struct{}, error) {
+		var halted []int64
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+			halted = nil
 			q := New(tx)
 			c, err := q.GetConnection(ctx, in.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -453,8 +644,15 @@ func (s *Service) Register(a huma.API) {
 					return nil
 				}
 				status, reason, action = "active", "", "connections.resume"
-			} else if err := q.FailQueuedRuns(ctx, FailQueuedRunsParams{ConnectionID: in.ID, Now: ptr(s.now()), Error: pausedReason}); err != nil {
-				return err
+			} else {
+				if err := q.FailQueuedRuns(ctx, FailQueuedRunsParams{ConnectionID: in.ID, Now: ptr(s.now()), Error: pausedReason}); err != nil {
+					return err
+				}
+				// The parts that wait for a worker fail now. A running
+				// part ends when the cancel of its job reaches it.
+				if halted, err = q.FailQueuedParts(ctx, FailQueuedPartsParams{Error: pausedReason, Now: ptr(s.now()), ConnectionID: in.ID}); err != nil {
+					return err
+				}
 			}
 			if _, err := q.SetStatus(ctx, SetStatusParams{ID: in.ID, Status: status, Reason: reason}); err != nil {
 				return err
@@ -466,6 +664,9 @@ func (s *Service) Register(a huma.API) {
 		}
 		if in.Body.Paused {
 			if err := s.cancelRuns(ctx, in.ID); err != nil {
+				return nil, api.Internal(err)
+			}
+			if err := s.settleAll(ctx, halted); err != nil {
 				return nil, api.Internal(err)
 			}
 			return nil, nil
@@ -529,16 +730,33 @@ func (s *Service) Register(a huma.API) {
 		OperationID: "listConnectionRuns", Method: http.MethodGet, Path: "/api/v1/connections/{id}/runs", Tags: tags,
 		Summary: "List the sync runs of a connection", Middlewares: admins,
 	}, func(ctx context.Context, in *idIn) (*runsOut, error) {
-		rows, err := New(s.Pool).ListRuns(ctx, ListRunsParams{ConnectionID: in.ID, Lim: 50})
+		q := New(s.Pool)
+		rows, err := q.ListRuns(ctx, ListRunsParams{ConnectionID: in.ID, Lim: 50})
 		if err != nil {
 			return nil, api.Internal(err)
+		}
+		ids := make([]int64, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.ID)
+		}
+		parts, err := q.ListRunParts(ctx, ids)
+		if err != nil {
+			return nil, api.Internal(err)
+		}
+		byRun := map[int64][]PartRecord{}
+		for _, p := range parts {
+			var c counts
+			_ = json.Unmarshal(p.Stats, &c)
+			byRun[p.RunID] = append(byRun[p.RunID], PartRecord{Part: p.Part, Status: p.Status, Host: p.Host, Seen: c.Seen,
+				Created: c.Created, Updated: c.Updated, Unchanged: c.Unchanged, Deleted: c.Deleted, Error: p.Error,
+				StartedAt: p.StartedAt, FinishedAt: p.FinishedAt})
 		}
 		out := &runsOut{}
 		out.Body.Runs = []RunRecord{}
 		for _, r := range rows {
 			rec := RunRecord{ID: r.ID, Kind: r.Kind, Trigger: r.Trigger, Status: r.Status, Seen: r.Seen, Created: r.Created,
 				Updated: r.Updated, Unchanged: r.Unchanged, Deleted: r.Deleted, Error: r.Error, QueuedAt: r.QueuedAt,
-				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}}
+				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}, Parts: orEmpty(byRun[r.ID]), Rewrite: rewriteOf(r.Rewrite)}
 			_ = json.Unmarshal(r.Skipped, &rec.Skipped)
 			out.Body.Runs = append(out.Body.Runs, rec)
 		}
@@ -559,8 +777,30 @@ func sourceChanged(cur Connection, b connectionBody) bool {
 		!slices.Equal(orStrings(cur.IncludeGlobs), orStrings(b.IncludeGlobs)) || !slices.Equal(orStrings(cur.ExcludeGlobs), orStrings(b.ExcludeGlobs))
 }
 
+// checkDeployment refuses a change of the deployment of a stored Jira or
+// Confluence connection. A Data Center connection moves to Cloud only with
+// the switch, which rewrites its keys.
+func checkDeployment(cur Connection, b connectionBody) error {
+	if !atlassian(cur.Kind) {
+		return nil
+	}
+	was, now := deploymentOf(cur.Kind, cur.BaseUrl, cur.Options), deploymentOf(b.Kind, strings.TrimRight(b.BaseURL, "/"), rawJSON(b.Options))
+	if was == now {
+		return nil
+	}
+	if was == deployDC {
+		return api.Problem(http.StatusUnprocessableEntity, "deployment_fixed", "Use Switch to Cloud to move a Data Center connection to Cloud.")
+	}
+	return api.Problem(http.StatusUnprocessableEntity, "deployment_fixed", "A Cloud connection cannot change back to Data Center.")
+}
+
 func registryProblem() error {
 	return api.Problem(http.StatusConflict, "registry", "The registry is built in. It cannot be changed, paused or purged.")
+}
+
+// repoKind reports whether a connection kind reads repositories.
+func repoKind(kind string) bool {
+	return kind == "github" || kind == "azdo" || kind == "gitlab" || kind == "bitbucket"
 }
 
 // create inserts a connection owned by owner, visible only to the owner.
@@ -568,7 +808,7 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 	code := []string{}
 	if b.CodeGlobs != nil {
 		code = orStrings(*b.CodeGlobs)
-	} else if b.Kind == "github" || b.Kind == "azdo" {
+	} else if repoKind(b.Kind) {
 		rules, err := settings.Read[RulesConfig](ctx, s.Pool, Rules)
 		if err != nil {
 			return 0, err
@@ -581,13 +821,15 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
 			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: code, SyncMinutes: b.SyncMinutes,
-			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond,
-			OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
+			ReconcileHours: b.ReconcileHours, RateConcurrency: rateConcurrency(b.RateConcurrency, b.Kind), RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)),
+			ParallelParts: b.ParallelParts, OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
 		if err != nil {
 			return dbError(err)
 		}
-		if err := s.setToken(ctx, tx, id, b.Token); err != nil {
-			return err
+		if b.Token != "" {
+			if err := s.setToken(ctx, tx, id, b.Token); err != nil {
+				return err
+			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "connections.create", Target: fmt.Sprintf("connection:%d", id),
 			Details: map[string]any{"name": b.Name, "kind": b.Kind, "baseUrl": b.BaseURL, "scope": b.Scope}})
@@ -712,6 +954,9 @@ func (s *Service) Purge(ctx context.Context, id int64) error {
 				return err
 			}
 		}
+		if err := s.Secrets.Delete(ctx, tx, webhookSecretName(id)); err != nil {
+			return err
+		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "connections.purge", Target: fmt.Sprintf("connection:%d", id),
 			Details: map[string]any{"name": c.Name, "kind": c.Kind}})
 	})
@@ -727,14 +972,19 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	hooks, err := s.webhookRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []ConnectionRecord{}
 	for _, r := range rows {
 		rec := ConnectionRecord{ID: r.ID, Kind: r.Kind, Name: r.Name, BaseURL: r.BaseUrl, HasToken: r.SecretID != nil,
 			Scope: object(r.Scope), Options: object(r.Options), IncludeGlobs: orStrings(r.IncludeGlobs), ExcludeGlobs: orStrings(r.ExcludeGlobs),
-			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond,
+			Deployment: deploymentOf(r.Kind, r.BaseUrl, r.Options), Switching: r.RewriteFrom != "",
+			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond, ParallelParts: r.ParallelParts,
 			OwnerID: r.OwnerID, OwnerEmail: r.OwnerEmail, Status: r.Status, StatusReason: r.StatusReason, DefaultDomainID: r.DefaultDomainID,
 			Items: r.Items, LastSyncAt: r.LastSyncAt, LastReconcileAt: r.LastReconcileAt, PermissionsCheckedAt: r.PermissionsCheckedAt,
-			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}}
+			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}, Webhook: s.webhookOf(r.Kind, r.BaseUrl, r.Options, hooks, r.ID)}
 		if r.Kind != "registry" && r.Status != "paused" {
 			next := s.now()
 			if r.LastSyncAt != nil {

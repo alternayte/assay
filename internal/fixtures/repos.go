@@ -13,11 +13,11 @@ import (
 	"strings"
 )
 
-// Repo is a Git repository of the corpus on the fake GitHub or Azure
-// DevOps Server.
+// Repo is a Git repository of the corpus on the fake GitHub, Azure DevOps
+// Server, GitLab or Bitbucket Data Center.
 type Repo struct {
-	Host   string // github or azdo
-	ID     string // owner/name or project/name
+	Host   string // github, azdo, gitlab or bitbucket
+	ID     string // owner/name, project/name, group/subgroup/project or KEY/slug
 	Branch string
 	Files  map[string][]byte
 }
@@ -25,21 +25,39 @@ type Repo struct {
 // AzdoCollection is the collection of the fake Azure DevOps Server.
 const AzdoCollection = "AcmeCollection"
 
-// loadRepos reads corpus/<host>/<owner>/<name>/. A file name that ends in
+// GitLabRepo is the project of the fake GitLab, a project in a subgroup.
+const GitLabRepo = "acme/payments/billing-api"
+
+// BitbucketRepo is the repository of the fake Bitbucket Data Center.
+const BitbucketRepo = "PLAT/billing-gateway"
+
+// GitLabPadding and BitbucketPadding are the generated files that no glob
+// selects. They make the GitLab tree longer than one page of 100 and the
+// Bitbucket file list longer than one page of 500.
+const (
+	GitLabPadding    = 120
+	BitbucketPadding = 520
+)
+
+// repoDepth is the number of path segments of a repository ID per host.
+var repoDepth = map[string]int{"github": 2, "azdo": 2, "gitlab": 3, "bitbucket": 2}
+
+// loadRepos reads corpus/<host>/<repository ID>/. A file name that ends in
 // .fixture loses the suffix, so that go.mod and Go files in the corpus do
 // not change the Go module.
 func (s *Sources) loadRepos() {
-	for _, host := range []string{"github", "azdo"} {
+	for _, host := range []string{"github", "azdo", "gitlab", "bitbucket"} {
 		root := "corpus/" + host
+		depth := repoDepth[host]
 		_ = fs.WalkDir(corpus, root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return err
 			}
-			parts := strings.SplitN(strings.TrimPrefix(p, root+"/"), "/", 3)
-			if len(parts) < 3 {
+			parts := strings.SplitN(strings.TrimPrefix(p, root+"/"), "/", depth+1)
+			if len(parts) < depth+1 {
 				return nil
 			}
-			id := parts[0] + "/" + parts[1]
+			id := strings.Join(parts[:depth], "/")
 			r, ok := s.repos[host+":"+id]
 			if !ok {
 				r = &Repo{Host: host, ID: id, Branch: "main", Files: map[string][]byte{}}
@@ -49,11 +67,21 @@ func (s *Sources) loadRepos() {
 			if err != nil {
 				return err
 			}
-			r.Files[strings.TrimSuffix(parts[2], ".fixture")] = b
+			r.Files[strings.TrimSuffix(parts[depth], ".fixture")] = b
 			return nil
 		})
 	}
 	s.repos["github:"+EmptyRepo] = &Repo{Host: "github", ID: EmptyRepo, Branch: "main", Files: map[string][]byte{}}
+	pad(s.repos["gitlab:"+GitLabRepo], GitLabPadding)
+	pad(s.repos["bitbucket:"+BitbucketRepo], BitbucketPadding)
+}
+
+// pad adds n icons under assets/. Their paths sort before catalog-info.yaml
+// and docs/, so that the files of the globs come after the first page.
+func pad(r *Repo, n int) {
+	for i := range n {
+		r.Files[fmt.Sprintf("assets/icon-%04d.svg", i)] = fmt.Appendf(nil, "<svg xmlns=\"http://www.w3.org/2000/svg\"><title>Acme icon %d</title></svg>\n", i)
+	}
 }
 
 // EmptyRepo is a GitHub repository without commits. GitHub answers 409 for
@@ -208,6 +236,9 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 		writeJSON(w, http.StatusNotFound, map[string]any{"message": "Not Found"})
 		return
 	}
+	if len(parts) > 2 && s.githubHistory(w, r, rp, strings.Split(strings.Join(parts[2:], "/"), "/"), web) {
+		return
+	}
 	switch {
 	case len(parts) == 2:
 		writeJSON(w, http.StatusOK, repoJSON(rp))
@@ -258,7 +289,7 @@ func (s *Sources) github(w http.ResponseWriter, r *http.Request, prefix, web str
 func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/azdo/"+AzdoCollection)
 	q := r.URL.Query()
-	if strings.Contains(p, "/_apis/git/") && q.Get("api-version") == "" {
+	if (strings.Contains(p, "/_apis/git/") || strings.Contains(p, "/_apis/wit/") || strings.Contains(p, "/_apis/wiki/")) && q.Get("api-version") == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "No api-version was supplied for the request."})
 		return
 	}
@@ -281,10 +312,18 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"count": len(out), "value": out})
 		return
 	}
+	if project, rest, ok := strings.Cut(strings.TrimPrefix(p, "/"), "/_apis/"); ok && s.azdoProject(w, r, project, rest) {
+		return
+	}
 	project, rest, ok := strings.Cut(strings.TrimPrefix(p, "/"), "/_apis/git/repositories/")
 	if !ok {
 		http.NotFound(w, r)
 		return
+	}
+	if all := strings.Split(rest, "/"); len(all) > 1 {
+		if rp, ok := s.repos["azdo:"+project+"/"+all[0]]; ok && s.azdoPulls(w, r, rp, all[1:]) {
+			return
+		}
 	}
 	parts := strings.SplitN(rest, "/", 3)
 	rp, ok := s.repos["azdo:"+project+"/"+parts[0]]
@@ -311,6 +350,15 @@ func (s *Sources) azdo(w http.ResponseWriter, r *http.Request) {
 	case parts[1] == "commits":
 		if q.Get("searchCriteria.itemVersion.version") != rp.Branch {
 			writeJSON(w, http.StatusNotFound, map[string]any{"message": "The branch does not exist."})
+			return
+		}
+		if file := strings.TrimPrefix(q.Get("searchCriteria.itemPath"), "/"); file != "" {
+			if rp.Files[file] == nil {
+				writeJSON(w, http.StatusOK, map[string]any{"count": 0, "value": []any{}})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"count": 1, "value": []map[string]any{{"commitId": rp.commit(),
+				"comment": s.history["azdo:"+rp.ID].commit(file)}}})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"count": 1, "value": []map[string]any{{"commitId": rp.commit()}}})

@@ -13,6 +13,7 @@ import { t } from "@/copy";
 import { atLeast, meQuery } from "@/lib/session";
 import { ConnectPage, TokensPage } from "@/routes/agents";
 import { AskPage } from "@/routes/ask";
+import { ConsentPage } from "@/routes/consent";
 import { EntityDesignPage, EntityPage } from "@/routes/entity";
 import { ExplorePage } from "@/routes/explore";
 import { GlossaryPage, TermPage } from "@/routes/glossary";
@@ -25,8 +26,10 @@ import { DecisionsPage } from "@/routes/settings/decisions";
 import { DiagnosticsPage } from "@/routes/settings/diagnostics";
 import { DomainsPage } from "@/routes/settings/domains";
 import { GroupsPage } from "@/routes/settings/groups";
+import { AgentsSettingsPage } from "@/routes/settings/agents";
 import { AuditPage, EmailPage, GeneralPage, SettingsLayout } from "@/routes/settings/index";
 import { ModelsPage } from "@/routes/settings/models";
+import { SignInSettingsPage } from "@/routes/settings/signin";
 import { UsersPage } from "@/routes/settings/users";
 import { UpdatesPage } from "@/routes/updates";
 
@@ -62,6 +65,7 @@ const signIn = createRoute({ getParentRoute: () => root, path: "/sign-in", compo
 const setup = createRoute({ getParentRoute: () => root, path: "/setup", component: SetupPage });
 const invite = createRoute({ getParentRoute: () => root, path: "/invite", component: InvitePage });
 const reset = createRoute({ getParentRoute: () => root, path: "/reset-password", component: ResetPage });
+const consent = createRoute({ getParentRoute: () => root, path: "/oauth/consent", component: ConsentPage });
 
 const authed = createRoute({
   getParentRoute: () => root,
@@ -117,6 +121,11 @@ const settingsIndex = createRoute({
 });
 const users = createRoute({ getParentRoute: () => settings, path: "/users", component: UsersPage });
 const groups = createRoute({ getParentRoute: () => settings, path: "/groups", component: GroupsPage });
+const signInSettings = createRoute({
+  getParentRoute: () => settings,
+  path: "/sign-in",
+  component: SignInSettingsPage,
+});
 const connections = createRoute({
   getParentRoute: () => settings,
   path: "/connections",
@@ -133,6 +142,11 @@ const connection = createRoute({
   component: ConnectionPage,
 });
 const domains = createRoute({ getParentRoute: () => settings, path: "/domains", component: DomainsPage });
+const agentsSettings = createRoute({
+  getParentRoute: () => settings,
+  path: "/agents",
+  component: AgentsSettingsPage,
+});
 const decisions = createRoute({
   getParentRoute: () => settings,
   path: "/decisions",
@@ -153,6 +167,7 @@ const routeTree = root.addChildren([
   setup,
   invite,
   reset,
+  consent,
   authed.addChildren([
     home,
     question,
@@ -171,10 +186,12 @@ const routeTree = root.addChildren([
       settingsIndex,
       users,
       groups,
+      signInSettings,
       connections,
       newConnection,
       connection,
       domains,
+      agentsSettings,
       decisions,
       general,
       modelsRoute,

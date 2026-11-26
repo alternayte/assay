@@ -55,6 +55,83 @@ func (q *Queries) AddVisibility(ctx context.Context, arg AddVisibilityParams) (i
 	return result.RowsAffected(), nil
 }
 
+const allConnectionIDs = `-- name: AllConnectionIDs :many
+SELECT id FROM connections ORDER BY id
+`
+
+func (q *Queries) AllConnectionIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, allConnectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const attachmentItems = `-- name: AttachmentItems :many
+SELECT a.id FROM source_items p
+JOIN source_items a ON a.connection_id = p.connection_id AND a.external_id LIKE 'att:%'
+JOIN source_versions v ON v.id = a.version_id
+WHERE p.id = $1 AND p.external_id NOT LIKE 'att:%' AND v.metadata ->> 'parent' = p.external_id
+`
+
+// The attachment items of a page item: the items of the connection with
+// the page as parent.
+// vis:system
+func (q *Queries) AttachmentItems(ctx context.Context, itemID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, attachmentItems, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const clearCursors = `-- name: ClearCursors :exec
+DELETE FROM connection_cursors WHERE connection_id = $1
+`
+
+func (q *Queries) ClearCursors(ctx context.Context, connectionID int64) error {
+	_, err := q.db.Exec(ctx, clearCursors, connectionID)
+	return err
+}
+
+const clearRewrite = `-- name: ClearRewrite :exec
+UPDATE connections SET rewrite_from = '', updated_at = now() WHERE id = $1 AND rewrite_from = $2
+`
+
+type ClearRewriteParams struct {
+	ID          int64
+	RewriteFrom string
+}
+
+func (q *Queries) ClearRewrite(ctx context.Context, arg ClearRewriteParams) error {
+	_, err := q.db.Exec(ctx, clearRewrite, arg.ID, arg.RewriteFrom)
+	return err
+}
+
 const connectionEntities = `-- name: ConnectionEntities :many
 SELECT DISTINCT entity_id FROM entity_sources WHERE connection_id = $1
 `
@@ -79,6 +156,20 @@ func (q *Queries) ConnectionEntities(ctx context.Context, id int64) ([]int64, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const countWebhook = `-- name: CountWebhook :exec
+UPDATE connection_webhooks SET received = received + 1, last_received_at = $1 WHERE connection_id = $2
+`
+
+type CountWebhookParams struct {
+	Now          *time.Time
+	ConnectionID int64
+}
+
+func (q *Queries) CountWebhook(ctx context.Context, arg CountWebhookParams) error {
+	_, err := q.db.Exec(ctx, countWebhook, arg.Now, arg.ConnectionID)
+	return err
 }
 
 const deleteConnection = `-- name: DeleteConnection :execrows
@@ -141,7 +232,7 @@ func (q *Queries) DemoConnections(ctx context.Context, base string) ([]DemoConne
 
 const dueReconciles = `-- name: DueReconciles :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL
+WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL AND c.rewrite_from = ''
   AND (c.last_reconcile_at IS NULL
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= $1)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
@@ -195,6 +286,17 @@ func (q *Queries) DueSyncs(ctx context.Context, now *time.Time) ([]int64, error)
 	return items, nil
 }
 
+const entityIDByKey = `-- name: EntityIDByKey :one
+SELECT id FROM entities WHERE key = $1
+`
+
+func (q *Queries) EntityIDByKey(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRow(ctx, entityIDByKey, key)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const everyoneGroup = `-- name: EveryoneGroup :one
 SELECT id FROM groups WHERE builtin
 `
@@ -204,6 +306,41 @@ func (q *Queries) EveryoneGroup(ctx context.Context) (int64, error) {
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const failQueuedParts = `-- name: FailQueuedParts :many
+UPDATE sync_parts p SET status = 'failed', error = $1, finished_at = $2
+FROM sync_runs r
+WHERE r.id = p.run_id AND r.connection_id = $3 AND p.status = 'queued'
+RETURNING p.run_id
+`
+
+type FailQueuedPartsParams struct {
+	Error        string
+	Now          *time.Time
+	ConnectionID int64
+}
+
+// The queued parts of the running runs of a connection fail. Their jobs
+// are cancelled.
+func (q *Queries) FailQueuedParts(ctx context.Context, arg FailQueuedPartsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, failQueuedParts, arg.Error, arg.Now, arg.ConnectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var run_id int64
+		if err := rows.Scan(&run_id); err != nil {
+			return nil, err
+		}
+		items = append(items, run_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const failQueuedRuns = `-- name: FailQueuedRuns :exec
@@ -222,9 +359,41 @@ func (q *Queries) FailQueuedRuns(ctx context.Context, arg FailQueuedRunsParams) 
 	return err
 }
 
-const failStaleRuns = `-- name: FailStaleRuns :execrows
-UPDATE sync_runs SET status = 'failed', finished_at = $1, error = 'The run stopped without a result.'
+const failStaleParts = `-- name: FailStaleParts :many
+UPDATE sync_parts SET status = 'failed', finished_at = $1, error = 'The run stopped without a result.'
 WHERE status = 'running' AND started_at < $2
+RETURNING run_id
+`
+
+type FailStalePartsParams struct {
+	Now    *time.Time
+	Before *time.Time
+}
+
+func (q *Queries) FailStaleParts(ctx context.Context, arg FailStalePartsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, failStaleParts, arg.Now, arg.Before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var run_id int64
+		if err := rows.Scan(&run_id); err != nil {
+			return nil, err
+		}
+		items = append(items, run_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const failStaleRuns = `-- name: FailStaleRuns :execrows
+UPDATE sync_runs r SET status = 'failed', finished_at = $1, error = 'The run stopped without a result.'
+WHERE r.status = 'running' AND r.started_at < $2
+  AND NOT EXISTS (SELECT 1 FROM sync_parts p WHERE p.run_id = r.id)
 `
 
 type FailStaleRunsParams struct {
@@ -232,12 +401,44 @@ type FailStaleRunsParams struct {
 	Before *time.Time
 }
 
+// Runs that stopped before they wrote their parts. The last part of a run
+// with parts ends it.
 func (q *Queries) FailStaleRuns(ctx context.Context, arg FailStaleRunsParams) (int64, error) {
 	result, err := q.db.Exec(ctx, failStaleRuns, arg.Now, arg.Before)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const finishPart = `-- name: FinishPart :exec
+UPDATE sync_parts SET status = $1, cursor = $2, stats = $3, error = $4, gone = $5, finished_at = $6
+WHERE run_id = $7 AND part = $8
+`
+
+type FinishPartParams struct {
+	Status string
+	Cursor string
+	Stats  json.RawMessage
+	Error  string
+	Gone   []int64
+	Now    *time.Time
+	RunID  int64
+	Part   string
+}
+
+func (q *Queries) FinishPart(ctx context.Context, arg FinishPartParams) error {
+	_, err := q.db.Exec(ctx, finishPart,
+		arg.Status,
+		arg.Cursor,
+		arg.Stats,
+		arg.Error,
+		arg.Gone,
+		arg.Now,
+		arg.RunID,
+		arg.Part,
+	)
+	return err
 }
 
 const finishReconcile = `-- name: FinishReconcile :exec
@@ -256,15 +457,14 @@ func (q *Queries) FinishReconcile(ctx context.Context, arg FinishReconcileParams
 
 const finishRun = `-- name: FinishRun :exec
 UPDATE sync_runs
-SET status = $1, finished_at = $2, cursor_to = $3, seen = $4, created = $5, updated = $6,
-    unchanged = $7, deleted = $8, skipped = $9, error = $10
-WHERE id = $11
+SET status = $1, finished_at = $2, seen = $3, created = $4, updated = $5,
+    unchanged = $6, deleted = $7, skipped = $8, error = $9
+WHERE id = $10
 `
 
 type FinishRunParams struct {
 	Status    string
 	Now       *time.Time
-	CursorTo  string
 	Seen      int32
 	Created   int32
 	Updated   int32
@@ -279,7 +479,6 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 	_, err := q.db.Exec(ctx, finishRun,
 		arg.Status,
 		arg.Now,
-		arg.CursorTo,
 		arg.Seen,
 		arg.Created,
 		arg.Updated,
@@ -292,8 +491,22 @@ func (q *Queries) FinishRun(ctx context.Context, arg FinishRunParams) error {
 	return err
 }
 
+const finishSync = `-- name: FinishSync :exec
+UPDATE connections SET last_sync_at = $1 WHERE id = $2
+`
+
+type FinishSyncParams struct {
+	Now *time.Time
+	ID  int64
+}
+
+func (q *Queries) FinishSync(ctx context.Context, arg FinishSyncParams) error {
+	_, err := q.db.Exec(ctx, finishSync, arg.Now, arg.ID)
+	return err
+}
+
 const getConnection = `-- name: GetConnection :one
-SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, cursor, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs FROM connections WHERE id = $1
+SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs, parallel_parts, rewrite_from FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, error) {
@@ -317,19 +530,47 @@ func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, erro
 		&i.Status,
 		&i.StatusReason,
 		&i.DefaultDomainID,
-		&i.Cursor,
 		&i.LastSyncAt,
 		&i.LastReconcileAt,
 		&i.PermissionsCheckedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.CodeGlobs,
+		&i.ParallelParts,
+		&i.RewriteFrom,
+	)
+	return i, err
+}
+
+const getPart = `-- name: GetPart :one
+SELECT run_id, part, status, cursor, stats, error, host, gone, started_at, finished_at FROM sync_parts WHERE run_id = $1 AND part = $2
+`
+
+type GetPartParams struct {
+	RunID int64
+	Part  string
+}
+
+func (q *Queries) GetPart(ctx context.Context, arg GetPartParams) (SyncPart, error) {
+	row := q.db.QueryRow(ctx, getPart, arg.RunID, arg.Part)
+	var i SyncPart
+	err := row.Scan(
+		&i.RunID,
+		&i.Part,
+		&i.Status,
+		&i.Cursor,
+		&i.Stats,
+		&i.Error,
+		&i.Host,
+		&i.Gone,
+		&i.StartedAt,
+		&i.FinishedAt,
 	)
 	return i, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE id = $1
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
@@ -353,6 +594,7 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
 		&i.QueuedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Rewrite,
 	)
 	return i, err
 }
@@ -370,9 +612,9 @@ func (q *Queries) GroupsExist(ctx context.Context, ids []int64) (int64, error) {
 
 const insertConnection = `-- name: InsertConnection :one
 INSERT INTO connections (kind, name, base_url, scope, options, include_globs, exclude_globs, code_globs, sync_minutes, reconcile_hours,
-                         rate_concurrency, rate_per_second, owner_id, default_domain_id)
+                         rate_concurrency, rate_per_second, parallel_parts, owner_id, default_domain_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14)
+        $11, $12, $13, $14, $15)
 RETURNING id
 `
 
@@ -389,6 +631,7 @@ type InsertConnectionParams struct {
 	ReconcileHours  int32
 	RateConcurrency int32
 	RatePerSecond   float64
+	ParallelParts   int32
 	OwnerID         *string
 	DefaultDomainID *int64
 }
@@ -407,12 +650,27 @@ func (q *Queries) InsertConnection(ctx context.Context, arg InsertConnectionPara
 		arg.ReconcileHours,
 		arg.RateConcurrency,
 		arg.RatePerSecond,
+		arg.ParallelParts,
 		arg.OwnerID,
 		arg.DefaultDomainID,
 	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const insertParts = `-- name: InsertParts :exec
+INSERT INTO sync_parts (run_id, part) SELECT $1, unnest($2::text[])
+`
+
+type InsertPartsParams struct {
+	RunID int64
+	Parts []string
+}
+
+func (q *Queries) InsertParts(ctx context.Context, arg InsertPartsParams) error {
+	_, err := q.db.Exec(ctx, insertParts, arg.RunID, arg.Parts)
+	return err
 }
 
 const insertRun = `-- name: InsertRun :one
@@ -456,48 +714,25 @@ func (q *Queries) ItemByExternalID(ctx context.Context, arg ItemByExternalIDPara
 	return id, err
 }
 
-const itemIDs = `-- name: ItemIDs :many
-SELECT id, external_id FROM source_items WHERE connection_id = $1
-`
-
-type ItemIDsRow struct {
-	ID         int64
-	ExternalID string
-}
-
-// vis:system
-func (q *Queries) ItemIDs(ctx context.Context, connectionID int64) ([]ItemIDsRow, error) {
-	rows, err := q.db.Query(ctx, itemIDs, connectionID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ItemIDsRow
-	for rows.Next() {
-		var i ItemIDsRow
-		if err := rows.Scan(&i.ID, &i.ExternalID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const itemRevisions = `-- name: ItemRevisions :many
-SELECT external_id, revision FROM source_items WHERE connection_id = $1 AND revision <> ''
+SELECT external_id, revision FROM source_items WHERE connection_id = $1 AND part = $2 AND revision <> ''
 `
+
+type ItemRevisionsParams struct {
+	ConnectionID int64
+	Part         string
+}
 
 type ItemRevisionsRow struct {
 	ExternalID string
 	Revision   string
 }
 
+// The revisions of the items of one part. An item of another part is
+// stored again, so that it moves to this part.
 // vis:system
-func (q *Queries) ItemRevisions(ctx context.Context, connectionID int64) ([]ItemRevisionsRow, error) {
-	rows, err := q.db.Query(ctx, itemRevisions, connectionID)
+func (q *Queries) ItemRevisions(ctx context.Context, arg ItemRevisionsParams) ([]ItemRevisionsRow, error) {
+	rows, err := q.db.Query(ctx, itemRevisions, arg.ConnectionID, arg.Part)
 	if err != nil {
 		return nil, err
 	}
@@ -517,8 +752,14 @@ func (q *Queries) ItemRevisions(ctx context.Context, connectionID int64) ([]Item
 }
 
 const itemUpdates = `-- name: ItemUpdates :many
-SELECT external_id, source_updated_at FROM source_items WHERE connection_id = $1 AND source_updated_at IS NOT NULL
+SELECT external_id, source_updated_at FROM source_items
+WHERE connection_id = $1 AND part = $2 AND source_updated_at IS NOT NULL
 `
+
+type ItemUpdatesParams struct {
+	ConnectionID int64
+	Part         string
+}
 
 type ItemUpdatesRow struct {
 	ExternalID      string
@@ -526,8 +767,8 @@ type ItemUpdatesRow struct {
 }
 
 // vis:system
-func (q *Queries) ItemUpdates(ctx context.Context, connectionID int64) ([]ItemUpdatesRow, error) {
-	rows, err := q.db.Query(ctx, itemUpdates, connectionID)
+func (q *Queries) ItemUpdates(ctx context.Context, arg ItemUpdatesParams) ([]ItemUpdatesRow, error) {
+	rows, err := q.db.Query(ctx, itemUpdates, arg.ConnectionID, arg.Part)
 	if err != nil {
 		return nil, err
 	}
@@ -546,8 +787,70 @@ func (q *Queries) ItemUpdates(ctx context.Context, connectionID int64) ([]ItemUp
 	return items, nil
 }
 
+const itemsOutsideParts = `-- name: ItemsOutsideParts :many
+SELECT id FROM source_items WHERE connection_id = $1 AND NOT (part = ANY($2::text[]))
+`
+
+type ItemsOutsidePartsParams struct {
+	ConnectionID int64
+	Parts        []string
+}
+
+// The items of a connection whose part is no longer in its scope.
+// vis:system
+func (q *Queries) ItemsOutsideParts(ctx context.Context, arg ItemsOutsidePartsParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, itemsOutsideParts, arg.ConnectionID, arg.Parts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const jiraConnections = `-- name: JiraConnections :many
+SELECT base_url, scope FROM connections WHERE kind = 'jira' ORDER BY id
+`
+
+type JiraConnectionsRow struct {
+	BaseUrl string
+	Scope   json.RawMessage
+}
+
+// The base URLs and scopes of the Jira connections. A pull request that
+// names an issue key of their projects implements that issue.
+func (q *Queries) JiraConnections(ctx context.Context) ([]JiraConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, jiraConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []JiraConnectionsRow
+	for rows.Next() {
+		var i JiraConnectionsRow
+		if err := rows.Scan(&i.BaseUrl, &i.Scope); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConnections = `-- name: ListConnections :many
-SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.cursor, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, coalesce(u.email, '')::text AS owner_email,
+SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, c.parallel_parts, c.rewrite_from, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
        coalesce((SELECT r.error FROM sync_runs r WHERE r.connection_id = c.id ORDER BY r.id DESC LIMIT 1), '')::text AS last_error
 FROM connections c
@@ -573,13 +876,14 @@ type ListConnectionsRow struct {
 	Status               string
 	StatusReason         string
 	DefaultDomainID      *int64
-	Cursor               string
 	LastSyncAt           *time.Time
 	LastReconcileAt      *time.Time
 	PermissionsCheckedAt *time.Time
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 	CodeGlobs            []string
+	ParallelParts        int32
+	RewriteFrom          string
 	OwnerEmail           string
 	Items                int64
 	LastError            string
@@ -615,13 +919,14 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 			&i.Status,
 			&i.StatusReason,
 			&i.DefaultDomainID,
-			&i.Cursor,
 			&i.LastSyncAt,
 			&i.LastReconcileAt,
 			&i.PermissionsCheckedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.CodeGlobs,
+			&i.ParallelParts,
+			&i.RewriteFrom,
 			&i.OwnerEmail,
 			&i.Items,
 			&i.LastError,
@@ -636,8 +941,43 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 	return items, nil
 }
 
+const listRunParts = `-- name: ListRunParts :many
+SELECT run_id, part, status, cursor, stats, error, host, gone, started_at, finished_at FROM sync_parts WHERE run_id = ANY($1::bigint[]) ORDER BY run_id, part
+`
+
+func (q *Queries) ListRunParts(ctx context.Context, runIds []int64) ([]SyncPart, error) {
+	rows, err := q.db.Query(ctx, listRunParts, runIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SyncPart
+	for rows.Next() {
+		var i SyncPart
+		if err := rows.Scan(
+			&i.RunID,
+			&i.Part,
+			&i.Status,
+			&i.Cursor,
+			&i.Stats,
+			&i.Error,
+			&i.Host,
+			&i.Gone,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRuns = `-- name: ListRuns :many
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
 `
 
 type ListRunsParams struct {
@@ -672,6 +1012,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]SyncRun, 
 			&i.QueuedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.Rewrite,
 		); err != nil {
 			return nil, err
 		}
@@ -724,6 +1065,133 @@ func (q *Queries) ListVisibility(ctx context.Context) ([]ListVisibilityRow, erro
 	return items, nil
 }
 
+const listWebhooks = `-- name: ListWebhooks :many
+SELECT connection_id, received, last_received_at, rotated_at FROM connection_webhooks ORDER BY connection_id
+`
+
+type ListWebhooksRow struct {
+	ConnectionID   int64
+	Received       int64
+	LastReceivedAt *time.Time
+	RotatedAt      time.Time
+}
+
+func (q *Queries) ListWebhooks(ctx context.Context) ([]ListWebhooksRow, error) {
+	rows, err := q.db.Query(ctx, listWebhooks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWebhooksRow
+	for rows.Next() {
+		var i ListWebhooksRow
+		if err := rows.Scan(
+			&i.ConnectionID,
+			&i.Received,
+			&i.LastReceivedAt,
+			&i.RotatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockConnectionParts = `-- name: LockConnectionParts :exec
+SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_parts', $1::bigint))
+`
+
+// Serializes the start of the part jobs of one connection across processes.
+func (q *Queries) LockConnectionParts(ctx context.Context, connectionID int64) error {
+	_, err := q.db.Exec(ctx, lockConnectionParts, connectionID)
+	return err
+}
+
+const lockRewrite = `-- name: LockRewrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_rewrite', $1::bigint))
+`
+
+// Serializes the key rewrites of the parts of one connection.
+func (q *Queries) LockRewrite(ctx context.Context, connectionID int64) error {
+	_, err := q.db.Exec(ctx, lockRewrite, connectionID)
+	return err
+}
+
+const lockRun = `-- name: LockRun :one
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockRun(ctx context.Context, id int64) (SyncRun, error) {
+	row := q.db.QueryRow(ctx, lockRun, id)
+	var i SyncRun
+	err := row.Scan(
+		&i.ID,
+		&i.ConnectionID,
+		&i.Kind,
+		&i.Trigger,
+		&i.Status,
+		&i.CursorFrom,
+		&i.CursorTo,
+		&i.Seen,
+		&i.Created,
+		&i.Updated,
+		&i.Unchanged,
+		&i.Deleted,
+		&i.Skipped,
+		&i.Error,
+		&i.QueuedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Rewrite,
+	)
+	return i, err
+}
+
+const matchPage = `-- name: MatchPage :one
+SELECT i.id, i.external_id FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = $1 AND i.part = $2 AND i.title = $3 AND NOT (i.external_id = ANY($4::text[]))
+  AND (i.external_id LIKE 'att:%') = $5::bool
+  AND (NOT $5::bool OR v.metadata ->> 'parentTitle' = $6::text)
+ORDER BY i.id LIMIT 1
+`
+
+type MatchPageParams struct {
+	ConnectionID int64
+	Part         string
+	Title        string
+	CloudIds     []string
+	Attachment   bool
+	ParentTitle  string
+}
+
+type MatchPageRow struct {
+	ID         int64
+	ExternalID string
+}
+
+// The stored page of a connection with the space and title of a Cloud page,
+// whose ID the Cloud listing does not have. An attachment matches a stored
+// attachment with the same file name and page title.
+// vis:system
+func (q *Queries) MatchPage(ctx context.Context, arg MatchPageParams) (MatchPageRow, error) {
+	row := q.db.QueryRow(ctx, matchPage,
+		arg.ConnectionID,
+		arg.Part,
+		arg.Title,
+		arg.CloudIds,
+		arg.Attachment,
+		arg.ParentTitle,
+	)
+	var i MatchPageRow
+	err := row.Scan(&i.ID, &i.ExternalID)
+	return i, err
+}
+
 const memberGroups = `-- name: MemberGroups :many
 SELECT g.id FROM groups g
 WHERE g.id = ANY($1::bigint[])
@@ -756,6 +1224,173 @@ func (q *Queries) MemberGroups(ctx context.Context, arg MemberGroupsParams) ([]i
 	return items, nil
 }
 
+const partCursor = `-- name: PartCursor :one
+SELECT cursor FROM connection_cursors WHERE connection_id = $1 AND part = $2
+`
+
+type PartCursorParams struct {
+	ConnectionID int64
+	Part         string
+}
+
+func (q *Queries) PartCursor(ctx context.Context, arg PartCursorParams) (string, error) {
+	row := q.db.QueryRow(ctx, partCursor, arg.ConnectionID, arg.Part)
+	var cursor string
+	err := row.Scan(&cursor)
+	return cursor, err
+}
+
+const partItemIDs = `-- name: PartItemIDs :many
+SELECT id, external_id, source_updated_at FROM source_items WHERE connection_id = $1 AND part = $2
+`
+
+type PartItemIDsParams struct {
+	ConnectionID int64
+	Part         string
+}
+
+type PartItemIDsRow struct {
+	ID              int64
+	ExternalID      string
+	SourceUpdatedAt *time.Time
+}
+
+// vis:system
+func (q *Queries) PartItemIDs(ctx context.Context, arg PartItemIDsParams) ([]PartItemIDsRow, error) {
+	rows, err := q.db.Query(ctx, partItemIDs, arg.ConnectionID, arg.Part)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PartItemIDsRow
+	for rows.Next() {
+		var i PartItemIDsRow
+		if err := rows.Scan(&i.ID, &i.ExternalID, &i.SourceUpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pauseActive = `-- name: PauseActive :execrows
+UPDATE connections SET status = 'paused', status_reason = $1, updated_at = now()
+WHERE id = $2 AND status = 'active' AND kind <> 'registry'
+`
+
+type PauseActiveParams struct {
+	Reason string
+	ID     int64
+}
+
+// Pauses an active connection. A paused one stays as it is.
+func (q *Queries) PauseActive(ctx context.Context, arg PauseActiveParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pauseActive, arg.Reason, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const personByEmail = `-- name: PersonByEmail :one
+SELECT e.id FROM entities e
+WHERE e.type = 'person' AND lower(e.metadata->>'email') = lower($1::text) AND e.key <> $2::text
+  AND left(e.key, length($3::text)) = $3::text AND e.status <> 'merged'
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = $4)
+ORDER BY e.id LIMIT 1
+`
+
+type PersonByEmailParams struct {
+	Email        string
+	Key          string
+	Prefix       string
+	ConnectionID int64
+}
+
+// A person of a connection with an email, whose key is not the key of the
+// Cloud account.
+// vis:system
+func (q *Queries) PersonByEmail(ctx context.Context, arg PersonByEmailParams) (int64, error) {
+	row := q.db.QueryRow(ctx, personByEmail,
+		arg.Email,
+		arg.Key,
+		arg.Prefix,
+		arg.ConnectionID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const prefixEntities = `-- name: PrefixEntities :many
+SELECT e.id, e.key FROM entities e
+WHERE lower(left(e.key, length($1::text))) = lower($1::text)
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = $2)
+ORDER BY e.id
+`
+
+type PrefixEntitiesParams struct {
+	Prefix       string
+	ConnectionID int64
+}
+
+type PrefixEntitiesRow struct {
+	ID  int64
+	Key string
+}
+
+// The entities of a connection whose key starts with a prefix, in any case.
+// vis:system
+func (q *Queries) PrefixEntities(ctx context.Context, arg PrefixEntitiesParams) ([]PrefixEntitiesRow, error) {
+	rows, err := q.db.Query(ctx, prefixEntities, arg.Prefix, arg.ConnectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PrefixEntitiesRow
+	for rows.Next() {
+		var i PrefixEntitiesRow
+		if err := rows.Scan(&i.ID, &i.Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const putWebhook = `-- name: PutWebhook :exec
+INSERT INTO connection_webhooks (connection_id, token_hash, username, secret_id, rotated_at)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (connection_id) DO UPDATE
+SET token_hash = excluded.token_hash, username = excluded.username, secret_id = excluded.secret_id, rotated_at = excluded.rotated_at
+`
+
+type PutWebhookParams struct {
+	ConnectionID int64
+	TokenHash    []byte
+	Username     string
+	SecretID     *int64
+	Now          time.Time
+}
+
+// Creates the webhook of a connection, or rotates its token and secret.
+func (q *Queries) PutWebhook(ctx context.Context, arg PutWebhookParams) error {
+	_, err := q.db.Exec(ctx, putWebhook,
+		arg.ConnectionID,
+		arg.TokenHash,
+		arg.Username,
+		arg.SecretID,
+		arg.Now,
+	)
+	return err
+}
+
 const readsConnection = `-- name: ReadsConnection :one
 SELECT coalesce(EXISTS (SELECT 1 FROM connections c WHERE c.id = $1 AND c.owner_id = $2::uuid)
     OR EXISTS (SELECT 1 FROM connection_visibility v JOIN groups g ON g.id = v.group_id
@@ -776,6 +1411,19 @@ func (q *Queries) ReadsConnection(ctx context.Context, arg ReadsConnectionParams
 	var reads bool
 	err := row.Scan(&reads)
 	return reads, err
+}
+
+const reconcileActive = `-- name: ReconcileActive :one
+SELECT EXISTS (SELECT 1 FROM sync_runs WHERE connection_id = $1 AND kind = 'reconcile' AND status IN ('queued', 'running'))
+`
+
+// Whether a reconciliation of a connection is queued or running. Its
+// parts tombstone the stored items that their listing missed.
+func (q *Queries) ReconcileActive(ctx context.Context, connectionID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, reconcileActive, connectionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const removeVisibility = `-- name: RemoveVisibility :many
@@ -809,6 +1457,32 @@ func (q *Queries) RemoveVisibility(ctx context.Context, arg RemoveVisibilityPara
 	return items, nil
 }
 
+const requeueIdleRun = `-- name: RequeueIdleRun :exec
+UPDATE sync_runs r SET status = 'queued'
+WHERE r.id = $1 AND r.status = 'running'
+  AND NOT EXISTS (SELECT 1 FROM sync_parts p WHERE p.run_id = r.id AND p.status = 'running')
+`
+
+// A run whose running parts all went back to the queue shows as queued.
+func (q *Queries) RequeueIdleRun(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, requeueIdleRun, id)
+	return err
+}
+
+const requeuePart = `-- name: RequeuePart :exec
+UPDATE sync_parts SET status = 'queued', started_at = NULL WHERE run_id = $1 AND part = $2 AND status = 'running'
+`
+
+type RequeuePartParams struct {
+	RunID int64
+	Part  string
+}
+
+func (q *Queries) RequeuePart(ctx context.Context, arg RequeuePartParams) error {
+	_, err := q.db.Exec(ctx, requeuePart, arg.RunID, arg.Part)
+	return err
+}
+
 const requeueRun = `-- name: RequeueRun :exec
 UPDATE sync_runs SET status = 'queued', started_at = NULL WHERE id = $1 AND status = 'running'
 `
@@ -816,6 +1490,71 @@ UPDATE sync_runs SET status = 'queued', started_at = NULL WHERE id = $1 AND stat
 func (q *Queries) RequeueRun(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, requeueRun, id)
 	return err
+}
+
+const runHasParts = `-- name: RunHasParts :one
+SELECT EXISTS (SELECT 1 FROM sync_parts WHERE run_id = $1)
+`
+
+func (q *Queries) RunHasParts(ctx context.Context, runID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, runHasParts, runID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const runParts = `-- name: RunParts :many
+SELECT run_id, part, status, cursor, stats, error, host, gone, started_at, finished_at FROM sync_parts WHERE run_id = $1 ORDER BY part
+`
+
+func (q *Queries) RunParts(ctx context.Context, runID int64) ([]SyncPart, error) {
+	rows, err := q.db.Query(ctx, runParts, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SyncPart
+	for rows.Next() {
+		var i SyncPart
+		if err := rows.Scan(
+			&i.RunID,
+			&i.Part,
+			&i.Status,
+			&i.Cursor,
+			&i.Stats,
+			&i.Error,
+			&i.Host,
+			&i.Gone,
+			&i.StartedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const runningParts = `-- name: RunningParts :one
+SELECT count(*) FROM sync_parts p JOIN sync_runs r ON r.id = p.run_id
+WHERE r.connection_id = $1 AND p.status = 'running' AND NOT (p.run_id = $2 AND p.part = $3)
+`
+
+type RunningPartsParams struct {
+	ConnectionID int64
+	RunID        int64
+	Part         string
+}
+
+// The running part jobs of a connection, other than one part.
+func (q *Queries) RunningParts(ctx context.Context, arg RunningPartsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, runningParts, arg.ConnectionID, arg.RunID, arg.Part)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const setConnectionSecret = `-- name: SetConnectionSecret :exec
@@ -832,18 +1571,72 @@ func (q *Queries) SetConnectionSecret(ctx context.Context, arg SetConnectionSecr
 	return err
 }
 
-const setCursor = `-- name: SetCursor :exec
-UPDATE connections SET cursor = $1, last_sync_at = $2 WHERE id = $3
+const setEntityKey = `-- name: SetEntityKey :exec
+UPDATE entities SET key = $1, updated_at = now() WHERE id = $2
 `
 
-type SetCursorParams struct {
-	Cursor string
-	Now    *time.Time
-	ID     int64
+type SetEntityKeyParams struct {
+	Key string
+	ID  int64
 }
 
-func (q *Queries) SetCursor(ctx context.Context, arg SetCursorParams) error {
-	_, err := q.db.Exec(ctx, setCursor, arg.Cursor, arg.Now, arg.ID)
+func (q *Queries) SetEntityKey(ctx context.Context, arg SetEntityKeyParams) error {
+	_, err := q.db.Exec(ctx, setEntityKey, arg.Key, arg.ID)
+	return err
+}
+
+const setExternalID = `-- name: SetExternalID :exec
+UPDATE source_items SET external_id = $1, updated_at = now() WHERE id = $2
+`
+
+type SetExternalIDParams struct {
+	ExternalID string
+	ID         int64
+}
+
+// vis:system
+func (q *Queries) SetExternalID(ctx context.Context, arg SetExternalIDParams) error {
+	_, err := q.db.Exec(ctx, setExternalID, arg.ExternalID, arg.ID)
+	return err
+}
+
+const setPartCursor = `-- name: SetPartCursor :exec
+WITH saved AS (
+    INSERT INTO connection_cursors (connection_id, part, cursor) VALUES ($2, $3, $4)
+    ON CONFLICT (connection_id, part) DO UPDATE SET cursor = excluded.cursor
+)
+UPDATE connections SET last_sync_at = $1 WHERE id = $2
+`
+
+type SetPartCursorParams struct {
+	Now          *time.Time
+	ConnectionID int64
+	Part         string
+	Cursor       string
+}
+
+// Saves the cursor of a part. The sync of the connection counts as run.
+func (q *Queries) SetPartCursor(ctx context.Context, arg SetPartCursorParams) error {
+	_, err := q.db.Exec(ctx, setPartCursor,
+		arg.Now,
+		arg.ConnectionID,
+		arg.Part,
+		arg.Cursor,
+	)
+	return err
+}
+
+const setRunRewrite = `-- name: SetRunRewrite :exec
+UPDATE sync_runs SET rewrite = $1 WHERE id = $2
+`
+
+type SetRunRewriteParams struct {
+	Rewrite json.RawMessage
+	ID      int64
+}
+
+func (q *Queries) SetRunRewrite(ctx context.Context, arg SetRunRewriteParams) error {
+	_, err := q.db.Exec(ctx, setRunRewrite, arg.Rewrite, arg.ID)
 	return err
 }
 
@@ -866,32 +1659,126 @@ func (q *Queries) SetStatus(ctx context.Context, arg SetStatusParams) (int64, er
 	return result.RowsAffected(), nil
 }
 
-const startRun = `-- name: StartRun :execrows
-UPDATE sync_runs SET status = 'running', started_at = $1, cursor_from = $2
-WHERE id = $3 AND status IN ('queued', 'running')
+const startPart = `-- name: StartPart :execrows
+UPDATE sync_parts SET status = 'running', host = $1, started_at = $2
+WHERE run_id = $3 AND part = $4 AND status IN ('queued', 'running')
 `
 
-type StartRunParams struct {
-	Now    *time.Time
-	Cursor string
-	ID     int64
+type StartPartParams struct {
+	Host  string
+	Now   *time.Time
+	RunID int64
+	Part  string
 }
 
-func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (int64, error) {
-	result, err := q.db.Exec(ctx, startRun, arg.Now, arg.Cursor, arg.ID)
+// A running part starts again when its job runs again after a crash.
+func (q *Queries) StartPart(ctx context.Context, arg StartPartParams) (int64, error) {
+	result, err := q.db.Exec(ctx, startPart,
+		arg.Host,
+		arg.Now,
+		arg.RunID,
+		arg.Part,
+	)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
+const startRun = `-- name: StartRun :execrows
+UPDATE sync_runs SET status = 'running', started_at = coalesce(started_at, $1)
+WHERE id = $2 AND status IN ('queued', 'running')
+`
+
+type StartRunParams struct {
+	Now *time.Time
+	ID  int64
+}
+
+func (q *Queries) StartRun(ctx context.Context, arg StartRunParams) (int64, error) {
+	result, err := q.db.Exec(ctx, startRun, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const stillInPart = `-- name: StillInPart :many
+SELECT id FROM source_items WHERE id = ANY($1::bigint[]) AND part = $2
+`
+
+type StillInPartParams struct {
+	Ids  []int64
+	Part string
+}
+
+// The items of a list that are still in a part.
+// vis:system
+func (q *Queries) StillInPart(ctx context.Context, arg StillInPartParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, stillInPart, arg.Ids, arg.Part)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const switchConnection = `-- name: SwitchConnection :execrows
+UPDATE connections SET base_url = $1, options = $2, rewrite_from = $3, updated_at = now()
+WHERE id = $4 AND kind IN ('jira', 'confluence')
+`
+
+type SwitchConnectionParams struct {
+	BaseUrl     string
+	Options     json.RawMessage
+	RewriteFrom string
+	ID          int64
+}
+
+// A Data Center connection moves to Cloud. rewrite_from holds the old host
+// until a sync rewrites the keys.
+func (q *Queries) SwitchConnection(ctx context.Context, arg SwitchConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, switchConnection,
+		arg.BaseUrl,
+		arg.Options,
+		arg.RewriteFrom,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unfinishedParts = `-- name: UnfinishedParts :one
+SELECT count(*) FROM sync_parts WHERE run_id = $1 AND status IN ('queued', 'running')
+`
+
+func (q *Queries) UnfinishedParts(ctx context.Context, runID int64) (int64, error) {
+	row := q.db.QueryRow(ctx, unfinishedParts, runID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const updateConnection = `-- name: UpdateConnection :execrows
 UPDATE connections
 SET name = $1, base_url = $2, scope = $3, options = $4, include_globs = $5,
     exclude_globs = $6, code_globs = coalesce($7::text[], code_globs), sync_minutes = $8, reconcile_hours = $9,
-    rate_concurrency = $10, rate_per_second = $11, default_domain_id = $12,
-    updated_at = now()
-WHERE id = $13 AND kind <> 'registry'
+    rate_concurrency = $10, rate_per_second = $11, parallel_parts = $12,
+    default_domain_id = $13, updated_at = now()
+WHERE id = $14 AND kind <> 'registry'
 `
 
 type UpdateConnectionParams struct {
@@ -906,6 +1793,7 @@ type UpdateConnectionParams struct {
 	ReconcileHours  int32
 	RateConcurrency int32
 	RatePerSecond   float64
+	ParallelParts   int32
 	DefaultDomainID *int64
 	ID              int64
 }
@@ -923,6 +1811,7 @@ func (q *Queries) UpdateConnection(ctx context.Context, arg UpdateConnectionPara
 		arg.ReconcileHours,
 		arg.RateConcurrency,
 		arg.RatePerSecond,
+		arg.ParallelParts,
 		arg.DefaultDomainID,
 		arg.ID,
 	)
@@ -930,4 +1819,38 @@ func (q *Queries) UpdateConnection(ctx context.Context, arg UpdateConnectionPara
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const webhookOf = `-- name: WebhookOf :one
+SELECT w.connection_id, w.token_hash, w.username, w.secret_id, c.kind, c.status, c.base_url, c.options
+FROM connection_webhooks w JOIN connections c ON c.id = w.connection_id
+WHERE w.connection_id = $1
+`
+
+type WebhookOfRow struct {
+	ConnectionID int64
+	TokenHash    []byte
+	Username     string
+	SecretID     *int64
+	Kind         string
+	Status       string
+	BaseUrl      string
+	Options      json.RawMessage
+}
+
+// The webhook of a connection with what the endpoint checks.
+func (q *Queries) WebhookOf(ctx context.Context, connectionID int64) (WebhookOfRow, error) {
+	row := q.db.QueryRow(ctx, webhookOf, connectionID)
+	var i WebhookOfRow
+	err := row.Scan(
+		&i.ConnectionID,
+		&i.TokenHash,
+		&i.Username,
+		&i.SecretID,
+		&i.Kind,
+		&i.Status,
+		&i.BaseUrl,
+		&i.Options,
+	)
+	return i, err
 }

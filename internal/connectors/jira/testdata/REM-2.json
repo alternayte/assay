@@ -36,7 +36,8 @@
       "Predicate": "status",
       "Object": null,
       "Text": "In Progress",
-      "Quote": "Status: In Progress"
+      "Quote": "Status: In Progress",
+      "At": "2026-01-06T09:00:00Z"
     },
     {
       "Subject": {
@@ -54,10 +55,14 @@
         "name": "Priya Acme",
         "aliases": [
           "priya.acme"
-        ]
+        ],
+        "metadata": {
+          "email": "priya.acme@acme.test"
+        }
       },
       "Text": "",
-      "Quote": "Assignee: Priya Acme"
+      "Quote": "Assignee: Priya Acme",
+      "At": "2026-01-06T09:00:00Z"
     },
     {
       "Subject": {

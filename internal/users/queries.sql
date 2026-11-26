@@ -52,9 +52,15 @@ SELECT g.id, g.name, g.builtin,
             THEN (SELECT count(*) FROM auth_users u WHERE u.disabled_at IS NULL)
             ELSE (SELECT count(*) FROM group_members m JOIN auth_users u ON u.id = m.user_id
                   WHERE m.group_id = g.id AND u.disabled_at IS NULL)
-       END::bigint AS member_count
+       END::bigint AS member_count,
+       coalesce(gm.external_id, '') AS mapped_id, coalesce(gm.external_name, '') AS mapped_name
 FROM groups g
+LEFT JOIN group_mappings gm ON gm.group_id = g.id
 ORDER BY g.builtin DESC, lower(g.name);
+
+-- name: GroupMapped :one
+-- A mapped group takes its members only from the identity provider.
+SELECT EXISTS (SELECT 1 FROM group_mappings WHERE group_id = @group_id);
 
 -- name: GetGroup :one
 SELECT id, name, builtin FROM groups WHERE id = @id;

@@ -537,6 +537,19 @@ func (s *Service) repoSectionInput(ctx context.Context, connectionID int64, sec 
 			fmt.Fprintf(&b, "<passage id=%q kind=\"doc\" file=%q>%s</passage>\n", id, it.Path, data(p.Norm))
 		}
 	}
+	if sec.Kind == KindComponent && repo != "" {
+		prs, err := s.pullPassages(ctx, connectionID, repo, sec.ComponentPath, kind)
+		if err != nil {
+			return nil, err
+		}
+		for _, pp := range prs {
+			n++
+			id := fmt.Sprintf("S%d", n)
+			in.cites[id] = pp.cite
+			docHashes = append(docHashes, pp.cite.Hash)
+			fmt.Fprintf(&b, "<passage id=%q kind=\"doc\" file=%q>%s</passage>\n", id, pp.title, data(pp.norm))
+		}
+	}
 	var claimKeys []string
 	if sec.Kind == KindOverview {
 		cl, err := claims.Load(ctx, s.Pool, vis, claims.Query{Subjects: []int64{sec.EntityID}})
@@ -565,6 +578,70 @@ func (s *Service) repoSectionInput(ctx context.Context, connectionID int64, sec 
 	in.prompt = b.String()
 	in.hash = hashOf(PromptVersion, sec.Kind, sec.ComponentPath, digests, docHashes, claimKeys)
 	return in, nil
+}
+
+// maxPullPassages is the number of pull request passages in the context of
+// a component section. A reason needs a cite that is not code, and pull
+// requests hold most reasons.
+const maxPullPassages = 5
+
+// pullPassage is a pull request passage of a component context.
+type pullPassage struct {
+	title, norm string
+	cite        Cite
+}
+
+// pullPassages returns the description and review passages of the merged
+// pull requests that changed a path inside a component, from the newest
+// merge, at most maxPullPassages.
+func (s *Service) pullPassages(ctx context.Context, connectionID int64, repo, component, kind string) ([]pullPassage, error) {
+	q := New(s.Pool)
+	vis := []int64{connectionID}
+	prs, err := q.RepositoryPullRequests(ctx, RepositoryPullRequestsParams{Visible: vis, ConnectionID: connectionID, Repo: repo})
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	byID := map[int64]RepositoryPullRequestsRow{}
+	for _, pr := range prs {
+		var paths []string
+		_ = json.Unmarshal(pr.ChangedPaths, &paths)
+		if slices.ContainsFunc(paths, func(p string) bool { return inComponent(component, p) }) {
+			ids = append(ids, pr.ID)
+			byID[pr.ID] = pr
+		}
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	ps, err := q.ItemPassages(ctx, ItemPassagesParams{Items: ids, Visible: vis})
+	if err != nil {
+		return nil, err
+	}
+	var out []pullPassage
+	for _, id := range ids {
+		pr := byID[id]
+		for _, p := range ps {
+			if len(out) == maxPullPassages {
+				return out, nil
+			}
+			if p.ItemID != id || len(p.HeadingPath) == 0 || (p.HeadingPath[0] != "Description" && p.HeadingPath[0] != "Review") {
+				continue
+			}
+			text := []rune(p.Norm)
+			if len(text) > 160 {
+				text = text[:160]
+			}
+			out = append(out, pullPassage{title: pr.Title, norm: p.Norm, cite: Cite{Kind: "passage", ItemID: id, Hash: hex.EncodeToString(p.Hash),
+				Title: pr.Title, URL: pr.Url, SourceType: kind, Text: string(text)}})
+		}
+	}
+	return out, nil
+}
+
+// inComponent reports whether a repository path is inside a component.
+func inComponent(component, p string) bool {
+	return component == "." || p == component || strings.HasPrefix(p, component+"/")
 }
 
 // docFile reports whether a knowledge file is a source for the reasons of

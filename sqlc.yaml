@@ -38,6 +38,13 @@ sql:
         package: users
         out: internal/users
   - <<: *pkg
+    queries: internal/sso/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: sso
+        out: internal/sso
+  - <<: *pkg
     queries: internal/settings/queries.sql
     gen:
       go:
@@ -72,6 +79,13 @@ sql:
         <<: *go
         package: content
         out: internal/content
+  - <<: *pkg
+    queries: internal/connectors/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: connectors
+        out: internal/connectors
   - <<: *pkg
     queries: internal/sync/queries.sql
     gen:
@@ -156,3 +170,10 @@ sql:
         <<: *go
         package: design
         out: internal/design
+  - <<: *pkg
+    queries: internal/agents/queries.sql
+    gen:
+      go:
+        <<: *go
+        package: agents
+        out: internal/agents

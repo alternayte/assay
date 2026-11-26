@@ -22,7 +22,7 @@ type ItemRecord struct {
 	ID             int64           `json:"id"`
 	ConnectionID   int64           `json:"connectionId"`
 	ConnectionName string          `json:"connectionName"`
-	SourceType     string          `json:"sourceType" enum:"registry,confluence,jira,github,azdo"`
+	SourceType     string          `json:"sourceType" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
 	Kind           string          `json:"kind"`
 	Title          string          `json:"title"`
 	URL            string          `json:"url" doc:"The item in its source system."`

@@ -11,7 +11,7 @@ import (
 
 // EntityTypes are the entity types (REQ-ENT-001).
 var EntityTypes = []string{"person", "team", "service", "api", "system", "resource", "repository", "project",
-	"initiative", "issue", "document", "decision", "environment", "term", "operation", "event", "data_model"}
+	"initiative", "issue", "document", "decision", "environment", "term", "operation", "event", "data_model", "change"}
 
 // Object kinds that are not entity types.
 const (
@@ -39,7 +39,7 @@ type Predicate struct {
 
 // Source types of evidence. decision is the source of repo_system claims
 // and of the edges that code proposes.
-var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision"}
+var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision", "web", "teams", "slack"}
 
 var owners = []string{"service", "api", "system", "resource", "repository", "project", "initiative", "term"}
 
@@ -57,11 +57,11 @@ func init() {
 			Priority: []string{"registry", "catalog", "others", "decision"}},
 		{Name: "consumes_api", Subjects: []string{"service", "repository"}, Objects: []string{"api"}, Multi: true,
 			Priority: []string{"registry", "catalog", "others", "decision"}},
-		{Name: "implements", Subjects: []string{"repository"}, Objects: []string{"service", "api"}, Multi: true,
+		{Name: "implements", Subjects: []string{"repository", "change"}, Objects: []string{"service", "api", "issue", "initiative"}, Multi: true,
 			Priority: []string{"catalog", "registry", "others", "decision"}},
 		{Name: "deployed_to", Subjects: []string{"service"}, Objects: []string{"environment"}, Multi: true, Priority: []string{"repository", "others"}},
 		{Name: "blocks", Subjects: []string{"issue", "initiative"}, Objects: []string{"issue", "initiative"}, Multi: true, Priority: []string{"jira", "others"}},
-		{Name: "assigned_to", Subjects: []string{"issue", "initiative"}, Objects: []string{"person"}, Priority: []string{"jira"}},
+		{Name: "assigned_to", Subjects: []string{"issue", "initiative"}, Objects: []string{"person"}, TimeScoped: true, Priority: []string{"jira"}},
 		{Name: "status", Subjects: []string{"issue", "initiative", "decision", "service", "term"}, Objects: []string{ObjText}, TimeScoped: true,
 			Priority: []string{"registry", "jira", "catalog", "others"}},
 		{Name: "target_date", Subjects: []string{"issue", "initiative"}, Objects: []string{ObjDate}, TimeScoped: true, Priority: []string{"jira", "others"}},
@@ -77,6 +77,15 @@ func init() {
 		p.Extract = true
 		Registry[p.Name] = p
 	}
+	// The fix versions of an issue come from the Jira field and its
+	// changelog, never from prose extraction. The value is the
+	// comma-joined fix versions.
+	Registry["fix_version"] = Predicate{Name: "fix_version", Subjects: []string{"issue", "initiative"}, Objects: []string{ObjText}, TimeScoped: true,
+		Priority: []string{"jira", "others"}}
+	// A chat author posted in a thread. Chat connectors give it from each
+	// message, never prose extraction.
+	Registry["posted_in"] = Predicate{Name: "posted_in", Subjects: []string{"person"}, Objects: []string{ObjText}, Multi: true,
+		Priority: []string{"others"}, NeverConflicts: true}
 	// Contracts come from spec files and from design digests, never from
 	// prose extraction.
 	contract := []string{"registry", "repository", "catalog", "others", "decision"}

@@ -5,6 +5,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { ApiError, api, type Schemas, unwrap } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -16,9 +17,58 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
-type Kind = "confluence" | "jira" | "github" | "azdo" | "backstage";
+type Webhook = Schemas["WebhookRecord"];
+type WebhookSecret = Schemas["WebhookSecret"];
+type WebhookKind = "github" | "azdo" | "jira" | "confluence";
+/** The number of steps per source kind in the copy. */
+const webhookSteps: Record<WebhookKind, number> = { github: 4, azdo: 4, jira: 4, confluence: 3 };
+type Kind =
+  | "confluence"
+  | "jira"
+  | "github"
+  | "azdo"
+  | "gitlab"
+  | "bitbucket"
+  | "backstage"
+  | "web"
+  | "teams"
+  | "slack";
 
-const isRepo = (k: string) => k === "github" || k === "azdo";
+const repoKinds: string[] = ["github", "azdo", "gitlab", "bitbucket"];
+const isRepo = (k: string) => repoKinds.includes(k);
+
+/** GitLab, Bitbucket and the chat sources name their secret in their own hint. */
+function tokenHint(kind: Kind): string {
+  if (kind === "gitlab" || kind === "bitbucket" || kind === "teams" || kind === "slack")
+    return t(`connections.tokenHints.${kind}`);
+  return t("connections.tokenHint");
+}
+
+/** Teams and Slack read the threads of chat channels. */
+const isChat = (k: string) => k === "teams" || k === "slack";
+
+/** The API URL of a chat source. Admins of a national cloud change it. */
+const chatBaseUrl: Partial<Record<Kind, string>> = {
+  teams: "https://graph.microsoft.com/v1.0",
+  slack: "https://slack.com/api",
+};
+
+/** The label of the secret of a connection. */
+function tokenLabel(kind: Kind): string {
+  if (kind === "teams") return t("connections.clientSecret");
+  if (kind === "slack") return t("connections.botToken");
+  return t("connections.token");
+}
+const isAtlassian = (k: string) => k === "jira" || k === "confluence";
+type Deployment = "dc" | "cloud";
+/** A site on atlassian.net is Cloud unless the admin selects otherwise. */
+const deploymentFor = (baseUrl: string): Deployment => {
+  try {
+    return new URL(baseUrl.trim()).hostname.toLowerCase().endsWith(".atlassian.net") ? "cloud" : "dc";
+  } catch {
+    return "dc";
+  }
+};
 
 function messageOf(e: unknown): string {
   if (e instanceof ApiError) {
@@ -30,6 +80,12 @@ function messageOf(e: unknown): string {
 }
 
 const kindLabel = (k: string) => t(`connections.kinds.${k}` as CopyKey);
+
+/** The kind with the deployment of a Jira or Confluence connection. */
+const sourceLabel = (c: Pick<Connection, "kind" | "deployment">) =>
+  c.deployment
+    ? `${kindLabel(c.kind)}, ${t(`connections.deployments.${c.deployment}` as CopyKey)}`
+    : kindLabel(c.kind);
 
 function StatusBadge({ c }: { c: Pick<Connection, "status"> }) {
   const tone = c.status === "active" ? "supported" : "danger";
@@ -89,7 +145,7 @@ export function ConnectionsPage() {
                         >
                           {c.name}
                         </Link>
-                        <div className="font-mono text-xs text-ink-muted">{kindLabel(c.kind)}</div>
+                        <div className="font-mono text-xs text-ink-muted">{sourceLabel(c)}</div>
                       </Td>
                       <Td>
                         <StatusBadge c={c} />
@@ -176,13 +232,39 @@ type Source = {
   token: string;
   apiVersion?: string;
   frontendUrl?: string;
+  /** Jira and Confluence: Data Center or Cloud. Unset follows the base URL. */
+  deployment?: Deployment;
+  email?: string;
+  scoped?: boolean;
+  /** The auth header name of a web site. The token is its value. */
+  authName?: string;
+  /** The Entra tenant and app of a Teams connection. */
+  tenant?: string;
+  clientId?: string;
+  /** The retention of a chat connection in days. 0 keeps all threads. */
+  retainDays?: string;
+  /** The history options of a repository connection. */
+  historyMonths?: string;
+  pullRequests?: boolean;
+  issues?: boolean;
+  wiki?: boolean;
 };
+
+const deploymentOf = (s: Source): Deployment => s.deployment ?? deploymentFor(s.baseUrl);
+const isCloud = (s: Source) => isAtlassian(s.kind) && deploymentOf(s) === "cloud";
+type Seed = "auto" | "llms" | "llms-full" | "sitemap" | "start";
 type Scope = {
+  teams?: string[];
+  channels?: string[];
   spaces?: string[];
   projects?: string[];
   repositories?: string[];
   namespaces?: string[];
   jql?: string;
+  seed?: Seed;
+  pathPrefixes?: string[];
+  maxDepth?: number;
+  maxPages?: number;
 };
 /** Repository globs, one per line. */
 type Globs = { include: string; exclude: string; code: string };
@@ -191,35 +273,91 @@ type Schedule = {
   reconcileHours: number;
   rateConcurrency: number;
   ratePerSecond: number;
+  parallelParts: number;
   defaultDomainId?: number | null;
 };
+
+/** The default rate of an Atlassian Cloud connection. */
+const cloudRate = 10;
+
+/** The default rate of a Slack connection. */
+const slackRate = { ratePerSecond: 0.8, rateConcurrency: 2 };
 
 const defaultSchedule: Schedule = {
   syncMinutes: 30,
   reconcileHours: 24,
   rateConcurrency: 4,
   ratePerSecond: 5,
+  parallelParts: 4,
 };
 
 function scopeList(kind: Kind, scope: Scope): string[] {
+  if (isChat(kind)) return scope.channels ?? [];
   if (isRepo(kind)) return scope.repositories ?? [];
   if (kind === "backstage") return scope.namespaces ?? [];
   return (kind === "jira" ? scope.projects : scope.spaces) ?? [];
 }
 
 function withList(kind: Kind, scope: Scope, ids: string[]): Scope {
+  if (isChat(kind)) return { ...scope, channels: ids };
   if (isRepo(kind)) return { ...scope, repositories: ids };
   if (kind === "backstage") return { ...scope, namespaces: ids };
   return kind === "jira" ? { ...scope, projects: ids } : { ...scope, spaces: ids };
 }
 
-/** A Backstage connection with no namespace reads all namespaces. */
-const needsScope = (kind: Kind) => kind !== "backstage";
+/**
+ * A Backstage connection with no namespace reads all namespaces. A web
+ * connection reads from its seed.
+ */
+const needsScope = (kind: Kind) => kind !== "backstage" && kind !== "web";
+
+/** A web site needs no token. Its optional auth header is the token. */
+const needsToken = (kind: Kind) => kind !== "web";
+
+function tokenOf(s: Source): string | undefined {
+  if (!s.token) return undefined;
+  if (s.kind === "web") return `${s.authName?.trim() ?? ""}: ${s.token}`;
+  return s.token;
+}
+
+function historyOf(s: Source): Record<string, unknown> {
+  const months = Number.parseInt(s.historyMonths ?? "", 10);
+  return {
+    historyMonths: Number.isNaN(months) ? undefined : months,
+    pullRequests: s.pullRequests ?? true,
+    issues: s.issues ?? true,
+    wiki: s.kind === "azdo" ? (s.wiki ?? true) : undefined,
+  };
+}
+
+function retainOf(s: Source): number | undefined {
+  const days = Number.parseInt(s.retainDays ?? "", 10);
+  return Number.isNaN(days) ? undefined : days;
+}
 
 function optionsOf(s: Source): Record<string, unknown> | undefined {
-  if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined };
+  if (s.kind === "teams")
+    return { tenant: s.tenant?.trim() ?? "", clientId: s.clientId?.trim() ?? "", retainDays: retainOf(s) };
+  if (s.kind === "slack") return { retainDays: retainOf(s) };
+  if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined, ...historyOf(s) };
+  if (s.kind === "github") return historyOf(s);
   if (s.kind === "backstage") return { frontendUrl: s.frontendUrl?.trim() || undefined };
+  if (isAtlassian(s.kind)) {
+    if (!isCloud(s)) return { deployment: "dc" };
+    return { deployment: "cloud", email: s.email?.trim() ?? "", scoped: s.scoped ?? false };
+  }
   return undefined;
+}
+
+/**
+ * The copy of a successful test: a web site counts the pages of its seed,
+ * Teams the teams of the app and Slack the channels of the bot.
+ */
+function testCopy(kind: Kind, other: CopyKey): CopyKey {
+  if (kind === "web") return "connections.testWebOk";
+  if (kind === "teams") return "connections.testTeamsOk";
+  if (kind === "slack") return "connections.testSlackOk";
+  return other;
 }
 
 const lines = (s: string) =>
@@ -247,13 +385,23 @@ function SourceFields({
             {...p}
             disabled={fixedKind}
             value={value.kind}
-            onChange={(e) => onChange({ ...value, kind: e.target.value as Kind })}
+            onChange={(e) => {
+              const kind = e.target.value as Kind;
+              // An empty URL or the API URL of a chat source follows the kind.
+              const follows = value.baseUrl === "" || Object.values(chatBaseUrl).includes(value.baseUrl);
+              onChange({ ...value, kind, baseUrl: follows ? (chatBaseUrl[kind] ?? "") : value.baseUrl });
+            }}
           >
             <option value="confluence">{kindLabel("confluence")}</option>
             <option value="jira">{kindLabel("jira")}</option>
             <option value="github">{kindLabel("github")}</option>
             <option value="azdo">{kindLabel("azdo")}</option>
+            <option value="gitlab">{kindLabel("gitlab")}</option>
+            <option value="bitbucket">{kindLabel("bitbucket")}</option>
             <option value="backstage">{kindLabel("backstage")}</option>
+            <option value="web">{kindLabel("web")}</option>
+            <option value="teams">{kindLabel("teams")}</option>
+            <option value="slack">{kindLabel("slack")}</option>
           </Select>
         )}
       </Field>
@@ -268,7 +416,32 @@ function SourceFields({
           />
         )}
       </Field>
-      <Field label={t("connections.baseUrl")} hint={t(`connections.baseUrlHints.${value.kind}` as CopyKey)}>
+      {isAtlassian(value.kind) && (
+        <Field
+          label={t("connections.deployment")}
+          hint={fixedKind ? t("connections.deploymentFixedHint") : t("connections.deploymentHint")}
+        >
+          {(p) => (
+            <Select
+              {...p}
+              disabled={fixedKind}
+              value={deploymentOf(value)}
+              onChange={(e) => onChange({ ...value, deployment: e.target.value as Deployment })}
+            >
+              <option value="dc">{t("connections.deployments.dc")}</option>
+              <option value="cloud">{t("connections.deployments.cloud")}</option>
+            </Select>
+          )}
+        </Field>
+      )}
+      <Field
+        label={t("connections.baseUrl")}
+        hint={
+          isCloud(value)
+            ? t("connections.cloudUrlHint")
+            : t(`connections.baseUrlHints.${value.kind}` as CopyKey)
+        }
+      >
         {(p) => (
           <Input
             {...p}
@@ -280,22 +453,106 @@ function SourceFields({
           />
         )}
       </Field>
+      {isCloud(value) && (
+        <Field label={t("connections.email")} hint={t("connections.emailHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              required
+              type="email"
+              autoComplete="off"
+              value={value.email ?? ""}
+              onChange={(e) => onChange({ ...value, email: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
+      {value.kind === "teams" && (
+        <>
+          <Field label={t("connections.tenant")} hint={t("connections.tenantHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                autoComplete="off"
+                className="font-mono"
+                value={value.tenant ?? ""}
+                onChange={(e) => onChange({ ...value, tenant: e.target.value })}
+              />
+            )}
+          </Field>
+          <Field label={t("connections.clientId")} hint={t("connections.clientIdHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                autoComplete="off"
+                className="font-mono"
+                value={value.clientId ?? ""}
+                onChange={(e) => onChange({ ...value, clientId: e.target.value })}
+              />
+            )}
+          </Field>
+        </>
+      )}
+      {value.kind === "web" && (
+        <Field label={t("connections.authName")} hint={t("connections.authNameHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              autoComplete="off"
+              required={value.token !== ""}
+              className="font-mono"
+              value={value.authName ?? ""}
+              onChange={(e) => onChange({ ...value, authName: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
       <Field
-        label={t("connections.token")}
-        hint={keepToken ? t("connections.tokenKeep") : t("connections.tokenHint")}
+        label={
+          isCloud(value)
+            ? t("connections.apiToken")
+            : value.kind === "web"
+              ? t("connections.authValue")
+              : tokenLabel(value.kind)
+        }
+        hint={
+          keepToken
+            ? t("connections.tokenKeep")
+            : isCloud(value)
+              ? t("connections.apiTokenHint")
+              : value.kind === "web"
+                ? t("connections.authValueHint")
+                : tokenHint(value.kind)
+        }
       >
         {(p) => (
           <Input
             {...p}
             type="password"
             autoComplete="off"
-            required={!keepToken}
+            required={!keepToken && needsToken(value.kind)}
             className="font-mono"
             value={value.token}
             onChange={(e) => onChange({ ...value, token: e.target.value })}
           />
         )}
       </Field>
+      {isCloud(value) && (
+        <label className="flex cursor-pointer items-start gap-3 sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-accent"
+            checked={value.scoped ?? false}
+            onChange={(e) => onChange({ ...value, scoped: e.target.checked })}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>{t("connections.scoped")}</span>
+            <span className="text-sm text-ink-muted">{t("connections.scopedHint")}</span>
+          </span>
+        </label>
+      )}
       {value.kind === "backstage" && (
         <Field label={t("connections.frontendUrl")} hint={t("connections.frontendUrlHint")}>
           {(p) => (
@@ -308,6 +565,11 @@ function SourceFields({
             />
           )}
         </Field>
+      )}
+      {isChat(value.kind) && (
+        <div className="sm:col-span-2">
+          <Notice>{t(value.kind === "teams" ? "connections.setupTeams" : "connections.setupSlack")}</Notice>
+        </div>
       )}
       {value.kind === "azdo" && (
         <Field label={t("connections.apiVersion")} hint={t("connections.apiVersionHint")}>
@@ -323,6 +585,51 @@ function SourceFields({
         </Field>
       )}
     </div>
+  );
+}
+
+/** The history options of a repository connection. */
+function HistoryFields({ value, onChange }: { value: Source; onChange: (s: Source) => void }) {
+  const toggles: { key: "pullRequests" | "issues" | "wiki"; label: CopyKey }[] = [
+    { key: "pullRequests", label: "connections.historyPullRequests" },
+    {
+      key: "issues",
+      label: value.kind === "azdo" ? "connections.historyWorkItems" : "connections.historyIssues",
+    },
+  ];
+  if (value.kind === "azdo") toggles.push({ key: "wiki", label: "connections.historyWiki" });
+  return (
+    <fieldset className="grid gap-4 sm:grid-cols-2">
+      <legend className="label mb-1">{t("connections.history")}</legend>
+      <Field label={t("connections.historyMonths")} hint={t("connections.historyMonthsHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={0}
+            step={1}
+            required
+            value={value.historyMonths ?? ""}
+            onChange={(e) => onChange({ ...value, historyMonths: e.target.value })}
+          />
+        )}
+      </Field>
+      <ul className="flex flex-col gap-2 sm:pt-6">
+        {toggles.map((tg) => (
+          <li key={tg.key}>
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                className="size-4 accent-accent"
+                checked={value[tg.key] ?? true}
+                onChange={(e) => onChange({ ...value, [tg.key]: e.target.checked })}
+              />
+              <span>{t(tg.label)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </fieldset>
   );
 }
 
@@ -375,7 +682,7 @@ function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number, 
   return {
     kind: s.kind,
     baseUrl: s.baseUrl.trim(),
-    token: s.token || undefined,
+    token: tokenOf(s),
     connectionId: s.token ? undefined : connectionId,
     scope: scope as Record<string, unknown> | undefined,
     options: optionsOf(s),
@@ -398,37 +705,53 @@ function ScopePicker({
   connectionId,
   scope,
   onChange,
+  pickTeams,
 }: {
   source: Source;
   connectionId?: number;
   scope: Scope;
   onChange: (s: Scope) => void;
+  /** Teams: pick the teams whose channels the next picker lists. */
+  pickTeams?: boolean;
 }) {
   const [filter, setFilter] = useState("");
+  // The channel picker of Teams lists the channels of the picked teams.
+  const query: Scope | undefined =
+    source.kind === "teams" && !pickTeams ? { teams: scope.teams ?? [] } : undefined;
   const options = useQuery({
     queryKey: [
       "connection-scopes",
+      query?.teams?.join(","),
+      source.tenant,
+      source.clientId,
       source.kind,
       source.baseUrl,
       source.apiVersion,
+      deploymentOf(source),
+      source.email,
+      source.scoped,
       connectionId,
       source.token.length,
     ],
     queryFn: async () =>
-      unwrap(
-        await api.POST("/api/v1/connections/scopes", { body: sourceBody(source, undefined, connectionId) }),
-      ).scopes,
+      unwrap(await api.POST("/api/v1/connections/scopes", { body: sourceBody(source, query, connectionId) }))
+        .scopes,
     retry: false,
   });
-  const selected = scopeList(source.kind, scope);
-  const toggle = (id: string) =>
+  const selected = pickTeams ? (scope.teams ?? []) : scopeList(source.kind, scope);
+  // A team that leaves the scope takes its channels with it.
+  const select = (ids: string[]) =>
     onChange(
-      withList(
-        source.kind,
-        scope,
-        selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id],
-      ),
+      pickTeams
+        ? {
+            ...scope,
+            teams: ids,
+            channels: (scope.channels ?? []).filter((c) => ids.includes(c.split("/")[0] ?? "")),
+          }
+        : withList(source.kind, scope, ids),
     );
+  const toggle = (id: string) =>
+    select(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
   const shown = (options.data ?? []).filter((o) =>
     `${o.id} ${o.name}`.toLowerCase().includes(filter.trim().toLowerCase()),
   );
@@ -436,24 +759,29 @@ function ScopePicker({
   const someShown = shown.some((o) => selected.includes(o.id));
   const toggleShown = () => {
     const ids = new Set(shown.map((o) => o.id));
-    onChange(
-      withList(
-        source.kind,
-        scope,
-        allShown ? selected.filter((x) => !ids.has(x)) : [...new Set([...selected, ...ids])],
-      ),
-    );
+    select(allShown ? selected.filter((x) => !ids.has(x)) : [...new Set([...selected, ...ids])]);
   };
-  const label = isRepo(source.kind)
-    ? t("connections.repositories")
-    : source.kind === "backstage"
-      ? t("connections.namespaces")
-      : source.kind === "jira"
-        ? t("connections.projects")
-        : t("connections.spaces");
+  const label = pickTeams
+    ? t("connections.teams")
+    : isChat(source.kind)
+      ? t("connections.channels")
+      : isRepo(source.kind)
+        ? t("connections.repositories")
+        : source.kind === "backstage"
+          ? t("connections.namespaces")
+          : source.kind === "jira"
+            ? t("connections.projects")
+            : t("connections.spaces");
+  const hint = pickTeams
+    ? t("connections.teamsHint")
+    : source.kind === "slack"
+      ? t("connections.channelsSlackHint")
+      : source.kind === "teams"
+        ? t("connections.channelsTeamsHint")
+        : t("connections.scopeHint");
   return (
     <div className="flex flex-col gap-3">
-      <Field label={t("connections.scopeFilter")} hint={t("connections.scopeHint")}>
+      <Field label={t("connections.scopeFilter")} hint={hint}>
         {(p) => <Input {...p} value={filter} onChange={(e) => setFilter(e.target.value)} />}
       </Field>
       {options.isPending ? (
@@ -461,7 +789,7 @@ function ScopePicker({
       ) : options.isError ? (
         <Notice tone="danger">{messageOf(options.error)}</Notice>
       ) : options.data.length === 0 ? (
-        <Empty>{t("connections.scopeEmpty")}</Empty>
+        <Empty>{t(isChat(source.kind) ? "connections.scopeEmptyChat" : "connections.scopeEmpty")}</Empty>
       ) : (
         <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className="label mb-1">{label}</legend>
@@ -520,6 +848,115 @@ function ScopePicker({
   );
 }
 
+/** The scope of a chat source: Teams picks teams, then channels. */
+function ChatScopeFields({
+  source,
+  connectionId,
+  scope,
+  onScope,
+  onSource,
+}: {
+  source: Source;
+  connectionId?: number;
+  scope: Scope;
+  onScope: (s: Scope) => void;
+  onSource: (s: Source) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      {source.kind === "teams" && (
+        <ScopePicker source={source} connectionId={connectionId} scope={scope} onChange={onScope} pickTeams />
+      )}
+      {(source.kind === "slack" || (scope.teams ?? []).length > 0) && (
+        <ScopePicker source={source} connectionId={connectionId} scope={scope} onChange={onScope} />
+      )}
+      <Field label={t("connections.retainDays")} hint={t("connections.retainDaysHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={0}
+            max={36500}
+            step={1}
+            required
+            className="font-mono"
+            value={source.retainDays ?? "0"}
+            onChange={(e) => onSource({ ...source, retainDays: e.target.value })}
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
+
+const seeds: Seed[] = ["auto", "llms", "llms-full", "sitemap", "start"];
+
+/** The seed, the path prefixes and the limits of a web site. */
+function WebScopeFields({ value, onChange }: { value: Scope; onChange: (s: Scope) => void }) {
+  const [prefixes, setPrefixes] = useState((value.pathPrefixes ?? []).join("\n"));
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label={t("connections.seed")} hint={t("connections.seedHint")}>
+        {(p) => (
+          <Select
+            {...p}
+            value={value.seed ?? "auto"}
+            onChange={(e) => onChange({ ...value, seed: e.target.value as Seed })}
+          >
+            {seeds.map((s) => (
+              <option key={s} value={s}>
+                {t(`connections.seeds.${s}` as CopyKey)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("connections.pathPrefixes")} hint={t("connections.pathPrefixesHint")}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={3}
+            className="font-mono text-sm"
+            value={prefixes}
+            onChange={(e) => {
+              setPrefixes(e.target.value);
+              onChange({ ...value, pathPrefixes: lines(e.target.value) });
+            }}
+          />
+        )}
+      </Field>
+      <Field label={t("connections.maxDepth")} hint={t("connections.maxDepthHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={0}
+            max={20}
+            required
+            className="font-mono"
+            value={value.maxDepth ?? 3}
+            onChange={(e) => onChange({ ...value, maxDepth: Number(e.target.value) })}
+          />
+        )}
+      </Field>
+      <Field label={t("connections.maxPages")} hint={t("connections.maxPagesHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={1}
+            max={100000}
+            required
+            className="font-mono"
+            value={value.maxPages ?? 2000}
+            onChange={(e) => onChange({ ...value, maxPages: Number(e.target.value) })}
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
+
 function ScheduleFields({ value, onChange }: { value: Schedule; onChange: (s: Schedule) => void }) {
   const domains = useQuery({
     queryKey: ["domains"],
@@ -548,6 +985,7 @@ function ScheduleFields({ value, onChange }: { value: Schedule; onChange: (s: Sc
       {num("reconcileHours", "connections.reconcileHours", 1, 720)}
       {num("rateConcurrency", "connections.concurrency", 1, 32)}
       {num("ratePerSecond", "connections.perSecond", 0.1, 100, 0.1)}
+      {num("parallelParts", "connections.parallelParts", 1, 32)}
       <Field label={t("connections.domain")} hint={t("connections.domainHint")}>
         {(p) => (
           <Select
@@ -580,6 +1018,8 @@ export function NewConnectionPage() {
     baseUrl: "",
     token: "",
     apiVersion: "7.1",
+    historyMonths: "24",
+    retainDays: "0",
   });
   const [scope, setScope] = useState<Scope>({});
   const list = useConnections();
@@ -591,6 +1031,36 @@ export function NewConnectionPage() {
       setGlobs({ include: defaultGlobs.join("\n"), exclude: "", code: defaultCode.join("\n") });
   }, [defaultGlobs, defaultCode, globs]);
   const [schedule, setSchedule] = useState<Schedule>(defaultSchedule);
+  // Atlassian Cloud takes 10 requests per second by default, Data Center 5.
+  const cloud = isCloud(source);
+  useEffect(() => {
+    setSchedule((s) => {
+      if (cloud && s.ratePerSecond === defaultSchedule.ratePerSecond)
+        return { ...s, ratePerSecond: cloudRate };
+      if (!cloud && s.ratePerSecond === cloudRate)
+        return { ...s, ratePerSecond: defaultSchedule.ratePerSecond };
+      return s;
+    });
+  }, [cloud]);
+  // Slack Tier 3 methods take about 50 requests per minute.
+  const slack = source.kind === "slack";
+  useEffect(() => {
+    setSchedule((s) => {
+      if (slack && s.ratePerSecond === defaultSchedule.ratePerSecond)
+        return { ...s, ratePerSecond: slackRate.ratePerSecond, rateConcurrency: slackRate.rateConcurrency };
+      if (
+        !slack &&
+        s.ratePerSecond === slackRate.ratePerSecond &&
+        s.rateConcurrency === slackRate.rateConcurrency
+      )
+        return {
+          ...s,
+          ratePerSecond: defaultSchedule.ratePerSecond,
+          rateConcurrency: defaultSchedule.rateConcurrency,
+        };
+      return s;
+    });
+  }, [slack]);
   const [error, setError] = useState<string>();
   const test = useTest();
   const tested = test.isSuccess && test.variables?.baseUrl === source.baseUrl.trim();
@@ -665,7 +1135,7 @@ export function NewConnectionPage() {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
-                disabled={test.isPending || !source.baseUrl || !source.token}
+                disabled={test.isPending || !source.baseUrl || (needsToken(source.kind) && !source.token)}
                 onClick={() => {
                   setError(undefined);
                   test.mutate(sourceBody(source, undefined));
@@ -679,10 +1149,20 @@ export function NewConnectionPage() {
             </div>
             {test.isSuccess && (
               <Notice tone="success">
-                {t(isRepo(source.kind) ? "connections.testRepoOk" : "connections.testOk", {
-                  user: test.data.user,
-                  count: test.data.sample,
-                })}
+                {t(
+                  testCopy(
+                    source.kind,
+                    isRepo(source.kind)
+                      ? "connections.testRepoOk"
+                      : test.data.more
+                        ? "connections.testOkMore"
+                        : "connections.testOk",
+                  ),
+                  {
+                    user: test.data.user,
+                    count: test.data.sample,
+                  },
+                )}
               </Notice>
             )}
             {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
@@ -690,8 +1170,15 @@ export function NewConnectionPage() {
         )}
         {step === 2 && (
           <form onSubmit={submitScope} className="flex flex-col gap-4">
-            <ScopePicker source={source} scope={scope} onChange={setScope} />
+            {source.kind === "web" ? (
+              <WebScopeFields value={scope} onChange={setScope} />
+            ) : isChat(source.kind) ? (
+              <ChatScopeFields source={source} scope={scope} onScope={setScope} onSource={setSource} />
+            ) : (
+              <ScopePicker source={source} scope={scope} onChange={setScope} />
+            )}
             {isRepo(source.kind) && globs && <GlobFields value={globs} onChange={setGlobs} />}
+            {isRepo(source.kind) && <HistoryFields value={source} onChange={setSource} />}
             <div className="flex gap-3">
               <Button type="button" onClick={() => setStep(1)}>
                 {t("connections.previous")}
@@ -747,6 +1234,7 @@ export function ConnectionPage() {
       {c.kind !== "registry" && (
         <>
           <VisibilitySheet key={`v${c.id}`} c={c} />
+          {c.webhook && <WebhookSheet c={c} webhook={c.webhook} />}
           <ConfigurationSheet key={`c${c.id}`} c={c} />
           <ExtractionSheet c={c} />
           <RunsSheet c={c} />
@@ -807,8 +1295,15 @@ function HealthSheet({ c }: { c: Connection }) {
     onError: (e) => setMsg({ tone: "danger", text: messageOf(e) }),
   });
   const registry = c.kind === "registry";
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const canSwitch = c.deployment === "dc" && c.status !== "paused";
   const actions = !registry && (
     <>
+      {canSwitch && (
+        <Button size="sm" onClick={() => setSwitchOpen(true)}>
+          {t("connections.switchCloud")}
+        </Button>
+      )}
       <Button
         size="sm"
         disabled={c.status === "paused" || start.isPending}
@@ -832,9 +1327,10 @@ function HealthSheet({ c }: { c: Connection }) {
     </>
   );
   return (
-    <Sheet title={c.name} description={kindLabel(c.kind)} actions={actions}>
+    <Sheet title={c.name} description={sourceLabel(c)} actions={actions}>
       <div className="flex flex-col gap-4">
         {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        {c.switching && <Notice>{t("connections.switchPending")}</Notice>}
         {registry && <Notice>{t("connections.registryHelp")}</Notice>}
         {c.status === "paused" && (
           <Notice tone="danger">
@@ -875,6 +1371,17 @@ function HealthSheet({ c }: { c: Connection }) {
           </div>
         )}
       </div>
+      {switchOpen && (
+        <SwitchDialog
+          c={c}
+          onClose={() => setSwitchOpen(false)}
+          onDone={() => {
+            setSwitchOpen(false);
+            setMsg({ tone: "success", text: t("connections.switchQueued") });
+            refresh();
+          }}
+        />
+      )}
       <Dialog open={purgeOpen} onOpenChange={setPurgeOpen}>
         <DialogContent
           title={t("connections.purgeTitle", { name: c.name })}
@@ -896,6 +1403,189 @@ function HealthSheet({ c }: { c: Connection }) {
           </div>
         </DialogContent>
       </Dialog>
+    </Sheet>
+  );
+}
+
+/** The switch of a Data Center connection to Cloud: the site, the account email and an API token. */
+function SwitchDialog({ c, onClose, onDone }: { c: Connection; onClose: () => void; onDone: () => void }) {
+  const [site, setSite] = useState("");
+  const [email, setEmail] = useState("");
+  const [token, setToken] = useState("");
+  const [scoped, setScoped] = useState(false);
+  const run = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.POST("/api/v1/connections/{id}/cloud", {
+          params: { path: { id: c.id } },
+          body: { baseUrl: site.trim(), email: email.trim(), token, scoped },
+        }),
+      ),
+    onSuccess: onDone,
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    run.mutate();
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent
+        title={t("connections.switchTitle", { name: c.name })}
+        description={t("connections.switchBody")}
+        closeLabel={t("connections.cancel")}
+      >
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Notice>{t("connections.switchKeeps")}</Notice>
+          {run.isError && <Notice tone="danger">{messageOf(run.error)}</Notice>}
+          <Field label={t("connections.baseUrl")} hint={t("connections.cloudUrlHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="url"
+                className="font-mono"
+                value={site}
+                onChange={(e) => setSite(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("connections.email")} hint={t("connections.emailHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="email"
+                autoComplete="off"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            )}
+          </Field>
+          <Field label={t("connections.apiToken")} hint={t("connections.apiTokenHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                required
+                type="password"
+                autoComplete="off"
+                className="font-mono"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+              />
+            )}
+          </Field>
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1 size-4 accent-accent"
+              checked={scoped}
+              onChange={(e) => setScoped(e.target.checked)}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span>{t("connections.scoped")}</span>
+              <span className="text-sm text-ink-muted">{t("connections.scopedHint")}</span>
+            </span>
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={onClose}>
+              {t("connections.cancel")}
+            </Button>
+            <Button type="submit" variant="primary" disabled={run.isPending}>
+              {run.isPending ? t("connections.switching") : t("connections.switchAction")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** A value that the webhook panel shows once, with a copy button. */
+function OnceValue({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="label">{label}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="min-w-0 flex-1 rounded-sm border border-rule bg-paper-raised px-2 py-1 font-mono text-sm break-all">
+          {value}
+        </code>
+        <CopyButton
+          text={value}
+          label={t("connections.webhook.copy")}
+          done={t("connections.webhook.copied")}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** The webhook of a connection: the URL and the secret once, Rotate, the counts and the steps in the source. */
+function WebhookSheet({ c, webhook }: { c: Connection; webhook: Webhook }) {
+  const qc = useQueryClient();
+  const [made, setMade] = useState<WebhookSecret>();
+  const rotate = useMutation({
+    mutationFn: async () =>
+      unwrap(await api.POST("/api/v1/connections/{id}/webhook", { params: { path: { id: c.id } } })),
+    onSuccess: (r) => {
+      setMade(r);
+      qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+  const kind = c.kind as WebhookKind;
+  const steps = Array.from(
+    { length: webhookSteps[kind] ?? 0 },
+    (_, i) => `connections.webhook.${kind}.${i + 1}` as CopyKey,
+  );
+  const actions = (
+    <Button size="sm" disabled={rotate.isPending} onClick={() => rotate.mutate()}>
+      {webhook.rotatedAt ? t("connections.webhook.rotate") : t("connections.webhook.create")}
+    </Button>
+  );
+  return (
+    <Sheet
+      title={t("connections.webhook.title")}
+      description={t("connections.webhook.body")}
+      actions={actions}
+    >
+      <div className="flex flex-col gap-4">
+        {!webhook.public && <Notice tone="danger">{t("connections.webhook.private")}</Notice>}
+        {kind === "azdo" && !webhook.https && <Notice tone="danger">{t("connections.webhook.https")}</Notice>}
+        {rotate.isError && <Notice tone="danger">{messageOf(rotate.error)}</Notice>}
+        {made && (
+          <div
+            className="flex flex-col gap-3 rounded-sm border-l-4 border-accent bg-accent-wash px-3 py-2"
+            data-testid="webhook-secret"
+          >
+            <p className="font-medium">{t("connections.webhook.made")}</p>
+            <OnceValue label={t("connections.webhook.url")} value={made.url} />
+            {made.username && <OnceValue label={t("connections.webhook.username")} value={made.username} />}
+            <OnceValue
+              label={made.username ? t("connections.webhook.password") : t("connections.webhook.secret")}
+              value={made.secret}
+            />
+          </div>
+        )}
+        {webhook.rotatedAt ? (
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <Term label={t("connections.webhook.received")}>{webhook.received}</Term>
+            <Term label={t("connections.webhook.last")}>
+              {webhook.lastReceivedAt ? formatTime(webhook.lastReceivedAt) : t("connections.never")}
+            </Term>
+            <Term label={t("connections.webhook.rotated")}>{formatTime(webhook.rotatedAt)}</Term>
+          </dl>
+        ) : (
+          <p className="text-sm">{t("connections.webhook.none")}</p>
+        )}
+        {webhook.rotatedAt && <p className="text-sm text-ink-muted">{t("connections.webhook.rotateHint")}</p>}
+        <div className="flex flex-col gap-1">
+          <p className="label">{t("connections.webhook.steps")}</p>
+          <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm">
+            {steps.map((k) => (
+              <li key={k}>{t(k)}</li>
+            ))}
+          </ol>
+        </div>
+      </div>
     </Sheet>
   );
 }
@@ -997,6 +1687,16 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     token: "",
     apiVersion: String(c.options?.apiVersion ?? "7.1"),
     frontendUrl: String(c.options?.frontendUrl ?? ""),
+    deployment: c.deployment,
+    email: String(c.options?.email ?? ""),
+    scoped: c.options?.scoped === true,
+    historyMonths: String(c.options?.historyMonths ?? 24),
+    tenant: String(c.options?.tenant ?? ""),
+    clientId: String(c.options?.clientId ?? ""),
+    retainDays: String(c.options?.retainDays ?? 0),
+    pullRequests: c.options?.pullRequests !== false,
+    issues: c.options?.issues !== false,
+    wiki: c.options?.wiki !== false,
   });
   const [scope, setScope] = useState<Scope>(c.scope as Scope);
   const [globs, setGlobs] = useState<Globs>({
@@ -1009,6 +1709,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     reconcileHours: c.reconcileHours,
     rateConcurrency: c.rateConcurrency,
     ratePerSecond: c.ratePerSecond,
+    parallelParts: c.parallelParts,
     defaultDomainId: c.defaultDomainId ?? null,
   });
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
@@ -1059,13 +1760,29 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           </Button>
           {test.isSuccess && (
             <Notice tone="success">
-              {t("connections.testScopeOk", { user: test.data.user, count: test.data.sample })}
+              {t(testCopy(kind, test.data.more ? "connections.testScopeOkMore" : "connections.testScopeOk"), {
+                user: test.data.user,
+                count: test.data.sample,
+              })}
             </Notice>
           )}
           {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
         </div>
-        <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
+        {kind === "web" ? (
+          <WebScopeFields value={scope} onChange={setScope} />
+        ) : isChat(kind) ? (
+          <ChatScopeFields
+            source={source}
+            connectionId={c.id}
+            scope={scope}
+            onScope={setScope}
+            onSource={setSource}
+          />
+        ) : (
+          <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
+        )}
         {isRepo(kind) && <GlobFields value={globs} onChange={setGlobs} />}
+        {isRepo(kind) && <HistoryFields value={source} onChange={setSource} />}
         <ScheduleFields value={schedule} onChange={setSchedule} />
         <div>
           <Button type="submit" variant="primary" disabled={save.isPending}>
@@ -1135,6 +1852,37 @@ function RunsSheet({ c }: { c: Connection }) {
                       unchanged: r.unchanged,
                       deleted: r.deleted,
                     })}
+                    {r.rewrite && (
+                      <p className="mt-1" data-testid="run-rewrite">
+                        {t("connections.rewrite", {
+                          from: r.rewrite.from,
+                          to: r.rewrite.to,
+                          items: r.rewrite.items,
+                          entities: r.rewrite.entities,
+                          people: r.rewrite.people,
+                          unmatched: r.rewrite.unmatched,
+                        })}
+                      </p>
+                    )}
+                    {r.parts.length > 1 && (
+                      <details className="mt-1" data-testid="run-parts">
+                        <summary className="cursor-pointer">
+                          {t("connections.parts", { count: r.parts.length })}
+                        </summary>
+                        <ul>
+                          {r.parts.map((p) => (
+                            <li key={p.part}>
+                              {t("connections.part", {
+                                part: p.part,
+                                status: t(`connections.run.${p.status}` as CopyKey),
+                                host: p.host || t("connections.partNoHost"),
+                              })}
+                              {p.error && <span className="text-danger"> {p.error}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     {r.skipped.length > 0 && (
                       <details className="mt-1">
                         <summary className="cursor-pointer">

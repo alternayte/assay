@@ -1,0 +1,28 @@
+{
+  "workItems": [
+    {
+      "id": 7,
+      "type": "User Story",
+      "age": 9,
+      "title": "Ledger entries post atomically",
+      "state": "Closed",
+      "assignedTo": "priya.acme",
+      "description": "<p>A partial post leaves the ledger out of balance.</p><ul><li>Post all lines of an entry or none.</li></ul>"
+    },
+    {
+      "id": 8,
+      "type": "Epic",
+      "age": 40,
+      "title": "Ledger reliability",
+      "state": "Active",
+      "assignedTo": "alex.acme",
+      "description": "<p>The ledger stays in balance after every failure.</p>"
+    }
+  ],
+  "generate": 248,
+  "wiki": [
+    {"id": 1, "path": "/Ledger", "content": "# Ledger\n\nThe ledger service records each settled payment as a balanced entry."},
+    {"id": 2, "path": "/Ledger/Posting rules", "content": "# Posting rules\n\nEach entry has a debit line and a credit line with the same amount."},
+    {"id": 3, "path": "/Onboarding", "content": "# Onboarding\n\nAsk the platform team for access to the ledger database."}
+  ]
+}

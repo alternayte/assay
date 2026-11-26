@@ -40,6 +40,9 @@ type Service struct {
 	// OnSetup runs after setup creates the first admin. The demo creates
 	// its connections here.
 	OnSetup func(ctx context.Context, adminID string) error
+	// AdminStatus runs after an admin deactivates or reactivates a user.
+	// The directory sync then leaves the state of the admin in place.
+	AdminStatus func(ctx context.Context, userID string) error
 }
 
 func (s *Service) now() time.Time {
@@ -182,6 +185,11 @@ func (s *Service) registerUsers(a huma.API) {
 		if err := audit.Write(ctx, s.Pool, audit.Entry{Action: "user.deactivate", Target: "user:" + in.ID}); err != nil {
 			return nil, api.Internal(err)
 		}
+		if s.AdminStatus != nil {
+			if err := s.AdminStatus(ctx, in.ID); err != nil {
+				return nil, api.Internal(err)
+			}
+		}
 		u, err := s.user(ctx, in.ID)
 		return &userOutput{Body: u}, err
 	})
@@ -198,6 +206,11 @@ func (s *Service) registerUsers(a huma.API) {
 		}
 		if err := audit.Write(ctx, s.Pool, audit.Entry{Action: "user.reactivate", Target: "user:" + in.ID}); err != nil {
 			return nil, api.Internal(err)
+		}
+		if s.AdminStatus != nil {
+			if err := s.AdminStatus(ctx, in.ID); err != nil {
+				return nil, api.Internal(err)
+			}
 		}
 		u, err := s.user(ctx, in.ID)
 		return &userOutput{Body: u}, err

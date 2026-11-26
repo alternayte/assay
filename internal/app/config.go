@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/alternayte/assay/internal/agents"
 	"github.com/alternayte/assay/internal/outbound"
+	"github.com/alternayte/assay/internal/sso"
 )
 
 // Role selects the parts of the process that run.
@@ -34,34 +37,59 @@ type Config struct {
 	ExtraCAFile  string
 	Demo         bool
 	// DemoURL is the fixture server of the demo connections.
-	DemoURL  string
-	LogLevel slog.Level
-	Outbound outbound.Settings
-	// The job workers of the default, sync, extract and design queues.
+	DemoURL string
+	// AtlassianAPI is the API host of scoped Atlassian Cloud tokens. The
+	// fixture server stands for it in tests.
+	AtlassianAPI string
+	// AtlassianMedia is the media host that Confluence Cloud downloads
+	// redirect to. The fixture server stands for it in tests.
+	AtlassianMedia string
+	// EntraAuthority is the Entra ID sign-in host that Teams connections
+	// get their token from. The fixture server stands for it in tests.
+	EntraAuthority string
+	LogLevel       slog.Level
+	Outbound       outbound.Settings
+	// The job workers of the default, sync, extract, design and embed
+	// queues of this process. The sync workers work the parts of runs.
 	JobWorkers     int
 	SyncWorkers    int
 	ExtractWorkers int
 	DesignWorkers  int
 	EmbedWorkers   int
+	// EmbedShards is the number of embed shards of the whole cluster. More
+	// worker processes then add embed parallelism.
+	EmbedShards int
+	// SSO holds the set variables of the sign-in settings. Each one wins
+	// over the stored setting.
+	SSO map[string]string
+	// MCPOAuth is the value of ASSAY_MCP_OAUTH. Empty means not set, and
+	// the agents setting decides.
+	MCPOAuth string
 }
 
 var knownVars = map[string]bool{
-	"ASSAY_DATABASE_URL":    true,
-	"ASSAY_SECRET_KEY":      true,
-	"ASSAY_SECRET_KEY_NEW":  true,
-	"ASSAY_BASE_URL":        true,
-	"ASSAY_LISTEN":          true,
-	"ASSAY_ROLE":            true,
-	"ASSAY_SETUP_TOKEN":     true,
-	"ASSAY_EXTRA_CA_PEM":    true,
-	"ASSAY_EXTRA_CA_FILE":   true,
-	"ASSAY_DEMO":            true,
-	"ASSAY_DEMO_URL":        true,
-	"ASSAY_LOG_LEVEL":       true,
-	"ASSAY_JOB_WORKERS":     true,
-	"ASSAY_SYNC_WORKERS":    true,
-	"ASSAY_EXTRACT_WORKERS": true,
-	"ASSAY_DESIGN_WORKERS":  true,
+	"ASSAY_DATABASE_URL":        true,
+	"ASSAY_SECRET_KEY":          true,
+	"ASSAY_SECRET_KEY_NEW":      true,
+	"ASSAY_BASE_URL":            true,
+	"ASSAY_LISTEN":              true,
+	"ASSAY_ROLE":                true,
+	"ASSAY_SETUP_TOKEN":         true,
+	"ASSAY_EXTRA_CA_PEM":        true,
+	"ASSAY_EXTRA_CA_FILE":       true,
+	"ASSAY_DEMO":                true,
+	"ASSAY_DEMO_URL":            true,
+	"ASSAY_ATLASSIAN_API_URL":   true,
+	"ASSAY_ATLASSIAN_MEDIA_URL": true,
+	"ASSAY_ENTRA_AUTHORITY_URL": true,
+	"ASSAY_LOG_LEVEL":           true,
+	"ASSAY_JOB_WORKERS":         true,
+	"ASSAY_SYNC_WORKERS":        true,
+	"ASSAY_EXTRACT_WORKERS":     true,
+	"ASSAY_DESIGN_WORKERS":      true,
+	"ASSAY_EMBED_WORKERS":       true,
+	"ASSAY_EMBED_SHARDS":        true,
+	agents.EnvOAuth:             true,
 	// Compose reads these from the same .env file. Assay ignores them.
 	"ASSAY_VERSION": true,
 	"ASSAY_PORT":    true,
@@ -72,6 +100,7 @@ var knownVars = map[string]bool{
 // required variable is missing or invalid, and it warns about an unknown
 // ASSAY_ variable.
 func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
+	known := func(k string) bool { return knownVars[k] || slices.Contains(sso.EnvVars, k) }
 	env := map[string]string{}
 	for _, kv := range environ {
 		k, v, ok := strings.Cut(kv, "=")
@@ -79,21 +108,31 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 			continue
 		}
 		env[k] = v
-		if strings.HasPrefix(k, "ASSAY_") && !knownVars[k] {
+		if strings.HasPrefix(k, "ASSAY_") && !known(k) {
 			log.Warn("unknown variable is ignored", "variable", k)
 		}
 	}
 
 	cfg := Config{
-		DatabaseURL: env["ASSAY_DATABASE_URL"],
-		BaseURL:     strings.TrimRight(valueOr(env["ASSAY_BASE_URL"], "http://localhost:8080"), "/"),
-		Listen:      valueOr(env["ASSAY_LISTEN"], ":8080"),
-		Role:        Role(valueOr(env["ASSAY_ROLE"], string(RoleAll))),
-		SetupToken:  env["ASSAY_SETUP_TOKEN"],
-		ExtraCAPEM:  env["ASSAY_EXTRA_CA_PEM"],
-		ExtraCAFile: env["ASSAY_EXTRA_CA_FILE"],
-		Demo:        env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
-		DemoURL:     valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+		DatabaseURL:    env["ASSAY_DATABASE_URL"],
+		BaseURL:        strings.TrimRight(valueOr(env["ASSAY_BASE_URL"], "http://localhost:8080"), "/"),
+		Listen:         valueOr(env["ASSAY_LISTEN"], ":8080"),
+		Role:           Role(valueOr(env["ASSAY_ROLE"], string(RoleAll))),
+		SetupToken:     env["ASSAY_SETUP_TOKEN"],
+		ExtraCAPEM:     env["ASSAY_EXTRA_CA_PEM"],
+		ExtraCAFile:    env["ASSAY_EXTRA_CA_FILE"],
+		Demo:           env["ASSAY_DEMO"] == "true" || env["ASSAY_DEMO"] == "1",
+		DemoURL:        valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
+		AtlassianAPI:   valueOr(env["ASSAY_ATLASSIAN_API_URL"], "https://api.atlassian.com"),
+		AtlassianMedia: valueOr(env["ASSAY_ATLASSIAN_MEDIA_URL"], "https://api.media.atlassian.com"),
+		EntraAuthority: valueOr(env["ASSAY_ENTRA_AUTHORITY_URL"], "https://login.microsoftonline.com"),
+		MCPOAuth:       env[agents.EnvOAuth],
+	}
+	cfg.SSO = map[string]string{}
+	for _, name := range sso.EnvVars {
+		if v := env[name]; v != "" {
+			cfg.SSO[name] = v
+		}
 	}
 	cfg.Outbound = outbound.Settings{
 		HTTPProxy:   valueOr(env["HTTP_PROXY"], env["http_proxy"]),
@@ -131,12 +170,18 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		out  *int
 	}{{"ASSAY_JOB_WORKERS", 10, &cfg.JobWorkers}, {"ASSAY_SYNC_WORKERS", 4, &cfg.SyncWorkers},
 		{"ASSAY_EXTRACT_WORKERS", 4, &cfg.ExtractWorkers}, {"ASSAY_DESIGN_WORKERS", 2, &cfg.DesignWorkers},
-		{"ASSAY_EMBED_WORKERS", 4, &cfg.EmbedWorkers}} {
+		{"ASSAY_EMBED_WORKERS", 4, &cfg.EmbedWorkers}, {"ASSAY_EMBED_SHARDS", 4, &cfg.EmbedShards}} {
 		n, err := strconv.Atoi(valueOr(env[w.name], strconv.Itoa(w.def)))
 		if err != nil || n < 1 || n > 100 {
 			errs = append(errs, fmt.Errorf("%s is %q. Set it to a number from 1 to 100", w.name, env[w.name]))
 		}
 		*w.out = n
+	}
+	if err := agents.CheckEnv(cfg.MCPOAuth); err != nil {
+		errs = append(errs, err)
+	}
+	if err := sso.CheckEnv(cfg.SSO); err != nil {
+		errs = append(errs, err)
 	}
 	if _, err := cfg.Outbound.RootCAs(); err != nil {
 		errs = append(errs, fmt.Errorf("the extra CA certificates are not valid: %w", err))

@@ -388,6 +388,49 @@ func (q *Queries) DropEntitySource(ctx context.Context, arg DropEntitySourcePara
 	return result.RowsAffected(), nil
 }
 
+const dropUndatedEvidence = `-- name: DropUndatedEvidence :many
+DELETE FROM claim_evidence e
+USING claims c
+WHERE e.claim_id = c.id AND e.item_id = $1 AND e.kind = 'field'
+  AND c.subject_id = $2 AND c.predicate = $3 AND NOT (c.id = ANY($4::bigint[]))
+RETURNING e.claim_id
+`
+
+type DropUndatedEvidenceParams struct {
+	ItemID    int64
+	SubjectID int64
+	Predicate string
+	Keep      []int64
+}
+
+// The field evidence of an item for a subject and a predicate on the claims
+// that the dated facts of the item no longer give.
+// vis:system
+func (q *Queries) DropUndatedEvidence(ctx context.Context, arg DropUndatedEvidenceParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, dropUndatedEvidence,
+		arg.ItemID,
+		arg.SubjectID,
+		arg.Predicate,
+		arg.Keep,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var claim_id int64
+		if err := rows.Scan(&claim_id); err != nil {
+			return nil, err
+		}
+		items = append(items, claim_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fillChunkHashes = `-- name: FillChunkHashes :execrows
 WITH b AS (SELECT id FROM chunks WHERE text_hash IS NULL ORDER BY id LIMIT 10000)
 UPDATE chunks c SET text_hash = sha256(convert_to(c.text, 'UTF8')) FROM b WHERE c.id = b.id
@@ -403,7 +446,7 @@ func (q *Queries) FillChunkHashes(ctx context.Context) (int64, error) {
 }
 
 const getItemByExternalID = `-- name: GetItemByExternalID :one
-SELECT id, content_hash, revision, index_hash FROM source_items
+SELECT id, content_hash, revision, index_hash, part FROM source_items
 WHERE connection_id = $1 AND external_id = $2
 `
 
@@ -417,6 +460,7 @@ type GetItemByExternalIDRow struct {
 	ContentHash []byte
 	Revision    string
 	IndexHash   []byte
+	Part        string
 }
 
 // vis:system
@@ -428,21 +472,33 @@ func (q *Queries) GetItemByExternalID(ctx context.Context, arg GetItemByExternal
 		&i.ContentHash,
 		&i.Revision,
 		&i.IndexHash,
+		&i.Part,
 	)
 	return i, err
 }
 
 const getVisibleItem = `-- name: GetVisibleItem :one
 SELECT i.id, i.connection_id, c.name AS connection_name, c.kind AS connection_kind, i.kind, i.title, i.url, i.author,
-       i.source_updated_at
+       i.source_updated_at, coalesce(ent.key, '')::text AS entity_key, coalesce(ent.name, '')::text AS entity_name,
+       coalesce(ent.type, '')::text AS entity_type
 FROM source_items i
 JOIN connections c ON c.id = i.connection_id
-WHERE i.id = $1 AND i.connection_id = ANY($2::bigint[])
+LEFT JOIN LATERAL (
+    SELECT coalesce(entity_visible_key(w.id, $1::bigint[]), w.key)::text AS key,
+           coalesce(entity_display_name(w.id, $1::bigint[]), w.key)::text AS name, w.type
+    FROM entities e
+    JOIN entities w ON w.id = coalesce(e.merged_into, e.id)
+    WHERE e.id = i.entity_id
+      AND EXISTS (SELECT 1 FROM entity_sources s
+                  WHERE s.entity_id = ANY(entity_members(w.id))
+                    AND s.connection_id = ANY($1::bigint[]))
+) ent ON true
+WHERE i.id = $2 AND i.connection_id = ANY($1::bigint[])
 `
 
 type GetVisibleItemParams struct {
-	ID      int64
 	Visible []int64
+	ID      int64
 }
 
 type GetVisibleItemRow struct {
@@ -455,10 +511,15 @@ type GetVisibleItemRow struct {
 	Url             string
 	Author          string
 	SourceUpdatedAt *time.Time
+	EntityKey       string
+	EntityName      string
+	EntityType      string
 }
 
+// The entity of the item is empty when it has no visible source. A merged
+// entity shows as its winner.
 func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) (GetVisibleItemRow, error) {
-	row := q.db.QueryRow(ctx, getVisibleItem, arg.ID, arg.Visible)
+	row := q.db.QueryRow(ctx, getVisibleItem, arg.Visible, arg.ID)
 	var i GetVisibleItemRow
 	err := row.Scan(
 		&i.ID,
@@ -470,6 +531,9 @@ func (q *Queries) GetVisibleItem(ctx context.Context, arg GetVisibleItemParams) 
 		&i.Url,
 		&i.Author,
 		&i.SourceUpdatedAt,
+		&i.EntityKey,
+		&i.EntityName,
+		&i.EntityType,
 	)
 	return i, err
 }
@@ -534,9 +598,9 @@ func (q *Queries) InsertChunks(ctx context.Context, arg InsertChunksParams) erro
 
 const insertItem = `-- name: InsertItem :one
 INSERT INTO source_items (connection_id, external_id, kind, title, url, author, source_created_at, source_updated_at, content_hash,
-                          revision, index_hash)
+                          revision, index_hash, part)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-        $10, $11)
+        $10, $11, $12)
 RETURNING id
 `
 
@@ -552,6 +616,7 @@ type InsertItemParams struct {
 	ContentHash     []byte
 	Revision        string
 	IndexHash       []byte
+	Part            string
 }
 
 // vis:system
@@ -568,6 +633,7 @@ func (q *Queries) InsertItem(ctx context.Context, arg InsertItemParams) (int64, 
 		arg.ContentHash,
 		arg.Revision,
 		arg.IndexHash,
+		arg.Part,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -894,17 +960,18 @@ func (q *Queries) SetPassagesVersion(ctx context.Context, arg SetPassagesVersion
 }
 
 const setRevision = `-- name: SetRevision :exec
-UPDATE source_items SET revision = $1 WHERE id = $2
+UPDATE source_items SET revision = $1, part = $2 WHERE id = $3
 `
 
 type SetRevisionParams struct {
 	Revision string
+	Part     string
 	ID       int64
 }
 
 // vis:system
 func (q *Queries) SetRevision(ctx context.Context, arg SetRevisionParams) error {
-	_, err := q.db.Exec(ctx, setRevision, arg.Revision, arg.ID)
+	_, err := q.db.Exec(ctx, setRevision, arg.Revision, arg.Part, arg.ID)
 	return err
 }
 
@@ -921,8 +988,8 @@ const updateItem = `-- name: UpdateItem :exec
 UPDATE source_items
 SET kind = $1, title = $2, url = $3, author = $4, source_created_at = $5,
     source_updated_at = $6, content_hash = $7, version_id = $8, revision = $9,
-    index_hash = $10, updated_at = now()
-WHERE id = $11
+    index_hash = $10, part = $11, updated_at = now()
+WHERE id = $12
 `
 
 type UpdateItemParams struct {
@@ -936,6 +1003,7 @@ type UpdateItemParams struct {
 	VersionID       *int64
 	Revision        string
 	IndexHash       []byte
+	Part            string
 	ID              int64
 }
 
@@ -952,6 +1020,7 @@ func (q *Queries) UpdateItem(ctx context.Context, arg UpdateItemParams) error {
 		arg.VersionID,
 		arg.Revision,
 		arg.IndexHash,
+		arg.Part,
 		arg.ID,
 	)
 	return err
@@ -994,9 +1063,10 @@ func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64
 }
 
 const upsertEntity = `-- name: UpsertEntity :one
-INSERT INTO entities (type, key, domain_id) VALUES ($1, $2, $3)
+INSERT INTO entities (type, key, domain_id, metadata) VALUES ($1, $2, $3, $4::jsonb)
 ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
-    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
 RETURNING id
 `
 
@@ -1004,18 +1074,75 @@ type UpsertEntityParams struct {
 	Type     string
 	Key      string
 	DomainID *int64
+	Metadata json.RawMessage
 }
 
-// A type that a person set stays.
+// A type that a person set stays. The metadata of the source, such as the
+// email of a person, merges into the stored metadata.
 func (q *Queries) UpsertEntity(ctx context.Context, arg UpsertEntityParams) (int64, error) {
-	row := q.db.QueryRow(ctx, upsertEntity, arg.Type, arg.Key, arg.DomainID)
+	row := q.db.QueryRow(ctx, upsertEntity,
+		arg.Type,
+		arg.Key,
+		arg.DomainID,
+		arg.Metadata,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertEntityKeepType = `-- name: UpsertEntityKeepType :one
+INSERT INTO entities (type, key, domain_id, metadata) VALUES ($1, $2, $3, $4::jsonb)
+ON CONFLICT (key) DO UPDATE SET domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
+RETURNING id
+`
+
+type UpsertEntityKeepTypeParams struct {
+	Type     string
+	Key      string
+	DomainID *int64
+	Metadata json.RawMessage
+}
+
+// A reference to an entity that another source owns: a stored entity keeps
+// its type.
+func (q *Queries) UpsertEntityKeepType(ctx context.Context, arg UpsertEntityKeepTypeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertEntityKeepType,
+		arg.Type,
+		arg.Key,
+		arg.DomainID,
+		arg.Metadata,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const visibleItemByURL = `-- name: VisibleItemByURL :one
+SELECT i.id
+FROM source_items i
+WHERE i.url = $1 AND i.connection_id = ANY($2::bigint[])
+ORDER BY i.source_updated_at DESC NULLS LAST, i.id
+LIMIT 1
+`
+
+type VisibleItemByURLParams struct {
+	Url     string
+	Visible []int64
+}
+
+// The visible item with the URL. Of several, the newest source update wins,
+// then the lowest ID.
+func (q *Queries) VisibleItemByURL(ctx context.Context, arg VisibleItemByURLParams) (int64, error) {
+	row := q.db.QueryRow(ctx, visibleItemByURL, arg.Url, arg.Visible)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
 
 const visiblePassages = `-- name: VisiblePassages :many
-SELECT hash, ordinal, kind, heading_path, text
+SELECT hash, ordinal, kind, heading_path, text, start_line, end_line
 FROM passages
 WHERE item_id = $1 AND connection_id = ANY($2::bigint[])
 ORDER BY ordinal
@@ -1032,6 +1159,8 @@ type VisiblePassagesRow struct {
 	Kind        string
 	HeadingPath []string
 	Text        string
+	StartLine   *int32
+	EndLine     *int32
 }
 
 func (q *Queries) VisiblePassages(ctx context.Context, arg VisiblePassagesParams) ([]VisiblePassagesRow, error) {
@@ -1049,6 +1178,8 @@ func (q *Queries) VisiblePassages(ctx context.Context, arg VisiblePassagesParams
 			&i.Kind,
 			&i.HeadingPath,
 			&i.Text,
+			&i.StartLine,
+			&i.EndLine,
 		); err != nil {
 			return nil, err
 		}

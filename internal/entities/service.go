@@ -451,6 +451,17 @@ func (s *Service) MergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, r 
 	return s.mergeTx(ctx, tx, vis, ids, r)
 }
 
+// MergeIDsTx merges entities by ID in tx, with the winner rule of Merge. A
+// sync that rewrites the keys of a connection calls it when a new key
+// already exists: two syncs of one source must not leave two entities.
+func (s *Service) MergeIDsTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, ids []int64, r MergeRequest) (int64, string, error) {
+	ids = slices.Compact(slices.Sorted(slices.Values(ids)))
+	if len(ids) < 2 {
+		return 0, "", ErrAlreadyOne
+	}
+	return s.mergeTx(ctx, tx, vis, ids, r)
+}
+
 func (s *Service) mergeTx(ctx context.Context, tx pgx.Tx, vis visibility.Set, ids []int64, r MergeRequest) (int64, string, error) {
 	q := New(tx)
 	reg, err := q.HasRegistrySource(ctx, HasRegistrySourceParams{Ids: ids, Visible: vis})

@@ -55,10 +55,15 @@ type answer struct {
 	} `json:"notice"`
 }
 
-// ask posts a question and returns the server-sent events.
-func ask(t *testing.T, cl *testkit.Client, q string) []event {
+// ask posts a question, as a follow-up in a thread when one is given, and
+// returns the server-sent events.
+func ask(t *testing.T, cl *testkit.Client, q string, thread ...int64) []event {
 	t.Helper()
-	r := cl.Do(http.MethodPost, "/api/v1/ask", map[string]string{"question": q})
+	body := map[string]any{"question": q}
+	if len(thread) > 0 && thread[0] != 0 {
+		body["threadId"] = thread[0]
+	}
+	r := cl.Do(http.MethodPost, "/api/v1/ask", body)
 	if r.Status != http.StatusOK || !strings.HasPrefix(r.Header.Get("Content-Type"), "text/event-stream") {
 		t.Fatalf("ask: %d %s %s", r.Status, r.Header.Get("Content-Type"), r.Body)
 	}
@@ -346,4 +351,38 @@ func TestSCN_ASK_005_AnswerQueuesExtractionOfNewPassages(t *testing.T) {
 	if !slices.Equal(args.Hashes, want) || args.Trigger != extract.TriggerAnswer {
 		t.Fatalf("job %+v, want the hashes of S2 %v", args, want)
 	}
+}
+
+// sourceOf finds the context ID of a source by its title.
+var sourceOf = regexp.MustCompile(`<source id="(S\d+)" title="Payments API reference[^"]*" type="web"`)
+
+func TestSCN_ASK_012_AnswerCitesWebPage(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-portal", Kind: "web", BaseURL: base})
+	if r := env.RunNow(admin, conn, "sync"); r.Status != "succeeded" || r.Created == 0 {
+		t.Fatalf("sync %+v", r)
+	}
+	fake, openai, _ := testkit.FakeModels(t)
+	ep := testkit.CreateEndpoint(t, admin, "fake", "openai", openai, fixtures.FakeKey, nil)
+	testkit.SetFunction(t, admin, "answer", testkit.Function{Endpoint: ep, Model: "fake-chat"})
+	fake.OnChat(func(body map[string]any) string {
+		msgs := body["messages"].([]any)
+		m := sourceOf.FindStringSubmatch(msgs[len(msgs)-1].(map[string]any)["content"].(string))
+		if m == nil {
+			return "Assay has no source for the rate limit."
+		}
+		return "The Payments API accepts at most 50 requests per second for each client [" + m[1] + "]."
+	})
+	a := final(t, ask(t, admin, "How many requests per second does the Payments API accept?"))
+	if a.NoEvidence || len(a.Cited) != 1 {
+		t.Fatalf("answer %+v", a)
+	}
+	for _, s := range a.Sources {
+		if s.ID == a.Cited[0] && strings.HasPrefix(s.Title, "Payments API reference") {
+			return
+		}
+	}
+	t.Fatalf("the answer does not cite the web page: %+v", a)
 }

@@ -39,3 +39,28 @@ jobs:
           name: reports
           path: tmp/reports
           if-no-files-found: ignore
+
+  # A chart that does not install is a release blocker.
+  helm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: extractions/setup-just@v3
+        with:
+          just-version: 1.58.0
+      - name: Install helm and kind
+        run: |
+          GOBIN=$PWD/bin go install helm.sh/helm/v3/cmd/helm@v3.17.3
+          GOBIN=$PWD/bin go install sigs.k8s.io/kind@v0.27.0
+      - name: Install the chart in kind
+        run: just helm-smoke
+      - name: Show the pods
+        if: failure()
+        run: |
+          bin/kind export logs tmp/kind-logs --name assay-helm || true
+          kubectl --context kind-assay-helm -n assay-smoke get pods -o wide || true
+          kubectl --context kind-assay-helm -n assay-smoke describe pods | tail -80 || true

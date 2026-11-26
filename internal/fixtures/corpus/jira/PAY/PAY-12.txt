@@ -1,0 +1,19 @@
+type: Story
+summary: Retry queue build checks
+status: In Progress
+assignee: priya.acme
+reporter: alex.acme
+priority: Low
+labels: payments, ci
+components: payments-api
+epic: PAY-1
+botComments: 120
+created: 2026-02-05T09:00:00Z
+updated: 2026-02-10T12:00:00Z
+---
+The CI job runs the retry queue checks on each merge.
+=== history alex.acme 2026-02-05T10:00:00Z
+status: To Do -> In Progress
+assignee: -> sam.acme
+=== history alex.acme 2026-02-08T09:00:00Z
+assignee: sam.acme -> priya.acme

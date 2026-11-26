@@ -93,19 +93,19 @@ test("SCN-VOC-006 pages show term popovers with definition, status and owner, an
   const key = await initiative(page);
   const team = await record(page, "thing", { type: "team", name: "Planning Team" });
   const term = await record(page, "term", {
-    name: "Target date",
-    definition: "The day that the team plans to finish the work.",
+    name: "Fix version",
+    definition: "The release that is to hold the work.",
     owner: team,
     status: "approved",
   });
 
-  // The summary of the initiative names its target date.
+  // The summary of the initiative names its fix version.
   await page.goto(pageURL(key));
   const summary = page.getByTestId("summary");
   await expect(summary).toBeVisible({ timeout: 15_000 });
-  await summary.getByRole("button", { name: "Term Target date" }).first().click();
+  await summary.getByRole("button", { name: "Term Fix version" }).first().click();
   const pop = page.getByRole("dialog").last();
-  await expect(pop.getByText("The day that the team plans to finish the work.")).toBeVisible();
+  await expect(pop.getByText("The release that is to hold the work.")).toBeVisible();
   await expect(pop.getByText("Approved")).toBeVisible();
   await expect(pop.getByText("Owner: Planning Team")).toBeVisible();
   await expect(pop.getByRole("link", { name: "Open the term" })).toBeVisible();

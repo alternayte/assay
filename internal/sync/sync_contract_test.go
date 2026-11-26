@@ -5,9 +5,11 @@ package sync_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -67,8 +69,9 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := publicConnection(t, env, admin, base)
 
+	// Nine pages and three attachments with text.
 	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != 8 {
+	if first.Status != "succeeded" || first.Created != 12 {
 		t.Fatalf("first sync %+v", first)
 	}
 	second := env.RunNow(admin, conn, "sync")
@@ -76,8 +79,8 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 		t.Fatalf("second sync %+v", second)
 	}
 	versions := env.Count("SELECT count(*) FROM source_versions WHERE connection_id = $1", conn)
-	if versions != 8 {
-		t.Fatalf("want 7 versions, got %d", versions)
+	if versions != 12 {
+		t.Fatalf("want 12 versions, got %d", versions)
 	}
 
 	p, _ := src.Page("1007")
@@ -273,10 +276,16 @@ func TestSCN_SYN_010_LargeItemIsSkipped(t *testing.T) {
 		Body: "<p>" + strings.Repeat("x", 600<<10) + "</p>"})
 	conn := publicConnection(t, env, admin, base)
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 8 || len(run.Skipped) != 1 {
+	// The scanned PDF attachment is the other skip.
+	if run.Status != "succeeded" || run.Created != 12 || len(run.Skipped) != 2 {
 		t.Fatalf("run %+v", run)
 	}
-	if run.Skipped[0].ID != "1099" || run.Skipped[0].Reason != "too_large" {
+	if !slices.ContainsFunc(run.Skipped, func(s struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason"`
+	}) bool {
+		return s.ID == "1099" && s.Reason == "too_large"
+	}) {
 		t.Fatalf("skipped %+v", run.Skipped)
 	}
 }
@@ -288,7 +297,7 @@ func TestSCN_CON_002_JiraClaimsWithFieldEvidence(t *testing.T) {
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-jira", Kind: "jira", BaseURL: base,
 		Scope: map[string]any{"projects": []string{"PAY", "REM"}}})
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 7 {
+	if run.Status != "succeeded" || run.Created != 8 {
 		t.Fatalf("run %+v", run)
 	}
 	item := itemID(t, env, conn, "PAY-2")
@@ -421,7 +430,7 @@ func TestSCN_EVL_001_DemoCountsMatchManifest(t *testing.T) {
 			Code: code})
 		ids[mc.Name] = id
 		run := env.RunNow(admin, id, "sync")
-		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != 0 {
+		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != mc.Skipped {
 			t.Fatalf("%s: run %+v, manifest %d items", mc.Name, run, mc.Items)
 		}
 		if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1", id); n != mc.Items {
@@ -461,7 +470,8 @@ func TestSCN_CON_004_SyncFetchesOnlyChangedBlobs(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-github", Kind: "github", BaseURL: base,
 		Scope: map[string]any{"repositories": []string{"acme/payments-api"}}})
-	want := src.RepoItems("github", "acme/payments-api")
+	// The files and the pull requests and issues of the history window.
+	want := src.RepoItems("github", "acme/payments-api") + src.HistoryItems("github", "acme/payments-api")
 
 	first := env.RunNow(admin, conn, "sync")
 	if first.Status != "succeeded" || first.Created != want {
@@ -479,7 +489,9 @@ func TestSCN_CON_004_SyncFetchesOnlyChangedBlobs(t *testing.T) {
 
 	mark := len(src.Hits())
 	second := env.RunNow(admin, conn, "sync")
-	if second.Status != "succeeded" || second.Created != 0 || second.Updated != 0 || second.Unchanged != want {
+	// The second sync lists every file and, of the history, only the newest
+	// issue: it is inside the overlap of the cursor.
+	if second.Status != "succeeded" || second.Created != 0 || second.Updated != 0 || second.Unchanged != src.RepoItems("github", "acme/payments-api")+1 {
 		t.Fatalf("second sync %+v", second)
 	}
 	if n := blobHits(src, mark); n != 0 {
@@ -524,6 +536,9 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 		t.Fatalf("test %+v, want %d files", v, want)
 	}
 
+	// The files, the completed pull requests, and the work items and wiki
+	// pages of the project.
+	want += src.HistoryItems("azdo", "Platform/ledger-service") + src.ProjectItems("Platform")
 	run := env.RunNow(admin, conn, "sync")
 	if run.Status != "succeeded" || run.Created != want || len(run.Skipped) != 0 {
 		t.Fatalf("sync %+v, want %d new", run, want)
@@ -554,7 +569,7 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 		if h.Auth != "Basic" {
 			t.Fatalf("%s %s has auth %q", h.Method, h.Path, h.Auth)
 		}
-		if strings.Contains(h.Path, "/_apis/git/") && !strings.Contains(h.Query, "api-version=7.1") {
+		if strings.Contains(h.Path, "/_apis/") && !strings.Contains(h.Path, "/_apis/connectionData") && !strings.Contains(h.Query, "api-version=7.1") {
 			t.Fatalf("%s?%s has no api-version=7.1", h.Path, h.Query)
 		}
 	}
@@ -567,7 +582,9 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 func pageHits(src *fixtures.Sources, mark int) int {
 	n := 0
 	for _, h := range src.Hits()[mark:] {
-		if strings.Contains(h.Path, "/rest/api/content/") && !strings.HasSuffix(h.Path, "/content/search") {
+		// An attachment is not a page: the listing carries no file.
+		if strings.Contains(h.Path, "/rest/api/content/") && !strings.HasSuffix(h.Path, "/content/search") &&
+			!strings.Contains(h.Path, "/rest/api/content/att") {
 			n++
 		}
 	}
@@ -580,13 +597,13 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := publicConnection(t, env, admin, base)
 	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != 8 {
+	if first.Status != "succeeded" || first.Created != 12 {
 		t.Fatalf("first sync %+v", first)
 	}
 
 	// A run that stopped before its end leaves the cursor where it was.
 	// Assay before 1.3.3 stored pages without a revision.
-	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connection_cursors SET cursor = '' WHERE connection_id = $1", conn); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE source_items SET revision = '' WHERE connection_id = $1", conn); err != nil {
@@ -598,7 +615,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	src.PutPage(p)
 	mark := len(src.Hits())
 	again := env.RunNow(admin, conn, "sync")
-	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 7 {
+	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 11 {
 		t.Fatalf("sync after the stop %+v", again)
 	}
 	// The listing carries the bodies: no page needs its own request.
@@ -608,14 +625,14 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 
 	// The stored page stored its version. Two edits in the same second
 	// still differ by version.
-	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connections SET cursor = '' WHERE id = $1", conn); err != nil {
+	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connection_cursors SET cursor = '' WHERE connection_id = $1", conn); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = src.Page("1007")
 	p.Body += "<p>The digest goes out on Monday.</p>"
 	src.PutPage(p)
 	mark = len(src.Hits())
-	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 || third.Unchanged != 7 {
+	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 || third.Unchanged != 11 {
 		t.Fatalf("sync after a second edit %+v", third)
 	}
 	if n := pageHits(src, mark); n != 0 {
@@ -657,7 +674,7 @@ func TestSCN_SYN_014_ListingCarriesBodiesAndSavesProgress(t *testing.T) {
 		t.Fatalf("the sync fetched %d pages one by one", n)
 	}
 	var cursor string
-	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT cursor FROM connections WHERE id = $1", conn).Scan(&cursor); err != nil {
+	if err := env.Server.Pool().QueryRow(t.Context(), "SELECT cursor FROM connection_cursors WHERE connection_id = $1 AND part = 'BLK'", conn).Scan(&cursor); err != nil {
 		t.Fatal(err)
 	}
 	if want := time.Date(2026, 1, 1, 0, 0, 49, 0, time.UTC).Format(time.RFC3339Nano); cursor != want {
@@ -670,9 +687,10 @@ func TestSCN_SYN_014_ListingCarriesBodiesAndSavesProgress(t *testing.T) {
 	if second.Status != "succeeded" || second.Created != 70 || second.Unchanged != 50 {
 		t.Fatalf("second sync %+v", second)
 	}
+	// Five listings of pages and one of attachments.
 	hits := searchHits(src, mark)
-	if len(hits) != 5 || pageHits(src, mark) != 0 {
-		t.Fatalf("%d listing and %d page requests for 120 pages, want 5 and 0", len(hits), pageHits(src, mark))
+	if len(hits) != 6 || pageHits(src, mark) != 0 {
+		t.Fatalf("%d listing and %d page requests for 120 pages, want 6 and 0", len(hits), pageHits(src, mark))
 	}
 	if q, _ := url.ParseQuery(hits[0].Query); !strings.Contains(q.Get("cql"), "lastmodified >=") {
 		t.Fatalf("the second run lists from the start: %s", q.Get("cql"))
@@ -912,5 +930,148 @@ JOIN entities s ON s.id = c.subject_id WHERE s.key = $1 AND c.predicate = 'owned
 		if strings.HasPrefix(h.Path, "/backstage/") && h.Method != http.MethodGet {
 			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
 		}
+	}
+}
+
+// webBody returns the title and the stored body of a web page.
+func webBody(t *testing.T, env *testkit.Env, conn int64, id string) (string, string) {
+	t.Helper()
+	var title, body string
+	if err := env.Server.Pool().QueryRow(t.Context(), `SELECT i.title, v.body FROM source_items i JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = $1 AND i.external_id = $2`, conn, id).Scan(&title, &body); err != nil {
+		t.Fatalf("%s: %v", id, err)
+	}
+	return title, body
+}
+
+func TestSCN_CON_016_WebSiteSyncsSameHostPages(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	var offsite atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		offsite.Add(1)
+		_, _ = w.Write([]byte("<html><body><main><h1>Status</h1></main></body></html>"))
+	}))
+	t.Cleanup(other.Close)
+	src.SetOffsite(other.URL)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-portal", Kind: "web", BaseURL: base,
+		Scope: map[string]any{"seed": "llms"}})
+
+	// The initial sync crawls from llms.txt: the listed pages and the pages
+	// they link to on the same host. A page of another host, a file and a
+	// page that robots.txt refuses get no request.
+	initial := env.RunNow(admin, conn, "sync")
+	pages := []string{"guides/getting-started", "guides/ledger.html", "guides/incident-review", "reference/payments-api",
+		"releases/", "guides/retries", "guides/backoff"}
+	if initial.Status != "succeeded" || initial.Created != len(pages) {
+		t.Fatalf("first sync %+v", initial)
+	}
+	rows, err := env.Server.Pool().Query(t.Context(), "SELECT external_id FROM source_items WHERE connection_id = $1 ORDER BY 1", conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, id)
+	}
+	var want []string
+	for _, p := range pages {
+		want = append(want, base+"/web/"+p)
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("items %v, want %v", got, want)
+	}
+	if n := offsite.Load(); n != 0 {
+		t.Fatalf("the other host got %d requests", n)
+	}
+	robots := false
+	for _, s := range initial.Skipped {
+		robots = robots || s.ID == base+"/web/internal/keys"
+	}
+	if !robots {
+		t.Fatalf("the page that robots.txt refuses is not skipped: %+v", initial.Skipped)
+	}
+
+	// The page with a Markdown variant comes from the Markdown, and its
+	// HTML is never read.
+	title, body := webBody(t, env, conn, base+"/web/guides/ledger.html")
+	if title != "Ledger" || !strings.Contains(body, "records each settled payment exactly once") || strings.Contains(body, "HTML copy") {
+		t.Fatalf("ledger %q: %s", title, body)
+	}
+	if !strings.Contains(body, "[Payments API reference]("+base+"/web/reference/payments-api)") || strings.Contains(body, "ledger-flow.png") {
+		t.Fatalf("the Markdown links are not absolute, or the image stays: %s", body)
+	}
+	// An HTML page keeps its main content without navigation, scripts or
+	// forms, and only http, https and mailto links.
+	title, body = webBody(t, env, conn, base+"/web/guides/getting-started")
+	if title != "Getting started · Acme Developer Portal" || !strings.Contains(body, "# Getting started") ||
+		!strings.Contains(body, "("+base+"/web/guides/retries?from=start#top)") || !strings.Contains(body, "Open the console") {
+		t.Fatalf("getting started %q: %s", title, body)
+	}
+	for _, s := range []string{"Release notes", "window.portal", "Search", "javascript:", "Signing keys", "Copyright"} {
+		if strings.Contains(body, s) {
+			t.Fatalf("getting started keeps %q: %s", s, body)
+		}
+	}
+	if _, body = webBody(t, env, conn, base+"/web/reference/payments-api"); !strings.Contains(body, "| Method | Path") || !strings.Contains(body, "| Creates a payment. |") {
+		t.Fatalf("the table is not Markdown: %s", body)
+	}
+	hits := src.Hits()
+	for _, h := range hits {
+		if h.Path == "/web/guides/ledger.html" {
+			t.Fatalf("the connector sent %s for the HTML of a page with a Markdown variant", h.Method)
+		}
+		if strings.HasPrefix(h.Path, "/web/internal/") || strings.HasPrefix(h.Path, "/web/files/") {
+			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
+		}
+	}
+	if !slices.ContainsFunc(hits, func(h fixtures.Hit) bool {
+		return h.Method == http.MethodHead && h.Path == "/web/guides/ledger.html.md"
+	}) {
+		t.Fatal("no HEAD request for the Markdown variant")
+	}
+
+	// A second sync with unchanged ETags sends only HEAD requests for the
+	// pages.
+	mark := len(src.Hits())
+	second := env.RunNow(admin, conn, "sync")
+	if second.Status != "succeeded" || second.Unchanged != len(pages) || second.Created+second.Updated != 0 {
+		t.Fatalf("second sync %+v", second)
+	}
+	for _, h := range src.Hits()[mark:] {
+		if strings.HasPrefix(h.Path, "/web/") && h.Method != http.MethodHead {
+			t.Fatalf("the second sync sent %s %s", h.Method, h.Path)
+		}
+	}
+
+	// A changed page is read again.
+	src.PutWebPage("reference/payments-api.html", fixtures.WebPage{Body: "<html><head><title>Payments API reference</title></head>" +
+		"<body><main><h1>Payments API reference</h1><p>The Payments API accepts at most 80 requests per second for each client.</p></main></body></html>"})
+	if r := env.RunNow(admin, conn, "sync"); r.Status != "succeeded" || r.Updated != 1 || r.Unchanged != len(pages)-1 {
+		t.Fatalf("sync after a change %+v", r)
+	}
+
+	// A page that the site removes is a tombstone after reconcile.
+	src.DeleteWebPage("guides/backoff.html")
+	if r := env.RunNow(admin, conn, "reconcile"); r.Status != "succeeded" || r.Deleted != 1 {
+		t.Fatalf("reconcile %+v", r)
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id = $2", conn, base+"/web/guides/backoff"); n != 0 {
+		t.Fatal("the removed page keeps its item")
+	}
+
+	for _, h := range src.Hits() {
+		if (strings.HasPrefix(h.Path, "/web/") || h.Path == "/robots.txt") && h.Method != http.MethodGet && h.Method != http.MethodHead {
+			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
+		}
+	}
+	if n := offsite.Load(); n != 0 {
+		t.Fatalf("the other host got %d requests", n)
 	}
 }

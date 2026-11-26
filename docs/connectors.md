@@ -2,7 +2,7 @@
 
 A connection is one configured source system with a token, a scope and a visibility. Admins create connections in Settings, Connections. The wizard tests the token, shows the user and a sample count, and lists the scopes live.
 
-Connectors are read-only. The connector HTTP client sends only GET and HEAD requests, only to the host of the connection, and follows no redirect to another host. A Cloud connection with a scoped token also sends to `api.atlassian.com`. Use a token with read access only.
+Connectors are read-only. The connector HTTP client sends only GET and HEAD requests, only to the host of the connection, and follows no redirect to another host. A Cloud connection with a scoped token also sends to `api.atlassian.com`. A Teams connection also sends one POST to the token endpoint of its Entra ID tenant, because Microsoft Graph has no other way to give an app-only token. Use a token with read access only.
 
 ## Sources
 
@@ -17,6 +17,8 @@ Connectors are read-only. The connector HTTP client sends only GET and HEAD requ
 | GitLab (gitlab.com and self-managed) | REST v4 | Personal, group or project access token with `read_api` and `read_repository` (`PRIVATE-TOKEN` header) | Projects, default branch |
 | Bitbucket Data Center | REST 1.0 | HTTP access token with Repository read (bearer) | Repositories, default branch |
 | Web documentation | Pages over HTTP | Optional auth header, `Name: value` | Seed, path prefixes, link depth and page limit |
+| Microsoft Teams | Microsoft Graph v1.0 | Client secret of your own Entra app (client credentials) | Teams, then standard channels |
+| Slack | Web API | Bot token of your own internal app (bearer) | Public channels where the bot is a member |
 
 Jira issues give their summary, description, the newest 50 comments, status, type, assignee, reporter, priority, labels, components, fix versions, due date, parent and links. Confluence pages give their title, body, version, ancestors, labels and author.
 
@@ -69,6 +71,40 @@ A `web` connection reads a documentation site, such as an internal developer por
 - **Reconciliation.** It crawls from the seed again. It deletes the pages that return 404 or 410, or that the seed no longer reaches. A crawl that reads no page fails, and the stored pages stay.
 - **Auth header.** A portal behind a static token takes an auth header, such as `X-Portal-Token: <token>`. Assay stores it encrypted as the connection secret. With an auth header, a 401 or 403 pauses the connection. Without one, only a 401 pauses it, and a 403 skips the page.
 - **Limits.** A page above the item size limit is skipped. A page that is not HTML or Markdown is skipped. JavaScript rendering, other hosts, sign-in flows, cookies and linked files are not read.
+
+## Chat sources
+
+A `teams` or a `slack` connection reads the threads of the channels that you select. Each selected channel is one part of a sync. Search, Ask, claims, entity pages and `get_item` use the threads like other items.
+
+- **Items.** One thread is one item of the kind `thread`: the root message and its replies. The item ID is `<team or workspace>/<channel>/<root message ID>`. The title is the channel name and the first 80 characters of the root message. The link is the `webUrl` of the Teams root message, or the Slack permalink `https://<workspace>.slack.com/archives/<channel>/p<ts without the dot>`.
+- **Passages.** Each message is one passage. Its text starts with the author and the date, such as "Dana Ito, 2026-05-04:". Teams HTML and Slack mrkdwn become Markdown with the link rules of other sources: only `http`, `https` and `mailto` links stay. User and channel mentions become the display name.
+- **Dropped.** Bot and app messages, join and leave events, system events, deleted messages and messages without text.
+- **People.** Each author is a person with the key `teams:<tenant>:user:<id>` or `slack:<workspace ID>:user:<id>` and a `posted_in` fact for the thread. Resolve can merge the person with the same person from other sources.
+- **Changes.** The revision of a thread is the time of its newest reply. A sync skips a thread with no new reply.
+- **Retention.** The option `retainDays` is 0 by default and keeps all threads. With a value, a sync skips the threads whose newest message is older than that number of days, and a reconciliation deletes them. A change of the option starts a reconciliation.
+- **Not read.** Private channels, shared channels of another tenant, group chats, direct messages, files, images, reactions, edit history and deleted-message history.
+
+### Microsoft Teams
+
+1. Register an app in Microsoft Entra ID of your tenant. Create a client secret.
+2. Give the app the application permissions `ChannelMessage.Read.All`, `Team.ReadBasic.All` and `Channel.ReadBasic.All`, and grant admin consent. The app reads with no signed-in user.
+3. In the wizard, enter the Graph URL `https://graph.microsoft.com/v1.0`, the tenant ID or primary domain, the client ID and the client secret. Assay stores the secret encrypted.
+4. Select the teams, and then the channels. Assay lists only standard channels.
+
+Microsoft can require approval of an app before it reads channel messages with application permissions. Request it for your app when Graph refuses the reads. A refused secret or permission pauses the connection.
+
+Assay gets the token with the client credentials grant from `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token`. For a national cloud, set `ASSAY_ENTRA_AUTHORITY_URL` to its sign-in host and use its Graph URL as the base URL.
+
+The first sync of a channel lists `GET /teams/{team}/channels/{channel}/messages` 50 roots at a time with `$expand=replies`, and follows `replies@odata.nextLink` for a thread with more than 200 replies. A delta read covers only the last 8 months, so the first sync lists. It then starts a delta read and stores the delta link as the cursor of the channel. Later syncs follow the delta link and read each thread with a changed root or reply again. An expired delta link starts a new listing. Graph allows 130,000 requests in 10 seconds for each app, and a 429 waits for `Retry-After`.
+
+### Slack
+
+1. Create an app in your own Slack workspace. Do not distribute it: an internal app is exempt from the limit of one history request per minute for apps outside the Slack Marketplace.
+2. Give the bot the scopes `channels:read`, `channels:history` and `users:read`, and install the app. Copy the bot token. It starts with `xoxb-`.
+3. Invite the bot to each channel that Assay reads, with `/invite @<bot name>` in the channel. Assay does not join channels, because a join is a write.
+4. In the wizard, enter `https://slack.com/api` and the bot token, and select the channels.
+
+Each call is a GET with the token as bearer. A sync calls `conversations.history` for each channel with `oldest` 30 days before the cursor, and `conversations.replies` only for the threads whose `latest_reply` is newer than the stored revision. `conversations.history` does not return an old root that gets a new reply, so the reconciliation reads the whole history. It deletes the threads that are gone and reads the threads that sync missed. `users.info` gives the display names, once for each user in a run. The default rate is 2 concurrent requests and 0.8 requests per second, because Tier 3 methods allow about 50 requests per minute. A 429 waits for `Retry-After`. A refused token pauses the connection.
 
 ## Facts without a model
 

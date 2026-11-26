@@ -39,7 +39,7 @@ type Predicate struct {
 
 // Source types of evidence. decision is the source of repo_system claims
 // and of the edges that code proposes.
-var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision", "web"}
+var SourceTypes = []string{"registry", "catalog", "codeowners", "jira", "confluence", "repository", "review", "decision", "web", "teams", "slack"}
 
 var owners = []string{"service", "api", "system", "resource", "repository", "project", "initiative", "term"}
 
@@ -77,6 +77,10 @@ func init() {
 		p.Extract = true
 		Registry[p.Name] = p
 	}
+	// A chat author posted in a thread. Chat connectors give it from each
+	// message, never prose extraction.
+	Registry["posted_in"] = Predicate{Name: "posted_in", Subjects: []string{"person"}, Objects: []string{ObjText}, Multi: true,
+		Priority: []string{"others"}, NeverConflicts: true}
 	// Contracts come from spec files and from design digests, never from
 	// prose extraction.
 	contract := []string{"registry", "repository", "catalog", "others", "decision"}

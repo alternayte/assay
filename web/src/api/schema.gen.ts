@@ -586,7 +586,7 @@ export interface paths {
         put?: never;
         /**
          * List the scope options of a source
-         * @description Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.
+         * @description Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.
          */
         post: operations["listConnectionScopes"];
         delete?: never;
@@ -2757,9 +2757,9 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             name: string;
-            /** @description Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). */
+            /** @description Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads). */
             options?: {
                 [key: string]: unknown;
             };
@@ -2771,12 +2771,12 @@ export interface components {
             parallelParts: number;
             /**
              * Format: int32
-             * @default 4
+             * @description Leave it out for the default: 4, or 2 for Slack.
              */
-            rateConcurrency: number;
+            rateConcurrency?: number;
             /**
              * Format: double
-             * @description Leave it out for the default: 5, or 10 on Atlassian Cloud.
+             * @description Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack.
              */
             ratePerSecond?: number;
             /**
@@ -2792,7 +2792,7 @@ export interface components {
              * @default 30
              */
             syncMinutes: number;
-            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         ConnectionRecord: {
@@ -2822,7 +2822,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -3579,7 +3579,7 @@ export interface components {
             kind: string;
             passages: components["schemas"]["PassageRecord"][];
             /** @enum {string} */
-            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
             title: string;
             /** Format: date-time */
             updatedAt: string | null;
@@ -4732,7 +4732,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api.
              */
             baseUrl: string;
             /** @description Source files to index. Empty turns code indexing off. */
@@ -4746,15 +4746,15 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
-            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. */
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack";
+            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app. */
             options?: {
                 [key: string]: unknown;
             };
             scope?: {
                 [key: string]: unknown;
             };
-            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         SpaceRecord: {
@@ -9158,7 +9158,7 @@ export interface operations {
                 /** @description Search source code only. Off by default: results hold no source code. */
                 code?: boolean;
                 /** @description The kind of the source connection. */
-                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "";
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "teams" | "slack" | "";
                 connection?: number;
                 /** @description Items about an entity of this type. */
                 entityType?: string;

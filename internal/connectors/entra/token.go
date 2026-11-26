@@ -56,6 +56,17 @@ func ScopeFor(resource string) (string, error) {
 	return u.Scheme + "://" + u.Host + "/.default", nil
 }
 
+// ErrRefused means that the token endpoint refused the app registration,
+// such as a wrong client secret or an unknown tenant. A retry cannot help.
+var ErrRefused = errors.New("entra: the token endpoint refused the credentials")
+
+// refused is a refusal of the token endpoint. Its text is the answer of the
+// endpoint.
+type refused struct{ msg string }
+
+func (e *refused) Error() string        { return e.msg }
+func (e *refused) Is(target error) bool { return target == ErrRefused }
+
 // Credentials are the app registration and the token endpoint.
 type Credentials struct {
 	// TokenURL is the only URL that the client sends to.
@@ -157,7 +168,11 @@ func (t *TokenSource) request(ctx context.Context) (string, time.Duration, error
 		if msg == "" {
 			msg = "no access token"
 		}
-		return "", 0, fmt.Errorf("entra: the token endpoint answered %d: %s", resp.StatusCode, msg)
+		err := fmt.Errorf("entra: the token endpoint answered %d: %s", resp.StatusCode, msg)
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized {
+			return "", 0, &refused{msg: err.Error()}
+		}
+		return "", 0, err
 	}
 	secs, err := body.ExpiresIn.Int64()
 	if err != nil || secs <= 0 {

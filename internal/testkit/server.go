@@ -46,6 +46,12 @@ func WithAtlassianAPI(u string) Option {
 	return func(c *app.Config, _ *app.Options) { c.AtlassianAPI = u }
 }
 
+// WithEntraAuthority sets the Entra ID sign-in host of Teams connections,
+// such as the fixture server URL with /entra.
+func WithEntraAuthority(u string) Option {
+	return func(c *app.Config, _ *app.Options) { c.EntraAuthority = u }
+}
+
 // WithClock sets the clock of the server.
 func WithClock(now func() time.Time) Option {
 	return func(_ *app.Config, o *app.Options) { o.Now = now }

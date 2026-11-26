@@ -5,7 +5,7 @@ import "time"
 // Item is one fetched source object with a normalized Markdown body.
 type Item struct {
 	ExternalID string
-	Kind       string // page, issue, file, code, pull_request or work_item
+	Kind       string // page, issue, file, code, pull_request, work_item or thread
 	Title      string
 	URL        string
 	Author     string

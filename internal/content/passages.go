@@ -325,3 +325,31 @@ func cutPoint(s string, max int) int {
 	}
 	return limit
 }
+
+// Plain returns the normalized plain text of a Markdown fragment, the way a
+// passage norm reads it.
+func Plain(md string) string { return Normalize(plainOf(md)) }
+
+// MessagePassages returns one paragraph passage for each Markdown text, such
+// as the messages of a chat thread, in order. A text above MaxPassageChars
+// splits into several passages, and a text without words gives none.
+func MessagePassages(texts []string) []Passage {
+	var out []Passage
+	for _, t := range texts {
+		t = strings.TrimSpace(t)
+		pieces := []string{t}
+		if utf8.RuneCountInString(t) > MaxPassageChars {
+			pieces = splitText(t, MaxPassageChars)
+		}
+		for _, piece := range pieces {
+			if n := Plain(piece); n != "" {
+				out = append(out, Passage{Kind: "paragraph", Text: piece, Norm: n})
+			}
+		}
+	}
+	for i := range out {
+		out[i].Ordinal = i
+		out[i].Hash = HashOf(out[i].Norm)
+	}
+	return out
+}

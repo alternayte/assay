@@ -437,7 +437,9 @@
       "gitlab": "GitLab",
       "bitbucket": "Bitbucket Data Center",
       "backstage": "Backstage",
-      "web": "Web documentation"
+      "web": "Web documentation",
+      "teams": "Microsoft Teams",
+      "slack": "Slack"
     },
     "status": {
       "active": "Active",
@@ -513,7 +515,9 @@
     "tokenKeep": "Leave empty to keep the stored token.",
     "tokenHints": {
       "gitlab": "Use a personal, group or project access token with the read_api and read_repository scopes. Assay stores it encrypted.",
-      "bitbucket": "Use an HTTP access token with the Repository read permission. Assay stores it encrypted."
+      "bitbucket": "Use an HTTP access token with the Repository read permission. Assay stores it encrypted.",
+      "teams": "The client secret of the Entra app. Assay stores it encrypted and never shows it again.",
+      "slack": "The bot token of the internal Slack app. It starts with xoxb-. Assay stores it encrypted."
     },
     "test": "Test the connection",
     "testing": "Testing",
@@ -550,6 +554,7 @@
     "projects": "Projects",
     "scopeHint": "Select the spaces, projects or repositories to read.",
     "scopeEmpty": "The source shows no spaces, projects or repositories for this token.",
+    "scopeEmptyChat": "The source shows no teams or channels for this token.",
     "scopeRequired": "Select one or more.",
     "scopeFilter": "Filter the list",
     "scopeAll": "Select all in the list ({count})",
@@ -577,7 +582,9 @@
       "gitlab": "Use https://gitlab.com for GitLab. Use the server URL, such as https://gitlab.acme.test, for a self-managed server.",
       "bitbucket": "The URL before /rest, such as https://bitbucket.acme.test.",
       "backstage": "The URL of the Backstage backend, such as https://backstage.acme.test. Use a static external access token.",
-      "web": "The URL of the site, such as https://docs.acme.test. Assay reads only pages on this host."
+      "web": "The URL of the site, such as https://docs.acme.test. Assay reads only pages on this host.",
+      "teams": "The Microsoft Graph URL. Use https://graph.microsoft.com/v1.0.",
+      "slack": "The Slack Web API URL. Use https://slack.com/api."
     },
     "authName": "Auth header name",
     "authNameHint": "Optional. Use it when the site needs a header with a token, such as X-Portal-Token.",
@@ -599,6 +606,23 @@
     "maxPages": "Page limit",
     "maxPagesHint": "The most pages that Assay reads from the site.",
     "testWebOk": "Assay read {user}. The start lists {count} pages.",
+    "testTeamsOk": "The app {user} got a token. It can read {count} teams.",
+    "testSlackOk": "Connected as {user}. The bot is in {count} public channels.",
+    "clientSecret": "Client secret",
+    "botToken": "Bot token",
+    "tenant": "Tenant",
+    "tenantHint": "The directory (tenant) ID, or the primary domain such as acme.onmicrosoft.com.",
+    "clientId": "Client ID",
+    "clientIdHint": "The application (client) ID of the Entra app.",
+    "setupTeams": "Register an app in Microsoft Entra ID. Give it the application permissions ChannelMessage.Read.All, Team.ReadBasic.All and Channel.ReadBasic.All. Grant admin consent. Microsoft can require approval of the app before it reads channel messages.",
+    "setupSlack": "Create an internal app in your Slack workspace. Give the bot the scopes channels:read, channels:history and users:read. Install the app in the workspace. Then invite the bot to each channel that Assay reads, with /invite in the channel. Assay does not join channels, because a join changes the workspace.",
+    "teams": "Teams",
+    "teamsHint": "Select the teams. Then select the channels to read. Assay reads only standard channels.",
+    "channels": "Channels",
+    "channelsTeamsHint": "The standard channels of the selected teams. Select the channels to read.",
+    "channelsSlackHint": "The public channels where the bot is a member. Invite the bot to show more channels.",
+    "retainDays": "Keep threads for days",
+    "retainDaysHint": "Assay removes a thread when its newest message is older than this number of days. Enter 0 to keep all threads.",
     "frontendUrl": "Web address",
     "frontendUrlHint": "The Backstage web address for links. Leave it empty when it is the same as the base URL.",
     "namespaces": "Namespaces",
@@ -691,7 +715,9 @@
       "repository": "Repository",
       "review": "Review",
       "decision": "Decision",
-      "web": "Web"
+      "web": "Web",
+      "teams": "Teams",
+      "slack": "Slack"
     },
     "asked": "Asked {when}",
     "newQuestion": "New question",

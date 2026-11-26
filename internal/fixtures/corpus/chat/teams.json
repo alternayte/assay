@@ -1,0 +1,61 @@
+{
+  "teams": [
+    {
+      "id": "7e2a0000-0000-4000-c000-000000000001", "name": "Acme Payments",
+      "channels": [
+        {
+          "id": "19:payments-design@thread.tacv2", "name": "Design reviews", "membership": "standard",
+          "threads": [
+            {"messages": [
+              {"user": "a11c0000-0000-4000-b000-000000000001", "name": "Ada Park", "hoursAgo": 2000,
+               "html": "<p>The refund export of the Osprey ledger runs once a week.</p>"}
+            ]},
+            {"messages": [
+              {"user": "a11c0000-0000-4000-b000-000000000001", "name": "Ada Park", "hoursAgo": 300,
+               "html": "<p>Design review: how long does <at id=\"0\">Payments API</at> keep an Osprey refund request open?</p>"},
+              {"user": "a11c0000-0000-4000-b000-000000000002", "name": "Grace Obi", "hoursAgo": 298,
+               "html": "<p>Seven days matches the card network rules <emoji id=\"like\" alt=\"👍\"></emoji></p>"},
+              {"type": "systemEventMessage", "hoursAgo": 297, "html": "<systemEventMessage/>"},
+              {"app": "Osprey alerts", "hoursAgo": 296, "html": "<p>Alert: refund queue depth is 12.</p>"},
+              {"user": "a11c0000-0000-4000-b000-000000000003", "name": "Linus Vale", "hoursAgo": 295,
+               "html": "<p>We decided: the payments-api service keeps an Osprey refund request open for <strong>7 days</strong>, then it cancels the request. See <a href=\"https://wiki.acme.test/display/ENG/Refunds\">the refund page</a>.</p>"},
+              {"user": "a11c0000-0000-4000-b000-000000000002", "name": "Grace Obi", "hoursAgo": 294,
+               "html": "<ul><li>Cancel after 7 days</li><li>Notify the customer</li></ul>"},
+              {"user": "a11c0000-0000-4000-b000-000000000001", "name": "Ada Park", "hoursAgo": 293,
+               "html": "<p>Thanks, I update the Osprey runbook.</p>"}
+            ]},
+            {"messages": [
+              {"user": "a11c0000-0000-4000-b000-000000000003", "name": "Linus Vale", "hoursAgo": 40,
+               "html": "<p>The Osprey refund dashboard is live.</p>", "deleted": true},
+              {"user": "a11c0000-0000-4000-b000-000000000002", "name": "Grace Obi", "hoursAgo": 39,
+               "html": "<p>Where is the Osprey refund dashboard?</p>"}
+            ]}
+          ]
+        },
+        {
+          "id": "19:payments-leads@thread.tacv2", "name": "Leads", "membership": "private",
+          "threads": [
+            {"messages": [
+              {"user": "a11c0000-0000-4000-b000-000000000001", "name": "Ada Park", "hoursAgo": 20,
+               "html": "<p>Budget review on Thursday.</p>"}
+            ]}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7e2a0000-0000-4000-c000-000000000002", "name": "Acme Platform",
+      "channels": [
+        {
+          "id": "19:platform-general@thread.tacv2", "name": "General", "membership": "standard",
+          "threads": [
+            {"messages": [
+              {"user": "a11c0000-0000-4000-b000-000000000002", "name": "Grace Obi", "hoursAgo": 100,
+               "html": "<p>The Osprey cluster upgrade is on Saturday.</p>"}
+            ]}
+          ]
+        }
+      ]
+    }
+  ]
+}

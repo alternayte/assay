@@ -524,3 +524,66 @@ func (w *world) oauthSession(t *testing.T, token string) *mcp.ClientSession {
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
+
+func TestSCN_VIS_014_SlackConnectionSharedWithOneGroup(t *testing.T) {
+	w := start(t, false)
+	insider, insiderID := w.env.Invite(w.owner, "insider@acme.test", "member", "insider-password-1")
+	var g struct {
+		ID int64 `json:"id"`
+	}
+	w.owner.Must(http.StatusCreated, http.MethodPost, "/api/v1/groups", map[string]string{"name": "Payments"}).JSON(t, &g)
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/groups/%d/members/%s", g.ID, insiderID), nil)
+	_, base := testkit.FakeSources(t)
+	conn := testkit.CreateConnection(t, w.owner, testkit.Connection{Name: "acme-slack", Kind: "slack", BaseURL: base,
+		Scope: map[string]any{"channels": []string{fixtures.SlackPayments, fixtures.SlackPlatform}}})
+	w.owner.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", conn),
+		map[string]any{"groupIds": []int64{g.ID}, "confirm": true})
+	if r := w.env.RunNow(w.owner, conn, "sync"); r.Status != "succeeded" || r.Created == 0 {
+		t.Fatalf("sync %+v", r)
+	}
+	values := w.ids(t)
+
+	// The thread words, the permalink host and the person keys of the
+	// workspace are in no other source. The search word is no marker: a
+	// response can repeat the query.
+	leaked := func(body string) string {
+		for _, m := range []string{"dead letter", "bastion host", "acme-chat.slack.test", "slack:t0acme:"} {
+			if strings.Contains(strings.ToLower(body), m) {
+				return m
+			}
+		}
+		return ""
+	}
+	// The group member reads the threads, so the suite reads real data.
+	if leaked(get(insider, http.MethodGet, "/api/v1/search?q=declined+charge", nil)) == "" {
+		t.Fatal("the group member does not find the threads")
+	}
+
+	for _, reader := range []struct {
+		name string
+		cl   *testkit.Client
+	}{{"member", w.member}, {"admin2", w.admin2}} {
+		checked := 0
+		check := func(where, body string) {
+			checked++
+			if m := leaked(body); m != "" {
+				t.Errorf("%s: %s shows %q from the Slack threads of the group", reader.name, where, m)
+			}
+		}
+		for _, p := range paths(t, values) {
+			check("GET "+p, get(reader.cl, http.MethodGet, p, nil))
+			check("GET "+p+"?q=", get(reader.cl, http.MethodGet, p+"?q=declined+charge", nil))
+		}
+		for name, body := range posts(reader.cl) {
+			check("POST "+name, body)
+		}
+		check("POST ask retries", get(reader.cl, http.MethodPost, "/api/v1/ask",
+			map[string]string{"question": "What did the payments team decide about retries?"}))
+		for name, body := range mcpCalls(t, w.mcpSession(t, reader.cl), values["key"]) {
+			check("MCP "+name, body)
+		}
+		if checked < 200 {
+			t.Fatalf("%s: only %d responses checked", reader.name, checked)
+		}
+	}
+}

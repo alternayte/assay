@@ -17,7 +17,7 @@ func (s *Service) Register(a huma.API) {
 	type in struct {
 		Q            string    `query:"q" maxLength:"500" doc:"The query. Quotes match a phrase."`
 		Code         bool      `query:"code" doc:"Search source code only. Off by default: results hold no source code."`
-		SourceType   string    `query:"sourceType" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web," doc:"The kind of the source connection."`
+		SourceType   string    `query:"sourceType" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack," doc:"The kind of the source connection."`
 		ConnectionID int64     `query:"connection"`
 		EntityType   string    `query:"entityType" doc:"Items about an entity of this type."`
 		DomainID     int64     `query:"domain"`

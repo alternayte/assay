@@ -44,6 +44,9 @@ type Config struct {
 	// AtlassianMedia is the media host that Confluence Cloud downloads
 	// redirect to. The fixture server stands for it in tests.
 	AtlassianMedia string
+	// EntraAuthority is the Entra ID sign-in host that Teams connections
+	// get their token from. The fixture server stands for it in tests.
+	EntraAuthority string
 	LogLevel       slog.Level
 	Outbound       outbound.Settings
 	// The job workers of the default, sync, extract, design and embed
@@ -78,6 +81,7 @@ var knownVars = map[string]bool{
 	"ASSAY_DEMO_URL":            true,
 	"ASSAY_ATLASSIAN_API_URL":   true,
 	"ASSAY_ATLASSIAN_MEDIA_URL": true,
+	"ASSAY_ENTRA_AUTHORITY_URL": true,
 	"ASSAY_LOG_LEVEL":           true,
 	"ASSAY_JOB_WORKERS":         true,
 	"ASSAY_SYNC_WORKERS":        true,
@@ -121,6 +125,7 @@ func LoadConfig(environ []string, log *slog.Logger) (Config, error) {
 		DemoURL:        valueOr(env["ASSAY_DEMO_URL"], "http://fixtures:8090"),
 		AtlassianAPI:   valueOr(env["ASSAY_ATLASSIAN_API_URL"], "https://api.atlassian.com"),
 		AtlassianMedia: valueOr(env["ASSAY_ATLASSIAN_MEDIA_URL"], "https://api.media.atlassian.com"),
+		EntraAuthority: valueOr(env["ASSAY_ENTRA_AUTHORITY_URL"], "https://login.microsoftonline.com"),
 		MCPOAuth:       env[agents.EnvOAuth],
 	}
 	cfg.SSO = map[string]string{}

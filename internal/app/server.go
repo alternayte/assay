@@ -169,7 +169,7 @@ func (s *Server) services() error {
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
 		DemoURL: s.cfg.DemoURL, AtlassianAPI: s.cfg.AtlassianAPI,
-		AtlassianMedia: s.cfg.AtlassianMedia}
+		AtlassianMedia: s.cfg.AtlassianMedia, EntraAuthority: s.cfg.EntraAuthority}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log, Shards: orDefault(s.cfg.EmbedShards, 4)}
 	s.vocab = &vocab.Service{Pool: s.pool}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}

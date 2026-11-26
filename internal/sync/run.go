@@ -914,7 +914,7 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 	}
 	var since time.Time
 	newest := time.Time{}
-	if cursor != "" && rw == nil {
+	if _, ok := k.(connectors.Delta); !ok && cursor != "" && rw == nil {
 		if t, err := time.Parse(time.RFC3339Nano, cursor); err == nil {
 			since = t.Add(-CursorOverlap)
 			newest = t
@@ -936,6 +936,10 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 	}
 	stored := &storedItems{}
 	var batch []connectors.Ref
+	// A delta connector keeps its own cursor: the batches move no time
+	// cursor.
+	delta, isDelta := k.(connectors.Delta)
+	isDelta = isDelta && rw == nil
 	flush := func() error {
 		defer func() { batch = batch[:0] }()
 		if err := s.stored(ctx, conn.ID, part.Key, batch, stored); err != nil {
@@ -969,6 +973,9 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 			// A stop can end the batch before each ref is stored.
 			return err
 		}
+		if isDelta {
+			return nil
+		}
 		at := newest
 		for _, r := range batch {
 			if r.Updated.After(at) {
@@ -990,19 +997,28 @@ func (s *Service) sync(ctx context.Context, conn Connection, k connectors.Connec
 		}
 		rc.Recall(part, known)
 	}
-	err = k.Changed(ctx, part, since, func(r connectors.Ref) error {
+	add := func(r connectors.Ref) error {
 		batch = append(batch, r)
 		if len(batch) < listBatch {
 			return nil
 		}
 		return flush()
-	})
+	}
+	next := ""
+	if isDelta {
+		next, err = delta.Delta(ctx, part, cursor, add)
+	} else {
+		err = k.Changed(ctx, part, since, add)
+	}
 	if err == nil && len(batch) > 0 {
 		err = flush()
 	}
 	if err != nil {
 		st.fail(err)
 		return cursor
+	}
+	if isDelta {
+		cursor = next
 	}
 	if sl, ok := k.(connectors.SkipLister); ok {
 		for _, sk := range sl.Skipped() {
@@ -1142,7 +1158,20 @@ func (s *Service) stored(ctx context.Context, connectionID int64, part string, r
 // run tombstones them, so that an item that moved to another part stays.
 func (s *Service) reconcile(ctx context.Context, conn Connection, k connectors.Connector, part connectors.Part, st *stats) []int64 {
 	inScope := map[string]bool{}
-	if err := k.ListIDs(ctx, part, func(id string) error { inScope[id] = true; return nil }); err != nil {
+	// A connector that lists revisions also gets the items whose stored
+	// revision differs fetched again.
+	var listed []connectors.Ref
+	var err error
+	if rl, ok := k.(connectors.RefLister); ok {
+		err = rl.ListRefs(ctx, part, func(r connectors.Ref) error {
+			inScope[r.ID] = true
+			listed = append(listed, r)
+			return nil
+		})
+	} else {
+		err = k.ListIDs(ctx, part, func(id string) error { inScope[id] = true; return nil })
+	}
+	if err != nil {
 		st.fail(err)
 		return nil
 	}
@@ -1171,9 +1200,26 @@ func (s *Service) reconcile(ctx context.Context, conn Connection, k connectors.C
 		gone = append(gone, it.ID)
 	}
 	var missing []connectors.Ref
-	for id := range inScope {
-		if !known[id] {
-			missing = append(missing, connectors.Ref{ID: id})
+	if listed != nil {
+		revs, err := New(s.Pool).ItemRevisions(ctx, ItemRevisionsParams{ConnectionID: conn.ID, Part: part.Key})
+		if err != nil {
+			st.fail(err)
+			return nil
+		}
+		rev := make(map[string]string, len(revs))
+		for _, r := range revs {
+			rev[r.ExternalID] = r.Revision
+		}
+		for _, r := range listed {
+			if !known[r.ID] || (r.Version != "" && rev[r.ID] != r.Version) {
+				missing = append(missing, r)
+			}
+		}
+	} else {
+		for id := range inScope {
+			if !known[id] {
+				missing = append(missing, connectors.Ref{ID: id})
+			}
 		}
 	}
 	s.fetchAll(ctx, conn, k, part, missing, st)

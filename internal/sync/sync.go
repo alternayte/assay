@@ -26,9 +26,12 @@ import (
 	"github.com/alternayte/assay/internal/connectors/backstage"
 	"github.com/alternayte/assay/internal/connectors/bitbucket"
 	"github.com/alternayte/assay/internal/connectors/confluence"
+	"github.com/alternayte/assay/internal/connectors/entra"
 	"github.com/alternayte/assay/internal/connectors/github"
 	"github.com/alternayte/assay/internal/connectors/gitlab"
 	"github.com/alternayte/assay/internal/connectors/jira"
+	"github.com/alternayte/assay/internal/connectors/slack"
+	"github.com/alternayte/assay/internal/connectors/teams"
 	"github.com/alternayte/assay/internal/connectors/tree"
 	"github.com/alternayte/assay/internal/connectors/web"
 	"github.com/alternayte/assay/internal/content/files"
@@ -145,6 +148,10 @@ type Service struct {
 	// redirect to. Empty means https://api.media.atlassian.com. Tests set
 	// the fixture server.
 	AtlassianMedia string
+	// EntraAuthority is the Entra ID sign-in host of Teams connections.
+	// Empty means https://login.microsoftonline.com. Tests set the fixture
+	// server.
+	EntraAuthority string
 }
 
 func (s *Service) now() time.Time {
@@ -155,7 +162,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage", "web"}
+var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage", "web", "teams", "slack"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -200,6 +207,21 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 			return nil, err
 		}
 		opts.UserAgent = web.Agent
+	case "teams":
+		// The secret of a Teams connection is the client secret of the
+		// Entra app. Each Graph request carries a cached app-only token.
+		o, err := teams.ParseOptions(src.Options)
+		if err != nil {
+			return nil, err
+		}
+		authority := s.EntraAuthority
+		if authority == "" {
+			authority = entra.Authority
+		}
+		if opts.Authorize, err = teams.Authorizer(s.Outbound, authority, src.BaseURL, src.Token, o); err != nil {
+			return nil, err
+		}
+		opts.Authorization = ""
 	}
 	c, err := connectors.NewClient(s.Outbound, opts)
 	if err != nil {
@@ -225,6 +247,10 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		return backstage.New(c, src.Scope, src.Options, limits)
 	case "web":
 		return web.New(c, src.Scope, src.Token != "", limits)
+	case "teams":
+		return teams.New(c, src.Scope, src.Options, s.now)
+	case "slack":
+		return slack.New(c, src.Scope, src.Options, s.now)
 	}
 	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude, Code: src.Code, Skip: rules.SkipGlobs}
 	if len(globs.Include) == 0 {

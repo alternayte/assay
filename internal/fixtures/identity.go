@@ -22,8 +22,8 @@ import (
 
 // The fake identity provider is an Entra ID tenant of Acme: an OpenID
 // Connect issuer under /entra/<tenant>/v2.0, its client-credentials token
-// endpoint, and a Microsoft Graph API under /graph/v1.0 with Acme users and
-// groups.
+// endpoint, and a Microsoft Graph API under /graph/v1.0 with Acme users,
+// groups and Teams channels.
 const (
 	// IdentityTenant is the tenant of the fake issuer.
 	IdentityTenant = "acme-tenant"
@@ -81,6 +81,9 @@ type Identity struct {
 	codes   map[string]authCode
 	tokens  map[string]time.Time
 	version int
+	// chat holds the Teams teams, channels and messages.
+	chat *teamsState
+	hits []Hit
 	// PageSize is the size of a Graph page.
 	PageSize int
 	// Now is the clock.
@@ -97,7 +100,7 @@ func NewIdentity() *Identity {
 		panic(err)
 	}
 	id := &Identity{key: key, users: map[string]*DirectoryUser{}, groups: map[string]*directoryGroup{},
-		codes: map[string]authCode{}, tokens: map[string]time.Time{}, PageSize: 2, Now: time.Now}
+		codes: map[string]authCode{}, tokens: map[string]time.Time{}, PageSize: 2, Now: time.Now, chat: loadTeams(time.Now())}
 	for _, u := range []DirectoryUser{
 		{ID: UserAda, Mail: "ada@acme.test", Name: "Ada Park"},
 		{ID: UserGrace, Mail: "grace@acme.test", Name: "Grace Obi"},
@@ -187,7 +190,17 @@ func (d *Identity) groupsOf(userID string) []string {
 	return out
 }
 
+// Hits returns the requests that the tenant received.
+func (d *Identity) Hits() []Hit {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.hits)
+}
+
 func (d *Identity) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d.mu.Lock()
+	d.hits = append(d.hits, Hit{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, At: time.Now()})
+	d.mu.Unlock()
 	tenant := "/entra/" + IdentityTenant
 	switch p := r.URL.Path; {
 	case r.Method == http.MethodGet && p == tenant+"/v2.0/.well-known/openid-configuration":
@@ -352,6 +365,9 @@ func (d *Identity) graph(w http.ResponseWriter, r *http.Request, path string) {
 	}
 	q := r.URL.Query()
 	base := origin(r) + "/graph/v1.0"
+	if d.teams(w, r, base, path) {
+		return
+	}
 	switch {
 	case path == "/users/delta":
 		d.delta(w, q, base)

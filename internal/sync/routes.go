@@ -20,6 +20,9 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/connectors/chat"
+	"github.com/alternayte/assay/internal/connectors/slack"
+	"github.com/alternayte/assay/internal/connectors/teams"
 	"github.com/alternayte/assay/internal/connectors/web"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/settings"
@@ -37,7 +40,7 @@ type GroupRef struct {
 // health. The token never leaves the server.
 type ConnectionRecord struct {
 	ID                   int64          `json:"id"`
-	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
+	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
 	Name                 string         `json:"name"`
 	BaseURL              string         `json:"baseUrl"`
 	HasToken             bool           `json:"hasToken"`
@@ -108,43 +111,82 @@ type RunRecord struct {
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
-	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site."`
-	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token."`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
+	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api."`
+	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
-	Options      map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default."`
+	Options      map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app."`
 	IncludeGlobs []string       `json:"includeGlobs,omitempty" doc:"Repository files to read. Empty uses the default globs."`
 	ExcludeGlobs []string       `json:"excludeGlobs,omitempty"`
 	CodeGlobs    []string       `json:"codeGlobs,omitempty" doc:"Source files to index. Empty turns code indexing off."`
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web,teams,slack"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
-	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token."`
+	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
-	Options         map[string]any `json:"options,omitempty" doc:"Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default)."`
+	Options         map[string]any `json:"options,omitempty" doc:"Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads)."`
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
 	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
 	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
 	CodeGlobs       *[]string      `json:"codeGlobs,omitempty" doc:"Source files to index. Leave it out to use the default code globs on create and to keep the globs on update. An empty list turns code indexing off."`
 	SyncMinutes     int32          `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
 	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
-	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
-	RatePerSecond   float64        `json:"ratePerSecond,omitempty" minimum:"0.1" maximum:"100" doc:"Leave it out for the default: 5, or 10 on Atlassian Cloud."`
+	RateConcurrency int32          `json:"rateConcurrency,omitempty" minimum:"1" maximum:"32" doc:"Leave it out for the default: 4, or 2 for Slack."`
+	RatePerSecond   float64        `json:"ratePerSecond,omitempty" minimum:"0.1" maximum:"100" doc:"Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack."`
 	ParallelParts   int32          `json:"parallelParts,omitempty" minimum:"1" maximum:"32" default:"4" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
 }
 
-// checkOptions validates the history options of a repository connection.
+// checkOptions validates the history options of a repository connection,
+// and the options and the scope of a chat connection.
 func checkOptions(kind string, options map[string]any) error {
+	switch kind {
+	case "teams":
+		if _, err := teams.ParseOptions(rawJSON(options)); err != nil {
+			return api.Problem(http.StatusUnprocessableEntity, "invalid_options", chatMessage(err, "teams: "))
+		}
+		return nil
+	case "slack":
+		if _, err := chat.ParseRetainDays(rawJSON(options)); err != nil {
+			return api.Problem(http.StatusUnprocessableEntity, "invalid_options", chatMessage(err, "chat: "))
+		}
+		return nil
+	}
 	if kind != "github" && kind != "azdo" {
 		return nil
 	}
 	if _, err := connectors.ParseHistory(rawJSON(options)); err != nil {
 		return api.Problem(http.StatusUnprocessableEntity, "invalid_options",
 			"The history options are not valid. historyMonths is a whole number of 0 or more, and pullRequests, issues and wiki are true or false.")
+	}
+	return nil
+}
+
+// chatMessage is the message of an option or scope error for people.
+func chatMessage(err error, prefix string) string {
+	msg := strings.TrimPrefix(strings.TrimPrefix(err.Error(), prefix), "chat: ")
+	if msg == "" {
+		return msg
+	}
+	return strings.ToUpper(msg[:1]) + msg[1:] + "."
+}
+
+// checkScope validates the scope of a chat connection.
+func checkScope(kind string, scope map[string]any) error {
+	var err error
+	switch kind {
+	case "teams":
+		_, err = teams.ParseScope(rawJSON(scope))
+	case "slack":
+		_, err = slack.ParseScope(rawJSON(scope))
+	default:
+		return nil
+	}
+	if err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_scope", chatMessage(err, kind+": "))
 	}
 	return nil
 }
@@ -198,7 +240,7 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 		return source{}, err
 	}
 	src := source{Kind: b.Kind, BaseURL: strings.TrimRight(b.BaseURL, "/"), Token: b.Token, Scope: rawJSON(b.Scope),
-		Options: rawJSON(opts), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: 4,
+		Options: rawJSON(opts), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: int(rateConcurrency(0, b.Kind)),
 		PerSecond: ratePerSecond(0, b.Kind, b.BaseURL, rawJSON(opts))}
 	if src.Token == "" && b.ConnectionID != nil {
 		c, err := New(s.Pool).GetConnection(ctx, *b.ConnectionID)
@@ -225,6 +267,12 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 	if err := checkWeb(src.Kind, src.Token, b.Scope); err != nil {
 		return source{}, err
 	}
+	if err := checkOptions(src.Kind, b.Options); err != nil {
+		return source{}, err
+	}
+	if err := checkScope(src.Kind, b.Scope); err != nil {
+		return source{}, err
+	}
 	return src, nil
 }
 
@@ -234,10 +282,25 @@ func ratePerSecond(given float64, kind, baseURL string, options []byte) float64 
 	if given > 0 {
 		return given
 	}
+	if kind == "slack" {
+		return slack.DefaultPerSecond
+	}
 	if deploymentOf(kind, baseURL, options) == deployCloud {
 		return defaultCloudPerSecond
 	}
 	return defaultPerSecond
+}
+
+// rateConcurrency is the concurrency of a connection: the given value, or
+// the default of its kind.
+func rateConcurrency(given int32, kind string) int32 {
+	if given > 0 {
+		return given
+	}
+	if kind == "slack" {
+		return slack.DefaultConcurrency
+	}
+	return 4
 }
 
 // checkWeb checks the auth header and the scope of a web connection. The
@@ -338,7 +401,7 @@ func (s *Service) Register(a huma.API) {
 	}
 	huma.Register(a, huma.Operation{
 		OperationID: "listConnectionScopes", Method: http.MethodPost, Path: "/api/v1/connections/scopes", Tags: tags,
-		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.", Middlewares: admins,
+		Summary: "List the scope options of a source", Description: "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.", Middlewares: admins,
 	}, func(ctx context.Context, in *struct{ Body sourceBody }) (*scopesOut, error) {
 		src, err := s.resolve(ctx, in.Body)
 		if err != nil {
@@ -374,6 +437,9 @@ func (s *Service) Register(a huma.API) {
 		if err := checkOptions(b.Kind, b.Options); err != nil {
 			return nil, err
 		}
+		if err := checkScope(b.Kind, b.Scope); err != nil {
+			return nil, err
+		}
 		if b.Token == "" && b.Kind != "web" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 		}
@@ -407,6 +473,9 @@ func (s *Service) Register(a huma.API) {
 			return nil, err
 		}
 		if err := checkOptions(b.Kind, b.Options); err != nil {
+			return nil, err
+		}
+		if err := checkScope(b.Kind, b.Scope); err != nil {
 			return nil, err
 		}
 		if err := checkWeb(b.Kind, b.Token, b.Scope); err != nil {
@@ -459,7 +528,7 @@ func (s *Service) Register(a huma.API) {
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: codeGlobs(b.CodeGlobs),
-				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency,
+				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: rateConcurrency(b.RateConcurrency, b.Kind),
 				RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)), ParallelParts: b.ParallelParts,
 				DefaultDomainID: b.DefaultDomainID}); err != nil {
 				return dbError(err)
@@ -750,7 +819,7 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
 			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: code, SyncMinutes: b.SyncMinutes,
-			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)),
+			ReconcileHours: b.ReconcileHours, RateConcurrency: rateConcurrency(b.RateConcurrency, b.Kind), RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)),
 			ParallelParts: b.ParallelParts, OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
 		if err != nil {
 			return dbError(err)

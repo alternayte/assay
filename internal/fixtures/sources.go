@@ -142,6 +142,8 @@ type Sources struct {
 	history      map[string]*RepoHistory
 	azdoProjects map[string]*ProjectHistory
 	historyBase  time.Time
+	// slack is the Slack workspace under /slack/api.
+	slack *slackState
 }
 
 // NewSources loads the Acme corpus.
@@ -152,6 +154,7 @@ func NewSources() *Sources {
 		web: map[string]*WebPage{}, offsite: DefaultOffsite}
 	s.loadCatalog()
 	s.loadWeb()
+	s.slack = loadSlack(s.now())
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
 		s.users[name] = display
@@ -296,8 +299,8 @@ func token(h string) string {
 // API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket,
 // the Backstage catalog API under /backstage, the Atlassian Cloud site
 // under /cloud with its API host under /atlassian, and a developer portal
-// under /web with the robots.txt of the host. The portal takes its own auth
-// header.
+// under /web with the robots.txt of the host, and the Slack Web API under
+// /slack/api. The portal takes its own auth header.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
@@ -345,6 +348,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/web/") || r.URL.Path == "/robots.txt" {
 		s.serveWeb(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/slack/api/") {
+		s.serveSlack(w, r, authorized && scheme == "Bearer")
 		return
 	}
 	if !authorized {

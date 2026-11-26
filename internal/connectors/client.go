@@ -32,6 +32,10 @@ var (
 	ErrNotFound = errors.New("connectors: the source object does not exist")
 )
 
+// errAuthorize marks a failed Authorize call. A retry of the request
+// cannot help.
+var errAuthorize = errors.New("connectors: get the authorization")
+
 // StatusError is another error status of the source.
 type StatusError struct {
 	Status int
@@ -140,6 +144,23 @@ type Known struct {
 	Revision string
 }
 
+// Delta is a connector that reads the changes of a part from a link that
+// the source gave on the previous run, such as a Microsoft Graph delta link,
+// in place of an update time. Sync calls Delta in place of Changed with the
+// stored cursor of the part, empty on the first sync, and stores the cursor
+// that Delta returns when the part succeeds.
+type Delta interface {
+	Delta(ctx context.Context, part Part, cursor string, fn func(Ref) error) (string, error)
+}
+
+// RefLister is a connector whose reconciliation lists each item with its
+// revision. Reconciliation then also fetches the items whose stored revision
+// differs, such as a chat thread with a new reply that an incremental sync
+// cannot see. Sync calls ListRefs in place of ListIDs.
+type RefLister interface {
+	ListRefs(ctx context.Context, part Part, fn func(Ref) error) error
+}
+
 // Recaller is a connector whose listing starts from the items that sync
 // stored, such as the pages that a crawl of a web site found. Sync calls
 // Recall before Changed.
@@ -163,6 +184,7 @@ type Client struct {
 	authHeader string
 	site       *url.URL
 	auth       string
+	authorize  func(context.Context) (string, error)
 	userAgent  string
 	sem        chan struct{}
 	pace       *pace
@@ -179,6 +201,10 @@ type ClientOptions struct {
 	// BaseURL. Entity keys use its host. Empty means BaseURL.
 	SiteURL       string
 	Authorization string // the Authorization header value
+	// Authorize returns the Authorization header value for each request,
+	// such as a cached access token that expires. It wins over
+	// Authorization.
+	Authorize func(context.Context) (string, error)
 	// AuthHeader is the header that carries Authorization. Empty means
 	// Authorization.
 	AuthHeader string
@@ -224,7 +250,7 @@ func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
 		header = "Authorization"
 	}
 	return &Client{
-		http: h, base: u, site: site, auth: o.Authorization, authHeader: header, userAgent: o.UserAgent,
+		http: h, base: u, site: site, auth: o.Authorization, authorize: o.Authorize, authHeader: header, userAgent: o.UserAgent,
 		sem:     make(chan struct{}, o.Concurrency),
 		pace:    newPace(o.Pool, o.ConnectionID, time.Duration(float64(time.Second)/o.PerSecond)),
 		Backoff: time.Second, Retries: 4,
@@ -374,7 +400,7 @@ func (c *Client) once(ctx context.Context, method, target, path, accept string, 
 	req.Header.Set("Accept", accept)
 	resp, err := c.Do(req)
 	if err != nil {
-		if errors.Is(err, errPace) {
+		if errors.Is(err, errPace) || errors.Is(err, errAuthorize) {
 			return nil, -1, err
 		}
 		if ctx.Err() != nil || errors.Is(err, outbound.ErrForeignHost) || errors.Is(err, outbound.ErrMethod) || isCertificate(err) {
@@ -428,8 +454,16 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	if err := c.pace.wait(req.Context()); err != nil {
 		return nil, err
 	}
-	if c.auth != "" {
-		req.Header.Set(c.authHeader, c.auth)
+	auth := c.auth
+	if c.authorize != nil {
+		a, err := c.authorize(req.Context())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errAuthorize, err)
+		}
+		auth = a
+	}
+	if auth != "" {
+		req.Header.Set(c.authHeader, auth)
 	}
 	if c.userAgent != "" {
 		req.Header.Set("User-Agent", c.userAgent)

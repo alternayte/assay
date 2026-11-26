@@ -1027,7 +1027,9 @@
               "gitlab",
               "bitbucket",
               "backstage",
-              "web"
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -1038,7 +1040,7 @@
           },
           "options": {
             "additionalProperties": {},
-            "description": "Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default).",
+            "description": "Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). Teams: tenant and clientId of the Entra app. Teams and Slack: retainDays, the days to keep a thread after its newest message (default 0 keeps all threads).",
             "type": "object"
           },
           "parallelParts": {
@@ -1050,14 +1052,14 @@
             "type": "integer"
           },
           "rateConcurrency": {
-            "default": 4,
+            "description": "Leave it out for the default: 4, or 2 for Slack.",
             "format": "int32",
             "maximum": 32,
             "minimum": 1,
             "type": "integer"
           },
           "ratePerSecond": {
-            "description": "Leave it out for the default: 5, or 10 on Atlassian Cloud.",
+            "description": "Leave it out for the default: 5, 10 on Atlassian Cloud, or 0.8 for Slack.",
             "format": "double",
             "maximum": 100,
             "minimum": 0.1,
@@ -1082,7 +1084,7 @@
             "type": "integer"
           },
           "token": {
-            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -1092,8 +1094,7 @@
           "baseUrl",
           "name",
           "syncMinutes",
-          "reconcileHours",
-          "rateConcurrency"
+          "reconcileHours"
         ],
         "type": "object"
       },
@@ -1171,7 +1172,9 @@
               "gitlab",
               "bitbucket",
               "backstage",
-              "web"
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -3387,7 +3390,9 @@
               "gitlab",
               "bitbucket",
               "backstage",
-              "web"
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
@@ -6693,7 +6698,7 @@
             "type": "string"
           },
           "baseUrl": {
-            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site.",
+            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site. For Teams, the Graph URL https://graph.microsoft.com/v1.0. For Slack, https://slack.com/api.",
             "format": "uri",
             "type": "string"
           },
@@ -6731,13 +6736,15 @@
               "gitlab",
               "bitbucket",
               "backstage",
-              "web"
+              "web",
+              "teams",
+              "slack"
             ],
             "type": "string"
           },
           "options": {
             "additionalProperties": {},
-            "description": "For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default.",
+            "description": "For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. For Teams: tenant and clientId of the Entra app.",
             "type": "object"
           },
           "scope": {
@@ -6745,7 +6752,7 @@
             "type": "object"
           },
           "token": {
-            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. For Teams, the client secret of the Entra app. For Slack, the bot token of the internal app. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -9585,7 +9592,7 @@
     },
     "/api/v1/connections/scopes": {
       "post": {
-        "description": "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server.",
+        "description": "Spaces for Confluence, projects for Jira, repositories for GitHub and Azure DevOps Server. For Teams, the teams, or the channels of the teams that the scope names. For Slack, the public channels where the bot is a member.",
         "operationId": "listConnectionScopes",
         "requestBody": {
           "content": {
@@ -13548,6 +13555,8 @@
                 "bitbucket",
                 "backstage",
                 "web",
+                "teams",
+                "slack",
                 ""
               ],
               "type": "string"

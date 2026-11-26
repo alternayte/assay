@@ -337,7 +337,7 @@ function MembersSheet({ group }: { group: Group }) {
       ) : members.isError ? (
         <Notice tone="danger">{t("app.error")}</Notice>
       ) : members.data.length === 0 ? (
-        <Empty>{t("groups.noMembers")}</Empty>
+        <Empty>{group.mapping ? t("groups.noMembersMapped") : t("groups.noMembers")}</Empty>
       ) : (
         <Table>
           <thead>

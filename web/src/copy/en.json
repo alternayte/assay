@@ -202,7 +202,8 @@
     "mapSave": "Map group",
     "externalId": "IdP group ID",
     "externalIdHint": "Entra ID uses the object ID of the group.",
-    "externalName": "IdP group name"
+    "externalName": "IdP group name",
+    "noMembersMapped": "No members yet. IdP members join at sign-in or at the next directory poll."
   },
   "general": {
     "title": "General",

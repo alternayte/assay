@@ -9,6 +9,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - `just dev` builds the web app and runs `go run ./cmd/assay serve`. It needs ASSAY_DATABASE_URL and ASSAY_SECRET_KEY.
 - `go run ./cmd/assay help` lists the operator commands.
 - `sh scripts/install.sh` installs the Compose stack. ASSAY_IMAGE selects a local image.
+- `deploy/helm/assay` is the Helm chart. `just helm` lints it and `just helm-smoke` installs it into kind.
 
 ## Test
 - `just test` runs the unit and integration tests against PostgreSQL in testcontainers. Docker must run.
@@ -18,7 +19,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - `just ci` is the gate. It writes reports to tmp/reports, or to the private build directory when it exists.
 
 ## Stack rules
-- The install target is Docker Compose on a laptop, not Kubernetes.
+- The install targets are Docker Compose and the Helm chart. A change to install or scaling updates both.
 - One Go binary serves the API, the embedded SPA, MCP and the workers. ASSAY_ROLE selects which parts run.
 - PostgreSQL with pgvector, pg_trgm and unaccent is the only datastore. Jobs run on River. No Redis, queue, search engine or blob store.
 - Each feature owns its SQL in `internal/<feature>/queries.sql`. Add the file to `sqlc.yaml`. No shared repository layer.
@@ -30,7 +31,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - Every scenario test name carries its scenario ID: TestSCN_AREA_NNN_words in Go, "SCN-AREA-NNN words" in Playwright.
 - Integration tests get a fresh migrated database from testkit.DB or testkit.Start.
 - Model calls use OpenAI-compatible HTTP and the OpenRouter Decisions API. No AI framework. Tests call only the fake endpoint.
-- Connectors are read-only. The connector HTTP client sends only GET and HEAD.
+- Connectors are read-only. The connector HTTP client sends only GET and HEAD. The only exception is the token POST to the Entra token URL in `internal/connectors/entra`.
 - The repository is public. Code, fixtures, tests and commit messages use only the synthetic Acme corpus.
 - Dependencies are pinned and use MIT-compatible licences only.
 - All UI copy lives in `web/src/copy/en.json` and follows ASD-STE100.
@@ -51,6 +52,7 @@ People use the web app, and AI agents use MCP and REST with the permissions of t
 - claim: a subject, a predicate and an object, backed by evidence rows.
 - evidence: a link from a claim to a passage quote. It is current or stale.
 - tombstone: the delete of an item that no longer exists in its source.
+- part: one scope unit of a sync run, with its own job and cursor. Avoid: shard, partition.
 - decision: a typed model call that returns probabilities, not text.
 - band: the confidence level of a decision, calibrated from reviewer outcomes.
 - auto-apply: acting on High decisions without review, enabled per decision kind once precision is earned.

@@ -55,6 +55,53 @@ func (q *Queries) AddVisibility(ctx context.Context, arg AddVisibilityParams) (i
 	return result.RowsAffected(), nil
 }
 
+const allConnectionIDs = `-- name: AllConnectionIDs :many
+SELECT id FROM connections ORDER BY id
+`
+
+func (q *Queries) AllConnectionIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, allConnectionIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const clearCursors = `-- name: ClearCursors :exec
+DELETE FROM connection_cursors WHERE connection_id = $1
+`
+
+func (q *Queries) ClearCursors(ctx context.Context, connectionID int64) error {
+	_, err := q.db.Exec(ctx, clearCursors, connectionID)
+	return err
+}
+
+const clearRewrite = `-- name: ClearRewrite :exec
+UPDATE connections SET rewrite_from = '', updated_at = now() WHERE id = $1 AND rewrite_from = $2
+`
+
+type ClearRewriteParams struct {
+	ID          int64
+	RewriteFrom string
+}
+
+func (q *Queries) ClearRewrite(ctx context.Context, arg ClearRewriteParams) error {
+	_, err := q.db.Exec(ctx, clearRewrite, arg.ID, arg.RewriteFrom)
+	return err
+}
+
 const connectionEntities = `-- name: ConnectionEntities :many
 SELECT DISTINCT entity_id FROM entity_sources WHERE connection_id = $1
 `
@@ -141,7 +188,7 @@ func (q *Queries) DemoConnections(ctx context.Context, base string) ([]DemoConne
 
 const dueReconciles = `-- name: DueReconciles :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL
+WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL AND c.rewrite_from = ''
   AND (c.last_reconcile_at IS NULL
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= $1)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
@@ -193,6 +240,17 @@ func (q *Queries) DueSyncs(ctx context.Context, now *time.Time) ([]int64, error)
 		return nil, err
 	}
 	return items, nil
+}
+
+const entityIDByKey = `-- name: EntityIDByKey :one
+SELECT id FROM entities WHERE key = $1
+`
+
+func (q *Queries) EntityIDByKey(ctx context.Context, key string) (int64, error) {
+	row := q.db.QueryRow(ctx, entityIDByKey, key)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const everyoneGroup = `-- name: EveryoneGroup :one
@@ -404,7 +462,7 @@ func (q *Queries) FinishSync(ctx context.Context, arg FinishSyncParams) error {
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs, parallel_parts FROM connections WHERE id = $1
+SELECT id, kind, name, base_url, secret_id, scope, options, include_globs, exclude_globs, sync_minutes, reconcile_hours, rate_concurrency, rate_per_second, owner_id, status, status_reason, default_domain_id, last_sync_at, last_reconcile_at, permissions_checked_at, created_at, updated_at, code_globs, parallel_parts, rewrite_from FROM connections WHERE id = $1
 `
 
 func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, error) {
@@ -435,6 +493,7 @@ func (q *Queries) GetConnection(ctx context.Context, id int64) (Connection, erro
 		&i.UpdatedAt,
 		&i.CodeGlobs,
 		&i.ParallelParts,
+		&i.RewriteFrom,
 	)
 	return i, err
 }
@@ -467,7 +526,7 @@ func (q *Queries) GetPart(ctx context.Context, arg GetPartParams) (SyncPart, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE id = $1
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE id = $1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
@@ -491,6 +550,7 @@ func (q *Queries) GetRun(ctx context.Context, id int64) (SyncRun, error) {
 		&i.QueuedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Rewrite,
 	)
 	return i, err
 }
@@ -715,7 +775,7 @@ func (q *Queries) ItemsOutsideParts(ctx context.Context, arg ItemsOutsidePartsPa
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, c.parallel_parts, coalesce(u.email, '')::text AS owner_email,
+SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, c.parallel_parts, c.rewrite_from, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
        coalesce((SELECT r.error FROM sync_runs r WHERE r.connection_id = c.id ORDER BY r.id DESC LIMIT 1), '')::text AS last_error
 FROM connections c
@@ -748,6 +808,7 @@ type ListConnectionsRow struct {
 	UpdatedAt            time.Time
 	CodeGlobs            []string
 	ParallelParts        int32
+	RewriteFrom          string
 	OwnerEmail           string
 	Items                int64
 	LastError            string
@@ -790,6 +851,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]ListConnectionsRow, er
 			&i.UpdatedAt,
 			&i.CodeGlobs,
 			&i.ParallelParts,
+			&i.RewriteFrom,
 			&i.OwnerEmail,
 			&i.Items,
 			&i.LastError,
@@ -840,7 +902,7 @@ func (q *Queries) ListRunParts(ctx context.Context, runIds []int64) ([]SyncPart,
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE connection_id = $1 ORDER BY id DESC LIMIT $2
 `
 
 type ListRunsParams struct {
@@ -875,6 +937,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]SyncRun, 
 			&i.QueuedAt,
 			&i.StartedAt,
 			&i.FinishedAt,
+			&i.Rewrite,
 		); err != nil {
 			return nil, err
 		}
@@ -937,8 +1000,18 @@ func (q *Queries) LockConnectionParts(ctx context.Context, connectionID int64) e
 	return err
 }
 
+const lockRewrite = `-- name: LockRewrite :exec
+SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_rewrite', $1::bigint))
+`
+
+// Serializes the key rewrites of the parts of one connection.
+func (q *Queries) LockRewrite(ctx context.Context, connectionID int64) error {
+	_, err := q.db.Exec(ctx, lockRewrite, connectionID)
+	return err
+}
+
 const lockRun = `-- name: LockRun :one
-SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at FROM sync_runs WHERE id = $1 FOR UPDATE
+SELECT id, connection_id, kind, trigger, status, cursor_from, cursor_to, seen, created, updated, unchanged, deleted, skipped, error, queued_at, started_at, finished_at, rewrite FROM sync_runs WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) LockRun(ctx context.Context, id int64) (SyncRun, error) {
@@ -962,7 +1035,41 @@ func (q *Queries) LockRun(ctx context.Context, id int64) (SyncRun, error) {
 		&i.QueuedAt,
 		&i.StartedAt,
 		&i.FinishedAt,
+		&i.Rewrite,
 	)
+	return i, err
+}
+
+const matchPage = `-- name: MatchPage :one
+SELECT id, external_id FROM source_items
+WHERE connection_id = $1 AND part = $2 AND title = $3 AND NOT (external_id = ANY($4::text[]))
+ORDER BY id LIMIT 1
+`
+
+type MatchPageParams struct {
+	ConnectionID int64
+	Part         string
+	Title        string
+	CloudIds     []string
+}
+
+type MatchPageRow struct {
+	ID         int64
+	ExternalID string
+}
+
+// The stored page of a connection with the space and title of a Cloud page,
+// whose ID the Cloud listing does not have.
+// vis:system
+func (q *Queries) MatchPage(ctx context.Context, arg MatchPageParams) (MatchPageRow, error) {
+	row := q.db.QueryRow(ctx, matchPage,
+		arg.ConnectionID,
+		arg.Part,
+		arg.Title,
+		arg.CloudIds,
+	)
+	var i MatchPageRow
+	err := row.Scan(&i.ID, &i.ExternalID)
 	return i, err
 }
 
@@ -1066,6 +1173,75 @@ func (q *Queries) PauseActive(ctx context.Context, arg PauseActiveParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const personByEmail = `-- name: PersonByEmail :one
+SELECT e.id FROM entities e
+WHERE e.type = 'person' AND lower(e.metadata->>'email') = lower($1::text) AND e.key <> $2::text
+  AND left(e.key, length($3::text)) = $3::text AND e.status <> 'merged'
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = $4)
+ORDER BY e.id LIMIT 1
+`
+
+type PersonByEmailParams struct {
+	Email        string
+	Key          string
+	Prefix       string
+	ConnectionID int64
+}
+
+// A person of a connection with an email, whose key is not the key of the
+// Cloud account.
+// vis:system
+func (q *Queries) PersonByEmail(ctx context.Context, arg PersonByEmailParams) (int64, error) {
+	row := q.db.QueryRow(ctx, personByEmail,
+		arg.Email,
+		arg.Key,
+		arg.Prefix,
+		arg.ConnectionID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const prefixEntities = `-- name: PrefixEntities :many
+SELECT e.id, e.key FROM entities e
+WHERE lower(left(e.key, length($1::text))) = lower($1::text)
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = $2)
+ORDER BY e.id
+`
+
+type PrefixEntitiesParams struct {
+	Prefix       string
+	ConnectionID int64
+}
+
+type PrefixEntitiesRow struct {
+	ID  int64
+	Key string
+}
+
+// The entities of a connection whose key starts with a prefix, in any case.
+// vis:system
+func (q *Queries) PrefixEntities(ctx context.Context, arg PrefixEntitiesParams) ([]PrefixEntitiesRow, error) {
+	rows, err := q.db.Query(ctx, prefixEntities, arg.Prefix, arg.ConnectionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PrefixEntitiesRow
+	for rows.Next() {
+		var i PrefixEntitiesRow
+		if err := rows.Scan(&i.ID, &i.Key); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const readsConnection = `-- name: ReadsConnection :one
@@ -1235,6 +1411,35 @@ func (q *Queries) SetConnectionSecret(ctx context.Context, arg SetConnectionSecr
 	return err
 }
 
+const setEntityKey = `-- name: SetEntityKey :exec
+UPDATE entities SET key = $1, updated_at = now() WHERE id = $2
+`
+
+type SetEntityKeyParams struct {
+	Key string
+	ID  int64
+}
+
+func (q *Queries) SetEntityKey(ctx context.Context, arg SetEntityKeyParams) error {
+	_, err := q.db.Exec(ctx, setEntityKey, arg.Key, arg.ID)
+	return err
+}
+
+const setExternalID = `-- name: SetExternalID :exec
+UPDATE source_items SET external_id = $1, updated_at = now() WHERE id = $2
+`
+
+type SetExternalIDParams struct {
+	ExternalID string
+	ID         int64
+}
+
+// vis:system
+func (q *Queries) SetExternalID(ctx context.Context, arg SetExternalIDParams) error {
+	_, err := q.db.Exec(ctx, setExternalID, arg.ExternalID, arg.ID)
+	return err
+}
+
 const setPartCursor = `-- name: SetPartCursor :exec
 WITH saved AS (
     INSERT INTO connection_cursors (connection_id, part, cursor) VALUES ($2, $3, $4)
@@ -1258,6 +1463,20 @@ func (q *Queries) SetPartCursor(ctx context.Context, arg SetPartCursorParams) er
 		arg.Part,
 		arg.Cursor,
 	)
+	return err
+}
+
+const setRunRewrite = `-- name: SetRunRewrite :exec
+UPDATE sync_runs SET rewrite = $1 WHERE id = $2
+`
+
+type SetRunRewriteParams struct {
+	Rewrite json.RawMessage
+	ID      int64
+}
+
+func (q *Queries) SetRunRewrite(ctx context.Context, arg SetRunRewriteParams) error {
+	_, err := q.db.Exec(ctx, setRunRewrite, arg.Rewrite, arg.ID)
 	return err
 }
 
@@ -1353,6 +1572,33 @@ func (q *Queries) StillInPart(ctx context.Context, arg StillInPartParams) ([]int
 		return nil, err
 	}
 	return items, nil
+}
+
+const switchConnection = `-- name: SwitchConnection :execrows
+UPDATE connections SET base_url = $1, options = $2, rewrite_from = $3, updated_at = now()
+WHERE id = $4 AND kind IN ('jira', 'confluence')
+`
+
+type SwitchConnectionParams struct {
+	BaseUrl     string
+	Options     json.RawMessage
+	RewriteFrom string
+	ID          int64
+}
+
+// A Data Center connection moves to Cloud. rewrite_from holds the old host
+// until a sync rewrites the keys.
+func (q *Queries) SwitchConnection(ctx context.Context, arg SwitchConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, switchConnection,
+		arg.BaseUrl,
+		arg.Options,
+		arg.RewriteFrom,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const unfinishedParts = `-- name: UnfinishedParts :one

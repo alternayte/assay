@@ -218,7 +218,7 @@ WHERE c.kind <> 'registry' AND c.status = 'active'
 
 -- name: DueReconciles :many
 SELECT c.id FROM connections c
-WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL
+WHERE c.kind <> 'registry' AND c.status = 'active' AND c.last_sync_at IS NOT NULL AND c.rewrite_from = ''
   AND (c.last_reconcile_at IS NULL
        OR c.last_reconcile_at + make_interval(hours => c.reconcile_hours) <= @now)
   AND NOT EXISTS (SELECT 1 FROM sync_runs r WHERE r.connection_id = c.id AND r.kind IN ('sync', 'reconcile')
@@ -254,3 +254,61 @@ WHERE g.id = ANY(@ids::bigint[])
 SELECT id, name FROM connections
 WHERE kind <> 'registry' AND ((options->>'demo')::boolean IS TRUE OR (@base::text <> '' AND base_url LIKE @base::text || '/%'))
 ORDER BY id;
+
+-- name: SwitchConnection :execrows
+-- A Data Center connection moves to Cloud. rewrite_from holds the old host
+-- until a sync rewrites the keys.
+UPDATE connections SET base_url = @base_url, options = @options, rewrite_from = @rewrite_from, updated_at = now()
+WHERE id = @id AND kind IN ('jira', 'confluence');
+
+-- name: ClearCursors :exec
+DELETE FROM connection_cursors WHERE connection_id = @connection_id;
+
+-- name: SetRunRewrite :exec
+UPDATE sync_runs SET rewrite = @rewrite WHERE id = @id;
+
+-- name: ClearRewrite :exec
+UPDATE connections SET rewrite_from = '', updated_at = now() WHERE id = @id AND rewrite_from = @rewrite_from;
+
+-- name: LockRewrite :exec
+-- Serializes the key rewrites of the parts of one connection.
+SELECT pg_advisory_xact_lock(hashtextextended('assay.sync_rewrite', @connection_id::bigint));
+
+-- name: PrefixEntities :many
+-- The entities of a connection whose key starts with a prefix, in any case.
+-- vis:system
+SELECT e.id, e.key FROM entities e
+WHERE lower(left(e.key, length(@prefix::text))) = lower(@prefix::text)
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = @connection_id)
+ORDER BY e.id;
+
+-- name: EntityIDByKey :one
+SELECT id FROM entities WHERE key = @key;
+
+-- name: SetEntityKey :exec
+UPDATE entities SET key = @key, updated_at = now() WHERE id = @id;
+
+-- name: MatchPage :one
+-- The stored page of a connection with the space and title of a Cloud page,
+-- whose ID the Cloud listing does not have.
+-- vis:system
+SELECT id, external_id FROM source_items
+WHERE connection_id = @connection_id AND part = @part AND title = @title AND NOT (external_id = ANY(@cloud_ids::text[]))
+ORDER BY id LIMIT 1;
+
+-- name: SetExternalID :exec
+-- vis:system
+UPDATE source_items SET external_id = @external_id, updated_at = now() WHERE id = @id;
+
+-- name: PersonByEmail :one
+-- A person of a connection with an email, whose key is not the key of the
+-- Cloud account.
+-- vis:system
+SELECT e.id FROM entities e
+WHERE e.type = 'person' AND lower(e.metadata->>'email') = lower(@email::text) AND e.key <> @key::text
+  AND left(e.key, length(@prefix::text)) = @prefix::text AND e.status <> 'merged'
+  AND EXISTS (SELECT 1 FROM entity_sources s WHERE s.entity_id = e.id AND s.connection_id = @connection_id)
+ORDER BY e.id LIMIT 1;
+
+-- name: AllConnectionIDs :many
+SELECT id FROM connections ORDER BY id;

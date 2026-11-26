@@ -40,6 +40,12 @@ func WithBaseURL(u string) Option {
 	return func(c *app.Config, _ *app.Options) { c.BaseURL = u }
 }
 
+// WithAtlassianAPI sets the API host of scoped Atlassian Cloud tokens, such
+// as the fixture server URL with fixtures.CloudAPIPath.
+func WithAtlassianAPI(u string) Option {
+	return func(c *app.Config, _ *app.Options) { c.AtlassianAPI = u }
+}
+
 // WithClock sets the clock of the server.
 func WithClock(now func() time.Time) Option {
 	return func(_ *app.Config, o *app.Options) { o.Now = now }

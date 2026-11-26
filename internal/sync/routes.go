@@ -42,6 +42,8 @@ type ConnectionRecord struct {
 	HasToken             bool           `json:"hasToken"`
 	Scope                map[string]any `json:"scope"`
 	Options              map[string]any `json:"options"`
+	Deployment           string         `json:"deployment,omitempty" enum:"dc,cloud" doc:"Data Center or Cloud, for Jira and Confluence."`
+	Switching            bool           `json:"switching" doc:"True from a switch to Cloud until a sync rewrote the keys."`
 	IncludeGlobs         []string       `json:"includeGlobs"`
 	ExcludeGlobs         []string       `json:"excludeGlobs"`
 	CodeGlobs            []string       `json:"codeGlobs" doc:"Source files to index. Empty turns code indexing off."`
@@ -98,6 +100,8 @@ type RunRecord struct {
 	StartedAt  *time.Time   `json:"startedAt"`
 	FinishedAt *time.Time   `json:"finishedAt"`
 	Parts      []PartRecord `json:"parts"`
+	// Rewrite is set on the first sync after a switch to Cloud.
+	Rewrite *Rewrite `json:"rewrite,omitempty" doc:"The key rewrite of the first sync after a switch to Cloud."`
 }
 
 // sourceBody is the source part of a connection: what the test and the
@@ -105,10 +109,10 @@ type RunRecord struct {
 type sourceBody struct {
 	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
 	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL."`
-	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
+	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
-	Options      map[string]any `json:"options,omitempty"`
+	Options      map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default."`
 	IncludeGlobs []string       `json:"includeGlobs,omitempty" doc:"Repository files to read. Empty uses the default globs."`
 	ExcludeGlobs []string       `json:"excludeGlobs,omitempty"`
 	CodeGlobs    []string       `json:"codeGlobs,omitempty" doc:"Source files to index. Empty turns code indexing off."`
@@ -117,9 +121,9 @@ type sourceBody struct {
 type connectionBody struct {
 	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,backstage"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
-	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token. Write-only. Empty keeps the stored token."`
+	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
-	Options         map[string]any `json:"options,omitempty"`
+	Options         map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud."`
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
 	IncludeGlobs    []string       `json:"includeGlobs,omitempty"`
 	ExcludeGlobs    []string       `json:"excludeGlobs,omitempty"`
@@ -127,7 +131,7 @@ type connectionBody struct {
 	SyncMinutes     int32          `json:"syncMinutes" minimum:"5" maximum:"10080" default:"30"`
 	ReconcileHours  int32          `json:"reconcileHours" minimum:"1" maximum:"720" default:"24"`
 	RateConcurrency int32          `json:"rateConcurrency" minimum:"1" maximum:"32" default:"4"`
-	RatePerSecond   float64        `json:"ratePerSecond" minimum:"0.1" maximum:"100" default:"5"`
+	RatePerSecond   float64        `json:"ratePerSecond,omitempty" minimum:"0.1" maximum:"100" doc:"Leave it out for the default: 5, or 10 on Atlassian Cloud."`
 	ParallelParts   int32          `json:"parallelParts,omitempty" minimum:"1" maximum:"32" default:"4" doc:"The parts of a run, such as spaces or repositories, that run at once across all worker processes."`
 	DefaultDomainID *int64         `json:"defaultDomainId,omitempty"`
 }
@@ -176,8 +180,13 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 	if err := checkURL(b.BaseURL); err != nil {
 		return source{}, err
 	}
+	opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+	if err != nil {
+		return source{}, err
+	}
 	src := source{Kind: b.Kind, BaseURL: strings.TrimRight(b.BaseURL, "/"), Token: b.Token, Scope: rawJSON(b.Scope),
-		Options: rawJSON(b.Options), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: 4, PerSecond: 5}
+		Options: rawJSON(opts), Include: b.IncludeGlobs, Exclude: b.ExcludeGlobs, Code: b.CodeGlobs, Concurrency: 4,
+		PerSecond: ratePerSecond(0, b.Kind, b.BaseURL, rawJSON(opts))}
 	if src.Token == "" && b.ConnectionID != nil {
 		c, err := New(s.Pool).GetConnection(ctx, *b.ConnectionID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -201,6 +210,18 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 		return source{}, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 	}
 	return src, nil
+}
+
+// ratePerSecond is the rate of a connection: the given rate, or the
+// default of its deployment.
+func ratePerSecond(given float64, kind, baseURL string, options []byte) float64 {
+	if given > 0 {
+		return given
+	}
+	if deploymentOf(kind, baseURL, options) == deployCloud {
+		return defaultCloudPerSecond
+	}
+	return defaultPerSecond
 }
 
 func sourceProblem(err error) error {
@@ -322,6 +343,13 @@ func (s *Service) Register(a huma.API) {
 		if b.Token == "" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
 		}
+		opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+		if err != nil {
+			return nil, err
+		}
+		if atlassian(b.Kind) {
+			b.Options = opts
+		}
 		out := &idOut{}
 		id, err := s.create(ctx, api.Caller(ctx).User.ID, b)
 		out.Body.ID = id
@@ -341,6 +369,27 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
+		if atlassian(b.Kind) {
+			stored, err := New(s.Pool).GetConnection(ctx, in.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, api.ErrNotFound
+			}
+			if err != nil {
+				return nil, api.Internal(err)
+			}
+			if err := checkDeployment(stored, b); err != nil {
+				return nil, err
+			}
+			opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
+			if err != nil {
+				return nil, err
+			}
+			// The old host of a switch stays on record.
+			if prev, ok := object(stored.Options)["previousHost"]; ok {
+				opts["previousHost"] = prev
+			}
+			b.Options = opts
+		}
 		reconcile := false
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 			q := New(tx)
@@ -357,6 +406,9 @@ func (s *Service) Register(a huma.API) {
 			if cur.Kind != b.Kind {
 				return api.Problem(http.StatusUnprocessableEntity, "kind_fixed", "The kind of a connection cannot change.")
 			}
+			if err := checkDeployment(cur, b); err != nil {
+				return err
+			}
 			// The stored token goes only to the host that it belongs to (SI-04).
 			if b.Token == "" && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
 				return api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter the token again for the new URL.")
@@ -364,7 +416,8 @@ func (s *Service) Register(a huma.API) {
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
 				BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 				IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: codeGlobs(b.CodeGlobs),
-				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond, ParallelParts: b.ParallelParts,
+				SyncMinutes: b.SyncMinutes, ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency,
+				RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)), ParallelParts: b.ParallelParts,
 				DefaultDomainID: b.DefaultDomainID}); err != nil {
 				return dbError(err)
 			}
@@ -445,6 +498,7 @@ func (s *Service) Register(a huma.API) {
 			return out, nil
 		})
 	}
+	s.registerSwitch(a)
 
 	type pauseIn struct {
 		ID   int64 `path:"id"`
@@ -588,7 +642,7 @@ func (s *Service) Register(a huma.API) {
 		for _, r := range rows {
 			rec := RunRecord{ID: r.ID, Kind: r.Kind, Trigger: r.Trigger, Status: r.Status, Seen: r.Seen, Created: r.Created,
 				Updated: r.Updated, Unchanged: r.Unchanged, Deleted: r.Deleted, Error: r.Error, QueuedAt: r.QueuedAt,
-				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}, Parts: orEmpty(byRun[r.ID])}
+				StartedAt: r.StartedAt, FinishedAt: r.FinishedAt, Skipped: []Skip{}, Parts: orEmpty(byRun[r.ID]), Rewrite: rewriteOf(r.Rewrite)}
 			_ = json.Unmarshal(r.Skipped, &rec.Skipped)
 			out.Body.Runs = append(out.Body.Runs, rec)
 		}
@@ -607,6 +661,23 @@ func sourceChanged(cur Connection, b connectionBody) bool {
 	}
 	return cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") || !same(cur.Scope, b.Scope) || !same(cur.Options, b.Options) ||
 		!slices.Equal(orStrings(cur.IncludeGlobs), orStrings(b.IncludeGlobs)) || !slices.Equal(orStrings(cur.ExcludeGlobs), orStrings(b.ExcludeGlobs))
+}
+
+// checkDeployment refuses a change of the deployment of a stored Jira or
+// Confluence connection. A Data Center connection moves to Cloud only with
+// the switch, which rewrites its keys.
+func checkDeployment(cur Connection, b connectionBody) error {
+	if !atlassian(cur.Kind) {
+		return nil
+	}
+	was, now := deploymentOf(cur.Kind, cur.BaseUrl, cur.Options), deploymentOf(b.Kind, strings.TrimRight(b.BaseURL, "/"), rawJSON(b.Options))
+	if was == now {
+		return nil
+	}
+	if was == deployDC {
+		return api.Problem(http.StatusUnprocessableEntity, "deployment_fixed", "Use Switch to Cloud to move a Data Center connection to Cloud.")
+	}
+	return api.Problem(http.StatusUnprocessableEntity, "deployment_fixed", "A Cloud connection cannot change back to Data Center.")
 }
 
 func registryProblem() error {
@@ -631,8 +702,8 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 		id, err = New(tx).InsertConnection(ctx, InsertConnectionParams{Kind: b.Kind, Name: strings.TrimSpace(b.Name),
 			BaseUrl: strings.TrimRight(b.BaseURL, "/"), Scope: rawJSON(b.Scope), Options: rawJSON(b.Options),
 			IncludeGlobs: orStrings(b.IncludeGlobs), ExcludeGlobs: orStrings(b.ExcludeGlobs), CodeGlobs: code, SyncMinutes: b.SyncMinutes,
-			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: b.RatePerSecond, ParallelParts: b.ParallelParts,
-			OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
+			ReconcileHours: b.ReconcileHours, RateConcurrency: b.RateConcurrency, RatePerSecond: ratePerSecond(b.RatePerSecond, b.Kind, b.BaseURL, rawJSON(b.Options)),
+			ParallelParts: b.ParallelParts, OwnerID: &owner, DefaultDomainID: b.DefaultDomainID})
 		if err != nil {
 			return dbError(err)
 		}
@@ -781,6 +852,7 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 	for _, r := range rows {
 		rec := ConnectionRecord{ID: r.ID, Kind: r.Kind, Name: r.Name, BaseURL: r.BaseUrl, HasToken: r.SecretID != nil,
 			Scope: object(r.Scope), Options: object(r.Options), IncludeGlobs: orStrings(r.IncludeGlobs), ExcludeGlobs: orStrings(r.ExcludeGlobs),
+			Deployment: deploymentOf(r.Kind, r.BaseUrl, r.Options), Switching: r.RewriteFrom != "",
 			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond, ParallelParts: r.ParallelParts,
 			OwnerID: r.OwnerID, OwnerEmail: r.OwnerEmail, Status: r.Status, StatusReason: r.StatusReason, DefaultDomainID: r.DefaultDomainID,
 			Items: r.Items, LastSyncAt: r.LastSyncAt, LastReconcileAt: r.LastReconcileAt, PermissionsCheckedAt: r.PermissionsCheckedAt,

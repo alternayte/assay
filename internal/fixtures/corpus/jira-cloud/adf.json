@@ -1,0 +1,172 @@
+{
+  "PAY-1": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        { "type": "heading", "attrs": { "level": 2 }, "content": [{ "type": "text", "text": "Goal" }] },
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "Failed card calls retry with " },
+            { "type": "text", "text": "exponential backoff", "marks": [{ "type": "strong" }] },
+            { "type": "text", "text": ". See " },
+            { "type": "text", "text": "the decision", "marks": [{ "type": "link", "attrs": { "href": "https://wiki.acme.test/decision" } }] },
+            { "type": "text", "text": "." }
+          ]
+        }
+      ]
+    }
+  },
+  "PAY-2": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "The queue holds failed calls for up to " },
+            { "type": "text", "text": "one hour", "marks": [{ "type": "em" }] },
+            { "type": "text", "text": "." }
+          ]
+        },
+        {
+          "type": "table",
+          "attrs": { "isNumberColumnEnabled": false, "layout": "default" },
+          "content": [
+            {
+              "type": "tableRow",
+              "content": [
+                { "type": "tableHeader", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Field" }] }] },
+                { "type": "tableHeader", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Value" }] }] }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Max attempts" }] }] },
+                { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "3" }] }] }
+              ]
+            },
+            {
+              "type": "tableRow",
+              "content": [
+                { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Backoff" }] }] },
+                { "type": "tableCell", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "exponential" }] }] }
+              ]
+            }
+          ]
+        },
+        { "type": "codeBlock", "attrs": { "language": "go" }, "content": [{ "type": "text", "text": "q.Push(call)" }] }
+      ]
+    },
+    "comments": [
+      {
+        "type": "doc",
+        "version": 1,
+        "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Use the existing PostgreSQL queue." }] }]
+      },
+      {
+        "type": "doc",
+        "version": 1,
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              { "type": "text", "text": "Agreed. See " },
+              { "type": "text", "text": "ADR-001", "marks": [{ "type": "code" }] },
+              { "type": "text", "text": "." },
+              { "type": "hardBreak" },
+              { "type": "text", "text": "Ship before Open Access Week." }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "PAY-3": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "A dashboard shows the retry count per hour." },
+            { "type": "hardBreak" },
+            { "type": "text", "text": "Billing Sync must handle the retries." }
+          ]
+        }
+      ]
+    }
+  },
+  "PAY-4": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        { "type": "heading", "attrs": { "level": 3 }, "content": [{ "type": "text", "text": "Steps" }] },
+        {
+          "type": "orderedList",
+          "attrs": { "order": 1 },
+          "content": [
+            { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Send a payment." }] }] },
+            { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Let the Fraud check API time out." }] }] },
+            { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "See two charges." }] }] }
+          ]
+        }
+      ]
+    }
+  },
+  "REM-1": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        {
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "The reminder service sends a second reminder after seven days." },
+            { "type": "hardBreak" },
+            { "type": "text", "text": "Pause second reminders during Open Access Week." }
+          ]
+        }
+      ]
+    }
+  },
+  "REM-2": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [
+        { "type": "blockquote", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Follow ADR-001." }] }] },
+        {
+          "type": "bulletList",
+          "content": [
+            {
+              "type": "listItem",
+              "content": [
+                { "type": "paragraph", "content": [{ "type": "text", "text": "Create the jobs table." }] },
+                {
+                  "type": "bulletList",
+                  "content": [
+                    { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Add an index on run_at." }] }] }
+                  ]
+                }
+              ]
+            },
+            { "type": "listItem", "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Remove the cron job." }] }] }
+          ]
+        }
+      ]
+    }
+  },
+  "REM-3": {
+    "description": {
+      "type": "doc",
+      "version": 1,
+      "content": [{ "type": "paragraph", "content": [{ "type": "text", "text": "Delete the cron entry after the queue runs." }] }]
+    }
+  }
+}

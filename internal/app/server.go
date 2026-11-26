@@ -146,11 +146,12 @@ func (s *Server) services() error {
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send}
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
-		DemoURL: s.cfg.DemoURL}
+		DemoURL: s.cfg.DemoURL, AtlassianAPI: s.cfg.AtlassianAPI}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log, Shards: orDefault(s.cfg.EmbedShards, 4)}
 	s.vocab = &vocab.Service{Pool: s.pool}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}
 	s.entities = &entities.Service{Pool: s.pool, Now: s.now}
+	s.sync.Entities = s.entities
 	s.extract = &extract.Service{Pool: s.pool, Models: s.models, Log: s.log, Metrics: extract.NewMetrics()}
 	s.registry = &registry.Service{Pool: s.pool, Log: s.log, Now: s.now}
 	s.entities.Rename = s.registry.Rename

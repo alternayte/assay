@@ -322,7 +322,8 @@ func (in *ingest) entity(ctx context.Context, e EntityRef) (int64, error) {
 	if err := entities.CheckRef(e.Type, e.Key); err != nil {
 		return 0, fmt.Errorf("%w: %w", errBadEntity, err)
 	}
-	id, err := in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID})
+	meta, _ := json.Marshal(orEmpty(e.Metadata))
+	id, err := in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID, Metadata: meta})
 	if err != nil {
 		return 0, err
 	}

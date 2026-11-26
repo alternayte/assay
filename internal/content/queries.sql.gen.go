@@ -1020,9 +1020,10 @@ func (q *Queries) UpsertClaim(ctx context.Context, arg UpsertClaimParams) (int64
 }
 
 const upsertEntity = `-- name: UpsertEntity :one
-INSERT INTO entities (type, key, domain_id) VALUES ($1, $2, $3)
+INSERT INTO entities (type, key, domain_id, metadata) VALUES ($1, $2, $3, $4::jsonb)
 ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL THEN EXCLUDED.type ELSE entities.type END,
-    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id)
+    domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
 RETURNING id
 `
 
@@ -1030,11 +1031,18 @@ type UpsertEntityParams struct {
 	Type     string
 	Key      string
 	DomainID *int64
+	Metadata json.RawMessage
 }
 
-// A type that a person set stays.
+// A type that a person set stays. The metadata of the source, such as the
+// email of a person, merges into the stored metadata.
 func (q *Queries) UpsertEntity(ctx context.Context, arg UpsertEntityParams) (int64, error) {
-	row := q.db.QueryRow(ctx, upsertEntity, arg.Type, arg.Key, arg.DomainID)
+	row := q.db.QueryRow(ctx, upsertEntity,
+		arg.Type,
+		arg.Key,
+		arg.DomainID,
+		arg.Metadata,
+	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

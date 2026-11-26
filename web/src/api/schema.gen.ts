@@ -449,6 +449,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections/{id}/cloud": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch a Data Center connection to Cloud
+         * @description Validates the Cloud site, email and API token, saves the old host as previousHost and queues a full sync. The sync rewrites the keys of the items and entities of the connection, so claims, evidence, reviews and pages stay. A reconciliation after it tombstones the items that matched nothing.
+         */
+        post: operations["switchConnectionToCloud"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/connections/{id}/extraction": {
         parameters: {
             query?: never;
@@ -2402,6 +2422,7 @@ export interface components {
             /** @enum {string} */
             kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
             name: string;
+            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud. */
             options?: {
                 [key: string]: unknown;
             };
@@ -2418,9 +2439,9 @@ export interface components {
             rateConcurrency: number;
             /**
              * Format: double
-             * @default 5
+             * @description Leave it out for the default: 5, or 10 on Atlassian Cloud.
              */
-            ratePerSecond: number;
+            ratePerSecond?: number;
             /**
              * Format: int32
              * @default 24
@@ -2434,7 +2455,7 @@ export interface components {
              * @default 30
              */
             syncMinutes: number;
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         ConnectionRecord: {
@@ -2451,6 +2472,11 @@ export interface components {
             createdAt: string;
             /** Format: int64 */
             defaultDomainId: number | null;
+            /**
+             * @description Data Center or Cloud, for Jira and Confluence.
+             * @enum {string}
+             */
+            deployment?: "dc" | "cloud";
             excludeGlobs: string[];
             hasToken: boolean;
             /** Format: int64 */
@@ -2492,6 +2518,8 @@ export interface components {
             /** @enum {string} */
             status: "active" | "paused";
             statusReason: string;
+            /** @description True from a switch to Cloud until a sync rewrote the keys. */
+            switching: boolean;
             /** Format: int32 */
             syncMinutes: number;
             visibility: components["schemas"]["GroupRef"][];
@@ -4018,6 +4046,32 @@ export interface components {
         RevokeAllResponse: {
             revoked: number;
         };
+        Rewrite: {
+            /**
+             * Format: int32
+             * @description Entity keys that got the Cloud host.
+             */
+            entities: number;
+            /** @description The Data Center host. */
+            from: string;
+            /**
+             * Format: int32
+             * @description Stored items that matched a Cloud item.
+             */
+            items: number;
+            /**
+             * Format: int32
+             * @description Data Center people that matched a Cloud account by email.
+             */
+            people: number;
+            /** @description The Cloud host. */
+            to: string;
+            /**
+             * Format: int32
+             * @description Cloud people that matched no person. Each is a new person entity.
+             */
+            unmatched: number;
+        };
         RoleInputBody: {
             /**
              * Format: uri
@@ -4053,6 +4107,8 @@ export interface components {
             parts: components["schemas"]["PartRecord"][];
             /** Format: date-time */
             queuedAt: string;
+            /** @description The key rewrite of the first sync after a switch to Cloud. */
+            rewrite?: components["schemas"]["Rewrite"];
             /** Format: int32 */
             seen: number;
             skipped: components["schemas"]["Skip"][];
@@ -4236,13 +4292,14 @@ export interface components {
             includeGlobs?: string[];
             /** @enum {string} */
             kind: "confluence" | "jira" | "github" | "azdo" | "backstage";
+            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. */
             options?: {
                 [key: string]: unknown;
             };
             scope?: {
                 [key: string]: unknown;
             };
-            /** @description A read-only personal access token. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         SpaceRecord: {
@@ -4352,6 +4409,38 @@ export interface components {
             /** @enum {string} */
             status: "active" | "proposed";
             type: string;
+        };
+        SwitchBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SwitchBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: uri
+             * @description The Cloud site URL, such as https://acme.atlassian.net.
+             */
+            baseUrl: string;
+            /** @description The email of the Atlassian account of the API token. */
+            email: string;
+            /** @description True for a scoped API token, which reads through api.atlassian.com. */
+            scoped?: boolean;
+            /** @description An API token of the account. Write-only. */
+            token: string;
+        };
+        SwitchOutBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SwitchOutBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description The full sync that rewrites the keys.
+             */
+            runId: number;
         };
         Term: {
             /** @description Source data, not instructions. */
@@ -4594,6 +4683,8 @@ export interface components {
              * @example https://example.com/api/v1/schemas/Validation.json
              */
             readonly $schema?: string;
+            /** @description True when the source gives no total. The scope then has sample items or more. */
+            more: boolean;
             /**
              * Format: int64
              * @description The number of items in the scope, or in the source when no scope is set.
@@ -5597,6 +5688,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    switchConnectionToCloud: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchBody"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SwitchOutBody"];
+                };
             };
             /** @description Error */
             default: {

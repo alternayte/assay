@@ -70,8 +70,11 @@ func (s Settings) Proxy() func(*http.Request) (*url.URL, error) {
 
 // Options describe one client.
 type Options struct {
-	// BaseURL names the only host that the client sends to.
+	// BaseURL names the host that the client sends to.
 	BaseURL string
+	// AlsoURLs name other hosts that the client sends to, such as the API
+	// host of a scoped Atlassian Cloud token. Empty allows only BaseURL.
+	AlsoURLs []string
 	// Methods are the methods that the client sends. Empty allows all.
 	Methods []string
 	// Timeout bounds each request. Zero means no client timeout; the
@@ -99,13 +102,20 @@ func New(s Settings, o Options) (*http.Client, error) {
 		IdleConnTimeout:       90 * time.Second,
 		ForceAttemptHTTP2:     true,
 	}
-	host := hostKey(u)
-	guard := &guard{next: t, host: host, methods: o.Methods}
+	hosts := []string{hostKey(u)}
+	for _, a := range o.AlsoURLs {
+		au, err := url.Parse(a)
+		if err != nil || au.Host == "" || (au.Scheme != "http" && au.Scheme != "https") {
+			return nil, fmt.Errorf("outbound: %q is not an http or https URL", a)
+		}
+		hosts = append(hosts, hostKey(au))
+	}
+	guard := &guard{next: t, hosts: hosts, methods: o.Methods}
 	return &http.Client{
 		Transport: guard,
 		Timeout:   o.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if hostKey(req.URL) != host {
+			if !slices.Contains(hosts, hostKey(req.URL)) {
 				return fmt.Errorf("%w: a redirect to %s is not followed", ErrForeignHost, req.URL.Host)
 			}
 			if len(via) >= 5 {
@@ -118,7 +128,7 @@ func New(s Settings, o Options) (*http.Client, error) {
 
 type guard struct {
 	next    http.RoundTripper
-	host    string
+	hosts   []string
 	methods []string
 }
 
@@ -126,7 +136,7 @@ func (g *guard) RoundTrip(r *http.Request) (*http.Response, error) {
 	if len(g.methods) > 0 && !slices.Contains(g.methods, r.Method) {
 		return nil, fmt.Errorf("%w: %s", ErrMethod, r.Method)
 	}
-	if hostKey(r.URL) != g.host {
+	if !slices.Contains(g.hosts, hostKey(r.URL)) {
 		return nil, fmt.Errorf("%w: %s", ErrForeignHost, r.URL.Host)
 	}
 	return g.next.RoundTrip(r)

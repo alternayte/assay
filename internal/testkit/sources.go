@@ -44,6 +44,9 @@ type Connection struct {
 	BaseURL string // the fixture server URL; Path is added
 	Path    string // the API path on the fixture server; empty is /<kind>
 	Scope   map[string]any
+	// Options are the connection options, such as the deployment and email
+	// of an Atlassian Cloud connection.
+	Options map[string]any
 	Token   string // empty uses the fixture token
 	Rate    float64
 	// Code are the code globs. Nil indexes no source code: parsing code is
@@ -67,7 +70,7 @@ func CreateConnection(t testing.TB, admin *Client, c Connection) int64 {
 		ID int64 `json:"id"`
 	}
 	admin.Must(http.StatusCreated, http.MethodPost, "/api/v1/connections", map[string]any{
-		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope,
+		"name": c.Name, "kind": c.Kind, "baseUrl": c.BaseURL + c.Path, "token": c.Token, "scope": c.Scope, "options": orObject(c.Options),
 		"syncMinutes": 30, "reconcileHours": 24, "rateConcurrency": 4, "ratePerSecond": c.Rate, "codeGlobs": orEmpty(c.Code),
 	}).JSON(t, &out)
 	return out.ID
@@ -133,6 +136,13 @@ func ShareWithEveryone(t testing.TB, env *Env, admin *Client, connectionID int64
 	}
 	admin.Must(http.StatusNoContent, http.MethodPut, fmt.Sprintf("/api/v1/connections/%d/visibility", connectionID),
 		map[string]any{"groupIds": []int64{everyone}, "confirm": true})
+}
+
+func orObject(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
 }
 
 func orEmpty(s []string) []string {

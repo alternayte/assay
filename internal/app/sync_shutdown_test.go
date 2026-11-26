@@ -81,13 +81,21 @@ func TestSCN_SYN_013_ShutdownRequeuesRunningSync(t *testing.T) {
 			t.Fatal("the run sent no request")
 		}
 	}
+	// The source records the request before the client reads the answer.
+	// The stop comes after the client saved the Retry-After hold.
+	held := "SELECT count(*) FROM connection_rates WHERE connection_id = $1 AND held_until > now() + interval '4 minutes'"
+	for end := time.Now().Add(15 * time.Second); env.Count(held, conn) == 0; time.Sleep(50 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("the client saved no Retry-After hold")
+		}
+	}
 	stop()
 	if s := runStatus(t, env, run); s != "queued" {
 		t.Fatalf("after the shutdown the run is %s", s)
 	}
 	// The Retry-After hold of the connection outlives the process: every
 	// worker waits for it. The test ends it, as five minutes would.
-	if n := env.Count("SELECT count(*) FROM connection_rates WHERE connection_id = $1 AND held_until > now() + interval '4 minutes'", conn); n != 1 {
+	if n := env.Count(held, conn); n != 1 {
 		t.Fatal("the Retry-After of the source holds no request slot")
 	}
 	if _, err := env.Server.Pool().Exec(t.Context(), "UPDATE connection_rates SET next_at = now(), held_until = '-infinity' WHERE connection_id = $1", conn); err != nil {

@@ -25,6 +25,7 @@ import (
 	"github.com/alternayte/assay/internal/connectors/github"
 	"github.com/alternayte/assay/internal/connectors/jira"
 	"github.com/alternayte/assay/internal/connectors/tree"
+	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/secrets"
 	"github.com/alternayte/assay/internal/settings"
@@ -100,6 +101,12 @@ type Service struct {
 	// AfterRun runs in the transaction that finishes a successful run of a
 	// connection with code globs. The design pages queue their build.
 	AfterRun func(ctx context.Context, tx pgx.Tx, connectionID int64) error
+	// Entities merges two entities when a key rewrite after a switch to
+	// Cloud meets a key that exists.
+	Entities *entities.Service
+	// AtlassianAPI is the API host of scoped Atlassian Cloud tokens. Empty
+	// means https://api.atlassian.com. Tests set the fixture server.
+	AtlassianAPI string
 }
 
 func (s *Service) now() time.Time {
@@ -154,6 +161,9 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		DecisionLabels: rules.DecisionLabels, GlossaryLabels: rules.GlossaryLabels}
 	limits := connectors.Limits{MaxItemBytes: rules.MaxFileKB << 10, MaxFilesPerRepo: rules.MaxFilesPerRepo,
 		MaxCodeItemBytes: rules.MaxCodeFileKB << 10, MaxCodeFilesPerRepo: rules.MaxCodeFilesPerRepo}
+	if deploymentOf(src.Kind, src.BaseURL, src.Options) == deployCloud {
+		return s.openCloud(ctx, src, r, limits)
+	}
 	switch src.Kind {
 	case "confluence":
 		return confluence.New(c, src.Scope, r, limits)
@@ -209,6 +219,8 @@ func sourceError(err error) string {
 		return pausedReason
 	case errors.Is(err, errPaused):
 		return "The connection is paused. Resume it to sync."
+	case errors.Is(err, errSwitching):
+		return "The connection switches to Cloud. A reconciliation runs after the first sync."
 	case errors.As(err, &skip):
 		return "Skipped: " + skip.Reason
 	case errors.Is(err, outbound.ErrForeignHost):

@@ -79,6 +79,36 @@ func (q *Queries) AllConnectionIDs(ctx context.Context) ([]int64, error) {
 	return items, nil
 }
 
+const attachmentItems = `-- name: AttachmentItems :many
+SELECT a.id FROM source_items p
+JOIN source_items a ON a.connection_id = p.connection_id AND a.external_id LIKE 'att:%'
+JOIN source_versions v ON v.id = a.version_id
+WHERE p.id = $1 AND p.external_id NOT LIKE 'att:%' AND v.metadata ->> 'parent' = p.external_id
+`
+
+// The attachment items of a page item: the items of the connection with
+// the page as parent.
+// vis:system
+func (q *Queries) AttachmentItems(ctx context.Context, itemID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, attachmentItems, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const clearCursors = `-- name: ClearCursors :exec
 DELETE FROM connection_cursors WHERE connection_id = $1
 `
@@ -1072,9 +1102,12 @@ func (q *Queries) LockRun(ctx context.Context, id int64) (SyncRun, error) {
 }
 
 const matchPage = `-- name: MatchPage :one
-SELECT id, external_id FROM source_items
-WHERE connection_id = $1 AND part = $2 AND title = $3 AND NOT (external_id = ANY($4::text[]))
-ORDER BY id LIMIT 1
+SELECT i.id, i.external_id FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = $1 AND i.part = $2 AND i.title = $3 AND NOT (i.external_id = ANY($4::text[]))
+  AND (i.external_id LIKE 'att:%') = $5::bool
+  AND (NOT $5::bool OR v.metadata ->> 'parentTitle' = $6::text)
+ORDER BY i.id LIMIT 1
 `
 
 type MatchPageParams struct {
@@ -1082,6 +1115,8 @@ type MatchPageParams struct {
 	Part         string
 	Title        string
 	CloudIds     []string
+	Attachment   bool
+	ParentTitle  string
 }
 
 type MatchPageRow struct {
@@ -1090,7 +1125,8 @@ type MatchPageRow struct {
 }
 
 // The stored page of a connection with the space and title of a Cloud page,
-// whose ID the Cloud listing does not have.
+// whose ID the Cloud listing does not have. An attachment matches a stored
+// attachment with the same file name and page title.
 // vis:system
 func (q *Queries) MatchPage(ctx context.Context, arg MatchPageParams) (MatchPageRow, error) {
 	row := q.db.QueryRow(ctx, matchPage,
@@ -1098,6 +1134,8 @@ func (q *Queries) MatchPage(ctx context.Context, arg MatchPageParams) (MatchPage
 		arg.Part,
 		arg.Title,
 		arg.CloudIds,
+		arg.Attachment,
+		arg.ParentTitle,
 	)
 	var i MatchPageRow
 	err := row.Scan(&i.ID, &i.ExternalID)

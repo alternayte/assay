@@ -32,7 +32,7 @@ func TestSCN_CON_002_JiraIssuesMatchGolden(t *testing.T) {
 	}
 	ctx := context.Background()
 	v, err := k.Validate(ctx)
-	if err != nil || v.Sample != 7 {
+	if err != nil || v.Sample != 8 {
 		t.Fatalf("validation %+v %v", v, err)
 	}
 	host := c.Host()

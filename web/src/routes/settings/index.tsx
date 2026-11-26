@@ -136,6 +136,8 @@ export function GeneralPage() {
       <History settingKey="pages" />
       <ConnectorRulesSheet />
       <History settingKey="connectors" />
+      <AttachmentsSheet />
+      <History settingKey="attachments" />
       <DesignSheet />
       <History settingKey="design" />
     </div>
@@ -293,6 +295,7 @@ type RulesValue = {
   skipGlobs: string[];
   maxCodeFileKb: number;
   maxCodeFilesPerRepo: number;
+  maxCommentsPerIssue: number;
 };
 type RulesList =
   | "initiativeTypes"
@@ -301,7 +304,12 @@ type RulesList =
   | "defaultGlobs"
   | "defaultCodeGlobs"
   | "skipGlobs";
-type RulesNumber = "maxFileKb" | "maxFilesPerRepo" | "maxCodeFileKb" | "maxCodeFilesPerRepo";
+type RulesNumber =
+  | "maxFileKb"
+  | "maxFilesPerRepo"
+  | "maxCodeFileKb"
+  | "maxCodeFilesPerRepo"
+  | "maxCommentsPerIssue";
 
 const rulesLists: { key: RulesList; label: CopyKey; hint: CopyKey }[] = [
   { key: "initiativeTypes", label: "general.initiativeTypes", hint: "general.initiativeTypesHint" },
@@ -317,6 +325,7 @@ const rulesNumbers: { key: RulesNumber; label: CopyKey }[] = [
   { key: "maxFilesPerRepo", label: "general.maxFilesPerRepo" },
   { key: "maxCodeFileKb", label: "general.maxCodeFileKb" },
   { key: "maxCodeFilesPerRepo", label: "general.maxCodeFilesPerRepo" },
+  { key: "maxCommentsPerIssue", label: "general.maxCommentsPerIssue" },
 ];
 
 const lines = (s: string) =>
@@ -333,7 +342,8 @@ function ConnectorRulesSheet() {
   const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
   useEffect(() => {
     if (!setting.data) return;
-    const v = setting.data.value as RulesValue;
+    // A value saved before a field existed takes the default of that field.
+    const v = { ...(setting.data.default as RulesValue), ...(setting.data.value as RulesValue) };
     setValue(v);
     setText({
       initiativeTypes: v.initiativeTypes.join("\n"),
@@ -415,6 +425,85 @@ function ConnectorRulesSheet() {
               )}
             </Field>
           ))}
+        </div>
+        <div>
+          <Button type="submit" variant="primary" disabled={save.isPending}>
+            {t("general.save")}
+          </Button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+type AttachmentsValue = { types: string[]; maxKb: number };
+const attachmentTypes: { key: string; label: CopyKey }[] = [
+  { key: "pdf", label: "general.attachmentPdf" },
+  { key: "docx", label: "general.attachmentDocx" },
+  { key: "drawio", label: "general.attachmentDrawio" },
+];
+
+/** The attachments that Confluence connections read: the file types and the largest file. */
+function AttachmentsSheet() {
+  const setting = useSetting("attachments");
+  const [value, setValue] = useState<AttachmentsValue>();
+  const [msg, setMsg] = useState<{ tone: "success" | "danger"; text: string }>();
+  useEffect(() => {
+    if (setting.data) setValue(setting.data.value as AttachmentsValue);
+  }, [setting.data]);
+  const save = useSaveSetting(
+    "attachments",
+    (s) => setMsg({ tone: "success", text: t("general.saved", { revision: s.revision }) }),
+    (m) => setMsg({ tone: "danger", text: m }),
+  );
+  if (setting.isPending || !value) return <SkeletonRows label={t("app.loading")} />;
+  if (setting.isError || !setting.data) return <Notice tone="danger">{t("app.error")}</Notice>;
+  const revision = setting.data.revision;
+  const toggle = (key: string) =>
+    setValue({
+      ...value,
+      types: value.types.includes(key) ? value.types.filter((k) => k !== key) : [...value.types, key],
+    });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    setMsg(undefined);
+    save.mutate({ value, revision });
+  };
+  return (
+    <Sheet title={t("general.attachmentsTitle")} description={t("general.attachmentsBody")}>
+      <form onSubmit={submit} className="flex flex-col gap-4">
+        {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+        <fieldset className="flex flex-col gap-2">
+          <legend className="label mb-1">{t("general.attachmentTypes")}</legend>
+          <div className="flex flex-wrap gap-4">
+            {attachmentTypes.map((a) => (
+              <label key={a.key} className="flex items-center gap-2 text-base">
+                <input
+                  type="checkbox"
+                  checked={value.types.includes(a.key)}
+                  onChange={() => toggle(a.key)}
+                  className="size-4 accent-accent"
+                />
+                {t(a.label)}
+              </label>
+            ))}
+          </div>
+          <p className="text-sm text-ink-muted">{t("general.attachmentTypesHint")}</p>
+        </fieldset>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Field label={t("general.attachmentMaxKb")} hint={t("general.attachmentMaxKbHint")}>
+            {(p) => (
+              <Input
+                {...p}
+                type="number"
+                min={1}
+                required
+                className="font-mono"
+                value={value.maxKb}
+                onChange={(e) => setValue({ ...value, maxKb: Number(e.target.value) })}
+              />
+            )}
+          </Field>
         </div>
         <div>
           <Button type="submit" variant="primary" disabled={save.isPending}>

@@ -175,6 +175,9 @@ func Store(ctx context.Context, tx pgx.Tx, connectionID int64, domainID *int64, 
 			return 0, err
 		}
 	}
+	if err := in.dropUndated(ctx, it.Updated); err != nil {
+		return 0, err
+	}
 	if it.DropStale {
 		if err := q.DeleteStaleItemEvidence(ctx, itemID); err != nil {
 			return 0, err
@@ -312,6 +315,13 @@ type ingest struct {
 	ids          map[string]int64
 	kind         string // the connection kind, read on first use
 	origin       string
+	// dated are the claims of the facts with At, by subject and predicate.
+	dated map[datedKey][]int64
+}
+
+type datedKey struct {
+	subject   int64
+	predicate string
 }
 
 // entity upserts an entity with its source and aliases.
@@ -405,7 +415,12 @@ func (in *ingest) fact(ctx context.Context, f Fact, ps []Passage, at time.Time) 
 		objectText = &text
 		objectNorm = entities.NormalizeAlias(text)
 	}
-	claimID, err := in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, "", in.origin, at)
+	var claimID int64
+	if !f.At.IsZero() && claims.Registry[f.Predicate].TimeScoped {
+		claimID, err = in.datedClaim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, f.At)
+	} else {
+		claimID, err = in.claim(ctx, subject, f.Predicate, objectID, objectText, objectNorm, "", in.origin, at)
+	}
 	if err != nil {
 		return err
 	}
@@ -469,6 +484,49 @@ func (in *ingest) sourceType(ctx context.Context) (string, error) {
 		return "repository", nil
 	}
 	return in.kind, nil
+}
+
+// datedClaim finds or creates the claim of a dated value with valid_from at.
+// A history adds older values in any order, so the newest value is not
+// checked.
+func (in *ingest) datedClaim(ctx context.Context, subject int64, predicate string, objectID *int64, objectText *string, objectNorm string,
+	at time.Time) (int64, error) {
+	t := at.UTC()
+	id, err := in.q.UpsertClaim(ctx, UpsertClaimParams{SubjectID: subject, Predicate: predicate, ObjectEntityID: objectID,
+		ObjectText: objectText, ObjectNorm: objectNorm, ValidFrom: &t, Origin: in.origin})
+	if err != nil {
+		return 0, fmt.Errorf("content: claim %s: %w", predicate, err)
+	}
+	if in.dated == nil {
+		in.dated = map[datedKey][]int64{}
+	}
+	k := datedKey{subject, predicate}
+	in.dated[k] = append(in.dated[k], id)
+	return id, nil
+}
+
+// dropUndated deletes the field evidence of the item for each subject and
+// predicate of its dated facts on the claims that they no longer give, such
+// as a value that an older Assay dated by the time of the sync. Claims left
+// without evidence are retracted.
+func (in *ingest) dropUndated(ctx context.Context, now time.Time) error {
+	var gone []int64
+	for k, keep := range in.dated {
+		ids, err := in.q.DropUndatedEvidence(ctx, DropUndatedEvidenceParams{ItemID: in.itemID, SubjectID: k.subject, Predicate: k.predicate,
+			Keep: keep})
+		if err != nil {
+			return err
+		}
+		gone = append(gone, ids...)
+	}
+	if len(gone) == 0 {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	_, err := in.q.RetractUnsupported(ctx, RetractUnsupportedParams{Now: &now, Ids: gone})
+	return err
 }
 
 // claim finds or creates a claim. A time-scoped predicate keeps the newest

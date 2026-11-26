@@ -76,9 +76,9 @@ func TestSCN_CON_012_GitLabSyncFetchesOnlyChangedBlobs(t *testing.T) {
 	}
 
 	want := knowledge + src.RepoCodeItems("gitlab", fixtures.GitLabRepo)
-	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != want || len(first.Skipped) != 0 {
-		t.Fatalf("first sync %+v, want %d new", first, want)
+	initial := env.RunNow(admin, conn, "sync")
+	if initial.Status != "succeeded" || initial.Created != want || len(initial.Skipped) != 0 {
+		t.Fatalf("first sync %+v, want %d new", initial, want)
 	}
 	for _, f := range []string{"README.md", "docs/architecture.md", "catalog-info.yaml", "CODEOWNERS", "go.mod", "cmd/server/main.go"} {
 		if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id = $2", conn, fixtures.GitLabRepo+":"+f); n != 1 {
@@ -151,9 +151,9 @@ func TestSCN_CON_013_BitbucketReadsEveryPage(t *testing.T) {
 	}
 
 	want := knowledge + src.RepoCodeItems("bitbucket", fixtures.BitbucketRepo)
-	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != want || len(first.Skipped) != 0 {
-		t.Fatalf("first sync %+v, want %d new", first, want)
+	initial := env.RunNow(admin, conn, "sync")
+	if initial.Status != "succeeded" || initial.Created != want || len(initial.Skipped) != 0 {
+		t.Fatalf("first sync %+v, want %d new", initial, want)
 	}
 	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1", conn); n != want {
 		t.Fatalf("%d items, want %d", n, want)

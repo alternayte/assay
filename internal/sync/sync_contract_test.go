@@ -69,8 +69,9 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := publicConnection(t, env, admin, base)
 
+	// Nine pages and three attachments with text.
 	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != 8 {
+	if first.Status != "succeeded" || first.Created != 12 {
 		t.Fatalf("first sync %+v", first)
 	}
 	second := env.RunNow(admin, conn, "sync")
@@ -78,8 +79,8 @@ func TestSCN_SYN_001_SyncIsIdempotent(t *testing.T) {
 		t.Fatalf("second sync %+v", second)
 	}
 	versions := env.Count("SELECT count(*) FROM source_versions WHERE connection_id = $1", conn)
-	if versions != 8 {
-		t.Fatalf("want 7 versions, got %d", versions)
+	if versions != 12 {
+		t.Fatalf("want 12 versions, got %d", versions)
 	}
 
 	p, _ := src.Page("1007")
@@ -275,10 +276,16 @@ func TestSCN_SYN_010_LargeItemIsSkipped(t *testing.T) {
 		Body: "<p>" + strings.Repeat("x", 600<<10) + "</p>"})
 	conn := publicConnection(t, env, admin, base)
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 8 || len(run.Skipped) != 1 {
+	// The scanned PDF attachment is the other skip.
+	if run.Status != "succeeded" || run.Created != 12 || len(run.Skipped) != 2 {
 		t.Fatalf("run %+v", run)
 	}
-	if run.Skipped[0].ID != "1099" || run.Skipped[0].Reason != "too_large" {
+	if !slices.ContainsFunc(run.Skipped, func(s struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason"`
+	}) bool {
+		return s.ID == "1099" && s.Reason == "too_large"
+	}) {
 		t.Fatalf("skipped %+v", run.Skipped)
 	}
 }
@@ -290,7 +297,7 @@ func TestSCN_CON_002_JiraClaimsWithFieldEvidence(t *testing.T) {
 	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-jira", Kind: "jira", BaseURL: base,
 		Scope: map[string]any{"projects": []string{"PAY", "REM"}}})
 	run := env.RunNow(admin, conn, "sync")
-	if run.Status != "succeeded" || run.Created != 7 {
+	if run.Status != "succeeded" || run.Created != 8 {
 		t.Fatalf("run %+v", run)
 	}
 	item := itemID(t, env, conn, "PAY-2")
@@ -423,7 +430,7 @@ func TestSCN_EVL_001_DemoCountsMatchManifest(t *testing.T) {
 			Code: code})
 		ids[mc.Name] = id
 		run := env.RunNow(admin, id, "sync")
-		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != 0 {
+		if run.Status != "succeeded" || run.Created != mc.Items || len(run.Skipped) != mc.Skipped {
 			t.Fatalf("%s: run %+v, manifest %d items", mc.Name, run, mc.Items)
 		}
 		if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1", id); n != mc.Items {
@@ -575,7 +582,9 @@ func TestSCN_CON_005_AzdoApiVersionAndBasicAuth(t *testing.T) {
 func pageHits(src *fixtures.Sources, mark int) int {
 	n := 0
 	for _, h := range src.Hits()[mark:] {
-		if strings.Contains(h.Path, "/rest/api/content/") && !strings.HasSuffix(h.Path, "/content/search") {
+		// An attachment is not a page: the listing carries no file.
+		if strings.Contains(h.Path, "/rest/api/content/") && !strings.HasSuffix(h.Path, "/content/search") &&
+			!strings.Contains(h.Path, "/rest/api/content/att") {
 			n++
 		}
 	}
@@ -588,7 +597,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	conn := publicConnection(t, env, admin, base)
 	first := env.RunNow(admin, conn, "sync")
-	if first.Status != "succeeded" || first.Created != 8 {
+	if first.Status != "succeeded" || first.Created != 12 {
 		t.Fatalf("first sync %+v", first)
 	}
 
@@ -606,7 +615,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	src.PutPage(p)
 	mark := len(src.Hits())
 	again := env.RunNow(admin, conn, "sync")
-	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 7 {
+	if again.Status != "succeeded" || again.Updated != 1 || again.Unchanged != 11 {
 		t.Fatalf("sync after the stop %+v", again)
 	}
 	// The listing carries the bodies: no page needs its own request.
@@ -623,7 +632,7 @@ func TestSCN_SYN_012_RestartedSyncFetchesOnlyChangedPages(t *testing.T) {
 	p.Body += "<p>The digest goes out on Monday.</p>"
 	src.PutPage(p)
 	mark = len(src.Hits())
-	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 || third.Unchanged != 7 {
+	if third := env.RunNow(admin, conn, "sync"); third.Updated != 1 || third.Unchanged != 11 {
 		t.Fatalf("sync after a second edit %+v", third)
 	}
 	if n := pageHits(src, mark); n != 0 {
@@ -678,9 +687,10 @@ func TestSCN_SYN_014_ListingCarriesBodiesAndSavesProgress(t *testing.T) {
 	if second.Status != "succeeded" || second.Created != 70 || second.Unchanged != 50 {
 		t.Fatalf("second sync %+v", second)
 	}
+	// Five listings of pages and one of attachments.
 	hits := searchHits(src, mark)
-	if len(hits) != 5 || pageHits(src, mark) != 0 {
-		t.Fatalf("%d listing and %d page requests for 120 pages, want 5 and 0", len(hits), pageHits(src, mark))
+	if len(hits) != 6 || pageHits(src, mark) != 0 {
+		t.Fatalf("%d listing and %d page requests for 120 pages, want 6 and 0", len(hits), pageHits(src, mark))
 	}
 	if q, _ := url.ParseQuery(hits[0].Query); !strings.Contains(q.Get("cql"), "lastmodified >=") {
 		t.Fatalf("the second run lists from the start: %s", q.Get("cql"))

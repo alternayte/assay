@@ -70,7 +70,7 @@ func TestSCN_CON_017_ConfluenceCloudMatchesDataCenter(t *testing.T) {
 		t.Fatal(err)
 	}
 	site := strings.Replace(base, "127.0.0.1", "localhost", 1) + fixtures.CloudSitePath
-	dcIDs := []string{"1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008"}
+	dcIDs := []string{"1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008", "1009"}
 
 	for _, tc := range []struct {
 		name   string
@@ -89,7 +89,7 @@ func TestSCN_CON_017_ConfluenceCloudMatchesDataCenter(t *testing.T) {
 				t.Fatal(err)
 			}
 			v, err := cloud.Validate(ctx)
-			if err != nil || v.User != "Assay Reader" || v.Sample != 8 || v.More {
+			if err != nil || v.User != "Assay Reader" || v.Sample != 9 || v.More {
 				t.Fatalf("validation %+v %v", v, err)
 			}
 			scopes, err := cloud.Scopes(ctx)
@@ -102,10 +102,14 @@ func TestSCN_CON_017_ConfluenceCloudMatchesDataCenter(t *testing.T) {
 			if err := cloud.ListIDs(ctx, part, func(id string) error { ids = append(ids, id); return nil }); err != nil {
 				t.Fatal(err)
 			}
-			want := make([]string, len(dcIDs))
-			for i, id := range dcIDs {
-				want[i] = fixtures.CloudPageID(id)
+			want := []string{}
+			for _, id := range dcIDs {
+				want = append(want, fixtures.CloudPageID(id))
 			}
+			for _, id := range []string{"att5001", "att5002", "att5003", "att5004"} {
+				want = append(want, "att:"+fixtures.CloudAttachmentID(id))
+			}
+			slices.Sort(want)
 			if slices.Sort(ids); !slices.Equal(ids, want) {
 				t.Fatalf("IDs %v, want %v", ids, want)
 			}

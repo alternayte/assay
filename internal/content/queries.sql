@@ -236,6 +236,16 @@ FROM passages
 WHERE item_id = @item_id AND connection_id = ANY(@visible::bigint[])
 ORDER BY ordinal;
 
+-- name: DropUndatedEvidence :many
+-- The field evidence of an item for a subject and a predicate on the claims
+-- that the dated facts of the item no longer give.
+-- vis:system
+DELETE FROM claim_evidence e
+USING claims c
+WHERE e.claim_id = c.id AND e.item_id = @item_id AND e.kind = 'field'
+  AND c.subject_id = @subject_id AND c.predicate = @predicate AND NOT (c.id = ANY(@keep::bigint[]))
+RETURNING e.claim_id;
+
 -- name: DeleteStaleItemEvidence :exec
 -- vis:system
 DELETE FROM claim_evidence WHERE item_id = @item_id AND state = 'stale';

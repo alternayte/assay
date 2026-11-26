@@ -48,7 +48,7 @@ func (s *Sources) person(name string) map[string]any {
 const confluenceTime = "2006-01-02T15:04:05.000Z07:00"
 
 var (
-	cqlType     = regexp.MustCompile(`(?i)\btype\s*=\s*"?page"?`)
+	cqlType     = regexp.MustCompile(`(?i)\btype\s*=\s*"?(page|attachment)"?`)
 	cqlIn       = regexp.MustCompile(`(?i)\b(space|ancestor|label)\s+in\s*\(([^)]*)\)`)
 	cqlEq       = regexp.MustCompile(`(?i)\b(space|ancestor|label)\s*=\s*("[^"]*"|[\w.-]+)`)
 	cqlModified = regexp.MustCompile(`(?i)\blastmodified\s*>=\s*"([^"]+)"`)
@@ -137,6 +137,15 @@ func (s *Sources) confluence(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"results": res, "start": start, "limit": limit, "size": len(res)})
 	case p == "/rest/api/content/search":
 		s.searchPages(w, r, false)
+	case strings.HasPrefix(p, "/download/attachments/"):
+		s.download(w, r, p, false)
+	case strings.HasPrefix(p, "/rest/api/content/att"):
+		a, ok := s.attachmentByID(strings.TrimPrefix(p, "/rest/api/content/"), false)
+		if !ok {
+			pageNotFound(w)
+			return
+		}
+		writeJSON(w, http.StatusOK, s.attachmentJSON(a, false))
 	case strings.HasPrefix(p, "/rest/api/content/"):
 		id := strings.TrimPrefix(p, "/rest/api/content/")
 		pg, ok := s.pages[id]
@@ -156,12 +165,18 @@ func pageNotFound(w http.ResponseWriter) {
 	_, _ = w.Write([]byte(`{"statusCode":404,"message":"No content found with id"}`))
 }
 
-// searchPages answers a CQL search. Cloud leaves out the total and links
-// the next page relative to /wiki. The lock is held.
+// searchPages answers a CQL search of pages or of attachments. Cloud
+// leaves out the total and links the next page relative to /wiki. The lock
+// is held.
 func (s *Sources) searchPages(w http.ResponseWriter, r *http.Request, cloud bool) {
-	keep, ok := s.cqlFilter(r.URL.Query().Get("cql"), cloud)
+	cql := r.URL.Query().Get("cql")
+	keep, ok := s.cqlFilter(cql, cloud)
 	if !ok {
 		badQuery(w, "Could not parse cql")
+		return
+	}
+	if m := cqlType.FindStringSubmatch(cql); m != nil && strings.EqualFold(m[1], "attachment") {
+		s.searchAttachments(w, r, keep, cloud)
 		return
 	}
 	var all []*Page
@@ -331,7 +346,7 @@ func (s *Sources) jira(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(p, "/rest/api/2/issue/") && strings.HasSuffix(p, "/comment"):
 		s.comments(w, r, strings.TrimSuffix(strings.TrimPrefix(p, "/rest/api/2/issue/"), "/comment"), false)
 	case strings.HasPrefix(p, "/rest/api/2/issue/"):
-		s.issue(w, strings.TrimPrefix(p, "/rest/api/2/issue/"), false)
+		s.issue(w, r, strings.TrimPrefix(p, "/rest/api/2/issue/"), false)
 	default:
 		http.NotFound(w, r)
 	}
@@ -378,7 +393,9 @@ func (s *Sources) comments(w http.ResponseWriter, r *http.Request, key string, c
 	if r.URL.Query().Get("orderBy") == "-created" {
 		slices.Reverse(cs)
 	}
+	// Jira returns at most 100 comments per request.
 	start, limit := page(r, 50)
+	limit = min(limit, 100)
 	out := []map[string]any{}
 	for _, n := range window(cs, start, limit) {
 		if cloud {
@@ -391,9 +408,80 @@ func (s *Sources) comments(w http.ResponseWriter, r *http.Request, key string, c
 	writeJSON(w, http.StatusOK, map[string]any{"startAt": start, "maxResults": limit, "total": len(cs), "comments": out})
 }
 
-// issue answers one issue with the fields that the connector asks for.
-// The lock is held.
-func (s *Sources) issue(w http.ResponseWriter, key string, cloud bool) {
+// histories are the changelog entries of an issue as Jira sends them: user
+// names on Data Center, account IDs on Cloud. The lock is held.
+func (s *Sources) histories(is *Issue, cloud bool) []map[string]any {
+	person, user := s.person, func(name string) any {
+		if name == "" {
+			return nil
+		}
+		return name
+	}
+	if cloud {
+		person, user = s.jiraPerson, func(name string) any {
+			if name == "" {
+				return nil
+			}
+			return AccountID(name)
+		}
+	}
+	str := func(v string) any {
+		if v == "" {
+			return nil
+		}
+		return v
+	}
+	out := []map[string]any{}
+	for i, ch := range is.History {
+		items := []map[string]any{}
+		for _, it := range ch.Items {
+			item := map[string]any{"field": it.Field, "fieldtype": "jira", "from": str(it.From), "fromString": str(it.From),
+				"to": str(it.To), "toString": str(it.To)}
+			switch it.Field {
+			case "assignee":
+				item["from"], item["to"] = user(it.From), user(it.To)
+				item["fromString"], item["toString"] = str(s.users[it.From]), str(s.users[it.To])
+			case "status":
+				item["from"], item["to"] = str(statusID(it.From)), str(statusID(it.To))
+			}
+			if cloud {
+				item["fieldId"] = strings.ToLower(strings.ReplaceAll(it.Field, " ", ""))
+			}
+			items = append(items, item)
+		}
+		out = append(out, map[string]any{"id": strconv.Itoa(20000 + i), "author": person(ch.Author), "created": ch.Created.Format(jiraTime),
+			"items": items})
+	}
+	return out
+}
+
+func statusID(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strconv.Itoa(10000 + len(name))
+}
+
+// changelog answers the changelog of a Cloud issue, oldest first. The
+// fixture returns at most 4 entries per request, as a server may cap the
+// page size below the limit. The lock is held.
+func (s *Sources) changelog(w http.ResponseWriter, r *http.Request, key string) {
+	is, ok := s.issues[key]
+	if !ok {
+		http.Error(w, `{"errorMessages":["Issue Does Not Exist"]}`, http.StatusNotFound)
+		return
+	}
+	all := s.histories(is, true)
+	start, limit := page(r, 100)
+	limit = min(limit, 4)
+	vals := window(all, start, limit)
+	writeJSON(w, http.StatusOK, map[string]any{"startAt": start, "maxResults": limit, "total": len(all),
+		"isLast": start+len(vals) >= len(all), "values": vals})
+}
+
+// issue answers one issue with the fields that the connector asks for. On
+// Data Center, expand=changelog adds all histories. The lock is held.
+func (s *Sources) issue(w http.ResponseWriter, r *http.Request, key string, cloud bool) {
 	is, ok := s.issues[key]
 	if !ok {
 		http.Error(w, `{"errorMessages":["Issue Does Not Exist"]}`, http.StatusNotFound)
@@ -441,6 +529,11 @@ func (s *Sources) issue(w http.ResponseWriter, key string, cloud bool) {
 	if is.Epic != "" {
 		fields[epicField] = is.Epic
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": is.Key, "key": is.Key, "fields": fields,
-		"names": map[string]any{"summary": "Summary", "status": "Status", epicField: "Epic Link"}})
+	out := map[string]any{"id": is.Key, "key": is.Key, "fields": fields,
+		"names": map[string]any{"summary": "Summary", "status": "Status", epicField: "Epic Link"}}
+	if !cloud && strings.Contains(r.URL.Query().Get("expand"), "changelog") {
+		hs := s.histories(is, false)
+		out["changelog"] = map[string]any{"startAt": 0, "maxResults": len(hs), "total": len(hs), "histories": hs}
+	}
+	writeJSON(w, http.StatusOK, out)
 }

@@ -211,6 +211,15 @@ SELECT id FROM source_items WHERE id = ANY(@ids::bigint[]) AND part = @part;
 -- vis:system
 SELECT id FROM source_items WHERE connection_id = @connection_id AND NOT (part = ANY(@parts::text[]));
 
+-- name: AttachmentItems :many
+-- The attachment items of a page item: the items of the connection with
+-- the page as parent.
+-- vis:system
+SELECT a.id FROM source_items p
+JOIN source_items a ON a.connection_id = p.connection_id AND a.external_id LIKE 'att:%'
+JOIN source_versions v ON v.id = a.version_id
+WHERE p.id = @item_id AND p.external_id NOT LIKE 'att:%' AND v.metadata ->> 'parent' = p.external_id;
+
 -- name: ItemByExternalID :one
 -- vis:system
 SELECT id FROM source_items WHERE connection_id = @connection_id AND external_id = @external_id;
@@ -295,11 +304,15 @@ UPDATE entities SET key = @key, updated_at = now() WHERE id = @id;
 
 -- name: MatchPage :one
 -- The stored page of a connection with the space and title of a Cloud page,
--- whose ID the Cloud listing does not have.
+-- whose ID the Cloud listing does not have. An attachment matches a stored
+-- attachment with the same file name and page title.
 -- vis:system
-SELECT id, external_id FROM source_items
-WHERE connection_id = @connection_id AND part = @part AND title = @title AND NOT (external_id = ANY(@cloud_ids::text[]))
-ORDER BY id LIMIT 1;
+SELECT i.id, i.external_id FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = @connection_id AND i.part = @part AND i.title = @title AND NOT (i.external_id = ANY(@cloud_ids::text[]))
+  AND (i.external_id LIKE 'att:%') = @attachment::bool
+  AND (NOT @attachment::bool OR v.metadata ->> 'parentTitle' = @parent_title::text)
+ORDER BY i.id LIMIT 1;
 
 -- name: SetExternalID :exec
 -- vis:system

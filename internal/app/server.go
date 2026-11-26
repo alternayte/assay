@@ -160,7 +160,7 @@ func (s *Server) services() error {
 		Now: s.now}
 	agentsSetting := agents.OAuthSetting
 	agentsSetting.Guard = s.agents.Guard
-	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, claims.PrioritySetting, resolve.TermSetting,
+	s.settings = &settings.Service{Pool: s.pool, Now: s.now, Defs: []settings.Def{settings.SMTP, Retention, syncer.Rules, syncer.Attachments, claims.PrioritySetting, resolve.TermSetting,
 		pages.Setting, design.Setting, signIn, agentsSetting}}
 	s.mailer = &settings.Mailer{Service: s.settings, Secrets: s.secrets}
 	s.users = &users.Service{Pool: s.pool, Auth: s.auth, BaseURL: s.cfg.BaseURL, SetupToken: s.cfg.SetupToken, Now: s.now, Mail: s.mailer.Send,
@@ -168,7 +168,8 @@ func (s *Server) services() error {
 	s.sso.Install(s.auth)
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
-		DemoURL: s.cfg.DemoURL, AtlassianAPI: s.cfg.AtlassianAPI}
+		DemoURL: s.cfg.DemoURL, AtlassianAPI: s.cfg.AtlassianAPI,
+		AtlassianMedia: s.cfg.AtlassianMedia}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log, Shards: orDefault(s.cfg.EmbedShards, 4)}
 	s.vocab = &vocab.Service{Pool: s.pool}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}

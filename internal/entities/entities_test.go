@@ -464,6 +464,9 @@ func TestSCN_CLM_007_TimelineOfStatus(t *testing.T) {
 	key := "jira:" + w.host + ":PAY-1"
 	for _, st := range []string{"Review", "Done"} {
 		is, _ := w.src.Issue("PAY-1")
+		// Jira records each status change in the changelog.
+		is.History = append(slices.Clone(is.History), fixtures.Change{Author: "alex.acme", Created: time.Now().UTC().Truncate(time.Second),
+			Items: []fixtures.ChangeItem{{Field: "status", From: is.Status, To: st}}})
 		is.Status = st
 		is.Updated = time.Time{}
 		time.Sleep(1100 * time.Millisecond)
@@ -490,7 +493,8 @@ func TestSCN_CLM_007_TimelineOfStatus(t *testing.T) {
 			t.Fatalf("value %s has no date", c.ObjectText)
 		}
 	}
-	if strings.Join(values, ",") != "Done,Review,In Progress" || current != 1 {
+	// The corpus history of PAY-1 ends with Done, before the two changes.
+	if strings.Join(values, ",") != "Done,Review,Done,In Progress,To Do" || current != 1 {
 		t.Fatalf("timeline %v with %d current", values, current)
 	}
 	if c := find(d.Claims, func(c claim) bool { return c.Predicate == "status" }); c == nil || c.ObjectText != "Done" {

@@ -101,7 +101,9 @@ func claimsOf(t *testing.T, env *testkit.Env, conn int64) map[int64]claimRow {
 
 func TestSCN_SYN_021_SwitchToCloudKeepsClaimsAndEvidence(t *testing.T) {
 	src, base := testkit.FakeSources(t)
-	env := testkit.Start(t, testkit.WithAtlassianAPI(base+fixtures.CloudAPIPath))
+	// The site is on localhost, and its downloads redirect to the media
+	// host on 127.0.0.1.
+	env := testkit.Start(t, testkit.WithAtlassianAPI(base+fixtures.CloudAPIPath), testkit.WithAtlassianMedia(base))
 	admin := env.Setup("owner@acme.test")
 	jiraConn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-jira", Kind: "jira", BaseURL: base,
 		Scope: map[string]any{"projects": []string{"PAY", "REM"}}})
@@ -133,7 +135,7 @@ func TestSCN_SYN_021_SwitchToCloudKeepsClaimsAndEvidence(t *testing.T) {
 	src.Fail(scopedIssue, http.StatusTooManyRequests, 1, "2")
 	start := time.Now()
 	jiraRun, jiraRec := switchToCloud(t, env, admin, jiraConn, site, true)
-	if w := jiraRun.Rewrite; w.From != dcHost || w.To != siteHost || w.Items != 7 || w.People != 4 || w.Unmatched != 0 || w.Entities == 0 {
+	if w := jiraRun.Rewrite; w.From != dcHost || w.To != siteHost || w.Items != 8 || w.People != 4 || w.Unmatched != 0 || w.Entities == 0 {
 		t.Fatalf("Jira rewrite %+v", w)
 	}
 	var first, retry time.Time
@@ -156,7 +158,8 @@ func TestSCN_SYN_021_SwitchToCloudKeepsClaimsAndEvidence(t *testing.T) {
 		t.Fatalf("the retry came %v after the 429", retry.Sub(first))
 	}
 	wikiRun, wikiRec := switchToCloud(t, env, admin, wikiConn, site, false)
-	if w := wikiRun.Rewrite; w.Items != 8 || w.People != 0 || w.Entities == 0 {
+	// Nine pages and three attachments match their Cloud items.
+	if w := wikiRun.Rewrite; w.Items != 12 || w.People != 0 || w.Entities == 0 {
 		t.Fatalf("Confluence rewrite %+v", w)
 	}
 	if jiraRec.Deleted != 0 || wikiRec.Deleted != 0 {

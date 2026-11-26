@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -185,6 +186,10 @@ type ClientOptions struct {
 	UserAgent   string
 	Concurrency int
 	PerSecond   float64
+	// AlsoURLs name other hosts that the client follows redirects to, such
+	// as the media host of Atlassian Cloud downloads. The client sends no
+	// credentials there.
+	AlsoURLs []string
 	// Pool and ConnectionID share the rate of a stored connection: each
 	// request reserves a slot in PostgreSQL. A client without them, for a
 	// source that is not stored yet, spaces only its own requests.
@@ -194,9 +199,9 @@ type ClientOptions struct {
 
 // NewClient returns the client of a connection.
 func NewClient(s outbound.Settings, o ClientOptions) (*Client, error) {
-	var also []string
+	also := slices.Clone(o.AlsoURLs)
 	if o.SiteURL != "" {
-		also = []string{o.SiteURL}
+		also = append(also, o.SiteURL)
 	}
 	h, err := outbound.New(s, outbound.Options{BaseURL: o.BaseURL, AlsoURLs: also, Methods: []string{http.MethodGet, http.MethodHead},
 		Timeout: 60 * time.Second})
@@ -490,7 +495,18 @@ type Rules struct {
 	BlockLinkType   string
 	DecisionLabels  []string
 	GlossaryLabels  []string
+	// MaxCommentsPerIssue bounds the Jira comments of one item. Zero means
+	// DefaultMaxComments.
+	MaxCommentsPerIssue int
+	// AttachmentTypes are the file types of the attachments to read, such
+	// as pdf. Empty reads no attachments.
+	AttachmentTypes []string
+	// MaxAttachmentBytes bounds the file size of one attachment.
+	MaxAttachmentBytes int
 }
+
+// DefaultMaxComments is the default number of Jira comments of one item.
+const DefaultMaxComments = 500
 
 // Overlap widens the since time of a source query whose dates use the time
 // zone of the source user. Fourteen hours cover every UTC offset.

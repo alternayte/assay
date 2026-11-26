@@ -810,12 +810,38 @@ func (s *Service) tombstoneGone(ctx context.Context, tx pgx.Tx, connectionID int
 	}
 	ids = append(ids, outside...)
 	now := s.now()
+	n := 0
+	done := map[int64]bool{}
 	for _, id := range ids {
+		d, err := tombstoneTx(ctx, tx, id, now, done)
+		if err != nil {
+			return 0, err
+		}
+		n += d
+	}
+	return int32(n), nil //nolint:gosec // A connection holds far fewer items than the int32 range.
+}
+
+// tombstoneTx tombstones an item and the attachment items of a page,
+// except the items in done, and adds them to done. It returns the number of
+// items it deleted.
+func tombstoneTx(ctx context.Context, tx pgx.Tx, itemID int64, now time.Time, done map[int64]bool) (int, error) {
+	atts, err := New(tx).AttachmentItems(ctx, itemID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, id := range append(atts, itemID) {
+		if done[id] {
+			continue
+		}
+		done[id] = true
 		if err := content.Tombstone(ctx, tx, id, now); err != nil {
 			return 0, err
 		}
+		n++
 	}
-	return int32(len(ids)), nil //nolint:gosec // A connection holds far fewer items than the int32 range.
+	return n, nil
 }
 
 // settleAll ends the runs whose last parts a sweep or a pause failed.
@@ -1154,10 +1180,16 @@ func (s *Service) reconcile(ctx context.Context, conn Connection, k connectors.C
 	return gone
 }
 
-func (s *Service) tombstone(ctx context.Context, itemID int64) error {
-	return pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		return content.Tombstone(ctx, tx, itemID, s.now())
+// tombstone tombstones an item and the attachment items of a page. It
+// returns the number of items it deleted.
+func (s *Service) tombstone(ctx context.Context, itemID int64) (int, error) {
+	n := 0
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		var err error
+		n, err = tombstoneTx(ctx, tx, itemID, s.now(), map[int64]bool{})
+		return err
 	})
+	return n, err
 }
 
 // fetchAll stores items with the concurrency of the connection. It fetches
@@ -1253,10 +1285,13 @@ func (s *Service) tombstoneStored(ctx context.Context, connectionID int64, exter
 	if err != nil {
 		return err
 	}
-	if err := s.tombstone(ctx, existing); err != nil {
+	n, err := s.tombstone(ctx, existing)
+	if err != nil {
 		return err
 	}
-	st.deleted()
+	for range n {
+		st.deleted()
+	}
 	return nil
 }
 

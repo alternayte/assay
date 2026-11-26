@@ -388,6 +388,49 @@ func (q *Queries) DropEntitySource(ctx context.Context, arg DropEntitySourcePara
 	return result.RowsAffected(), nil
 }
 
+const dropUndatedEvidence = `-- name: DropUndatedEvidence :many
+DELETE FROM claim_evidence e
+USING claims c
+WHERE e.claim_id = c.id AND e.item_id = $1 AND e.kind = 'field'
+  AND c.subject_id = $2 AND c.predicate = $3 AND NOT (c.id = ANY($4::bigint[]))
+RETURNING e.claim_id
+`
+
+type DropUndatedEvidenceParams struct {
+	ItemID    int64
+	SubjectID int64
+	Predicate string
+	Keep      []int64
+}
+
+// The field evidence of an item for a subject and a predicate on the claims
+// that the dated facts of the item no longer give.
+// vis:system
+func (q *Queries) DropUndatedEvidence(ctx context.Context, arg DropUndatedEvidenceParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, dropUndatedEvidence,
+		arg.ItemID,
+		arg.SubjectID,
+		arg.Predicate,
+		arg.Keep,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var claim_id int64
+		if err := rows.Scan(&claim_id); err != nil {
+			return nil, err
+		}
+		items = append(items, claim_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fillChunkHashes = `-- name: FillChunkHashes :execrows
 WITH b AS (SELECT id FROM chunks WHERE text_hash IS NULL ORDER BY id LIMIT 10000)
 UPDATE chunks c SET text_hash = sha256(convert_to(c.text, 'UTF8')) FROM b WHERE c.id = b.id

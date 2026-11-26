@@ -218,7 +218,7 @@ func TestSCN_AGT_002_MaxTokensAndExcerpts(t *testing.T) {
 	s := connect(t, w, token(t, w.member))
 	tools := toolsOf(t, s)
 
-	full := call(t, s, tools, "search_context", map[string]any{"query": "payments retry queue ledger"})
+	full := call(t, s, tools, "search_context", map[string]any{"query": "payments retry queue ledger", "limit": 5})
 	if full["truncated"] != false {
 		t.Fatalf("the default limit cut a small output")
 	}

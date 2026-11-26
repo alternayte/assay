@@ -330,6 +330,31 @@ type issueJSON struct {
 	Key    string                     `json:"key"`
 	Fields map[string]json.RawMessage `json:"fields"`
 	Names  map[string]string          `json:"names"`
+	// Changelog is the expanded changelog of Data Center, which holds all
+	// histories.
+	Changelog struct {
+		Histories []history `json:"histories"`
+	} `json:"changelog"`
+}
+
+// history is one changelog entry.
+type history struct {
+	Author  *user  `json:"author"`
+	Created string `json:"created"`
+	Items   []struct {
+		Field      string  `json:"field"`
+		From       *string `json:"from"`
+		FromString *string `json:"fromString"`
+		To         *string `json:"to"`
+		ToString   *string `json:"toString"`
+	} `json:"items"`
+}
+
+// comment is one comment of an issue.
+type comment struct {
+	Author  *user           `json:"author"`
+	Created string          `json:"created"`
+	Body    json.RawMessage `json:"body"`
 }
 
 type fields struct {
@@ -362,23 +387,28 @@ type fields struct {
 
 var fieldList = "summary,description,issuetype,status,priority,assignee,reporter,labels,components,fixVersions,duedate,parent,issuelinks,created,updated"
 
-// Fetch reads one issue and its newest 50 comments.
+// Fetch reads one issue with its comments, oldest first up to the comment
+// cap, and the History section of its status, assignee and fix version
+// changes. Data Center expands the changelog on the issue request; Cloud
+// pages the changelog of the issue.
 func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error) {
 	var raw issueJSON
 	q := url.Values{"fields": {fieldList + ",*navigable"}, "expand": {"names"}}
+	if !k.cloud {
+		q.Set("expand", "names,changelog")
+	}
 	if err := k.c.GetJSON(ctx, k.api()+"/issue/"+url.PathEscape(key), q, &raw); err != nil {
 		return nil, err
 	}
-	var cs struct {
-		Comments []struct {
-			Author  *user           `json:"author"`
-			Created string          `json:"created"`
-			Body    json.RawMessage `json:"body"`
-		} `json:"comments"`
-	}
-	cq := url.Values{"orderBy": {"-created"}, "maxResults": {"50"}, "startAt": {"0"}}
-	if err := k.c.GetJSON(ctx, k.api()+"/issue/"+url.PathEscape(key)+"/comment", cq, &cs); err != nil {
+	comments, total, err := k.comments(ctx, key)
+	if err != nil {
 		return nil, err
+	}
+	histories := raw.Changelog.Histories
+	if k.cloud {
+		if histories, err = k.changelog(ctx, key); err != nil {
+			return nil, err
+		}
 	}
 	var f fields
 	b, _ := json.Marshal(raw.Fields)
@@ -391,9 +421,13 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 			_ = json.Unmarshal(raw.Fields[id], &epic)
 		}
 	}
+	changes := k.changes(histories, names(f.FixVersions))
 	size := len(f.Description)
-	for _, c := range cs.Comments {
+	for _, c := range comments {
 		size += len(c.Body)
+	}
+	for _, c := range changes {
+		size += len(c.text)
 	}
 	if k.limits.MaxItemBytes > 0 && size > k.limits.MaxItemBytes {
 		return nil, &connectors.SkipError{Reason: "too_large"}
@@ -430,10 +464,12 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 	if description != "" {
 		b2.parts = append(b2.parts, "## Description", description)
 	}
-	if len(cs.Comments) > 0 {
+	if len(comments) > 0 {
 		b2.parts = append(b2.parts, "## Comments")
-		for i := len(cs.Comments) - 1; i >= 0; i-- {
-			c := cs.Comments[i]
+		if total > len(comments) {
+			b2.parts = append(b2.parts, fmt.Sprintf("Assay read the newest %d of %d comments.", len(comments), total))
+		}
+		for _, c := range comments {
 			text, err := k.markdown(c.Body)
 			if err != nil {
 				return nil, fmt.Errorf("jira: a comment of issue %s: %w", key, err)
@@ -442,13 +478,20 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 				text)
 		}
 	}
+	if len(changes) > 0 {
+		b2.parts = append(b2.parts, "## History")
+		for _, c := range changes {
+			b2.parts = append(b2.parts, c.text)
+		}
+	}
 
 	host := k.c.Host()
 	subject := content.EntityRef{Type: k.typeOf(f.IssueType.Name), Key: issueKey(host, raw.Key), Name: f.Summary, Aliases: []string{raw.Key}}
+	created := parseTime(f.Created)
 	it := &content.Item{
 		ExternalID: raw.Key, Kind: "issue", Title: raw.Key + " " + f.Summary,
 		URL:    k.c.Link("/browse/"+raw.Key, nil),
-		Author: f.Reporter.display(), Created: parseTime(f.Created), Updated: parseTime(f.Updated),
+		Author: f.Reporter.display(), Created: created, Updated: parseTime(f.Updated),
 		Body:   strings.Join(b2.parts, "\n\n"),
 		Entity: &subject,
 		Metadata: map[string]any{"key": raw.Key, "type": f.IssueType.Name, "status": f.Status.Name,
@@ -463,33 +506,230 @@ func (k *Connector) Fetch(ctx context.Context, key string) (*content.Item, error
 		it.Metadata["parent"] = f.Parent.Key
 	}
 
-	fact := func(pred string, obj *content.EntityRef, text, quote string) {
-		it.Facts = append(it.Facts, content.Fact{Subject: subject, Predicate: pred, Object: obj, Text: text, Quote: quote})
+	fact := func(pred string, obj *content.EntityRef, text, quote string, at time.Time) {
+		it.Facts = append(it.Facts, content.Fact{Subject: subject, Predicate: pred, Object: obj, Text: text, Quote: quote, At: at})
+	}
+	// The current value of a field is dated by the last change to it, so
+	// that it is the same claim as the newest History value.
+	since := func(field, value string) time.Time {
+		at := created
+		for _, c := range changes {
+			if c.field == field && c.value == value {
+				at = c.at
+			}
+		}
+		return at
 	}
 	if f.Status.Name != "" {
-		fact("status", nil, f.Status.Name, "Status: "+f.Status.Name)
+		fact("status", nil, f.Status.Name, "Status: "+f.Status.Name, since(fieldStatus, f.Status.Name))
 	}
 	if p := k.person(f.Assignee); p != nil {
-		fact("assigned_to", p, "", "Assignee: "+f.Assignee.display())
+		fact("assigned_to", p, "", "Assignee: "+f.Assignee.display(), since(fieldAssignee, p.Key))
+	}
+	if v := joinNames(f.FixVersions); v != "" {
+		fact("fix_version", nil, v, "Fix versions: "+v, since(fieldFixVersion, v))
+	}
+	for _, c := range changes {
+		switch {
+		case c.value == "":
+		case c.field == fieldAssignee:
+			fact("assigned_to", c.person, "", c.quote, c.at)
+		default:
+			fact(c.predicate(), nil, c.value, c.quote, c.at)
+		}
 	}
 	if f.DueDate != "" {
-		fact("target_date", nil, f.DueDate, "Due date: "+f.DueDate)
+		fact("target_date", nil, f.DueDate, "Due date: "+f.DueDate, time.Time{})
 	}
 	for _, l := range f.IssueLinks {
 		if l.OutwardIssue != nil && strings.EqualFold(l.Type.Name, k.rules.BlockLinkType) {
 			o := l.OutwardIssue
 			fact("blocks", &content.EntityRef{Type: k.typeOf(o.Fields.IssueType.Name), Key: issueKey(host, o.Key), Name: o.Fields.Summary,
-				Aliases: []string{o.Key}}, "", capital(l.Type.Outward)+": "+o.Key)
+				Aliases: []string{o.Key}}, "", capital(l.Type.Outward)+": "+o.Key, time.Time{})
 		}
 	}
 	switch {
 	case epic != "" && slices.Contains(k.rules.InitiativeTypes, "Epic"):
-		fact("part_of", &content.EntityRef{Type: "initiative", Key: issueKey(host, epic), Aliases: []string{epic}}, "", "Epic: "+epic)
+		fact("part_of", &content.EntityRef{Type: "initiative", Key: issueKey(host, epic), Aliases: []string{epic}}, "", "Epic: "+epic, time.Time{})
 	case f.Parent != nil && slices.Contains(k.rules.InitiativeTypes, f.Parent.Fields.IssueType.Name):
 		fact("part_of", &content.EntityRef{Type: "initiative", Key: issueKey(host, f.Parent.Key), Name: f.Parent.Fields.Summary,
-			Aliases: []string{f.Parent.Key}}, "", "Parent: "+f.Parent.Key)
+			Aliases: []string{f.Parent.Key}}, "", "Parent: "+f.Parent.Key, time.Time{})
 	}
 	return it, nil
+}
+
+// pageSize is the page size of the comment and changelog requests.
+const pageSize = 100
+
+// comments pages through the comments of an issue, oldest first. Above the
+// comment cap it reads only the newest comments. total is the number of
+// comments of the issue.
+func (k *Connector) comments(ctx context.Context, key string) ([]comment, int, error) {
+	limit := k.rules.MaxCommentsPerIssue
+	if limit <= 0 {
+		limit = connectors.DefaultMaxComments
+	}
+	var out []comment
+	first := 0
+	for start := 0; ; {
+		var p struct {
+			StartAt  int       `json:"startAt"`
+			Total    int       `json:"total"`
+			Comments []comment `json:"comments"`
+		}
+		q := url.Values{"orderBy": {"created"}, "startAt": {strconv.Itoa(start)}, "maxResults": {strconv.Itoa(pageSize)}}
+		if err := k.c.GetJSON(ctx, k.api()+"/issue/"+url.PathEscape(key)+"/comment", q, &p); err != nil {
+			return nil, 0, err
+		}
+		// The first answer gives the total: the newest comments start at
+		// total - limit.
+		first = max(0, p.Total-limit)
+		for i, c := range p.Comments {
+			if start+i >= first {
+				out = append(out, c)
+			}
+		}
+		next := max(start+len(p.Comments), first)
+		if len(p.Comments) == 0 || next >= p.Total {
+			return out, max(p.Total, len(out)), nil
+		}
+		start = next
+	}
+}
+
+// changelog pages through the changelog of a Cloud issue, oldest first.
+// Cloud cuts the expanded changelog at 100 entries; the bulk changelog
+// needs POST.
+func (k *Connector) changelog(ctx context.Context, key string) ([]history, error) {
+	var out []history
+	for start := 0; ; {
+		var p struct {
+			Total  int       `json:"total"`
+			IsLast bool      `json:"isLast"`
+			Values []history `json:"values"`
+		}
+		q := url.Values{"startAt": {strconv.Itoa(start)}, "maxResults": {strconv.Itoa(pageSize)}}
+		if err := k.c.GetJSON(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/changelog", q, &p); err != nil {
+			return nil, err
+		}
+		out = append(out, p.Values...)
+		start += len(p.Values)
+		if len(p.Values) == 0 || p.IsLast || start >= p.Total {
+			return out, nil
+		}
+	}
+}
+
+// The fields of the changelog that the History section holds.
+const (
+	fieldStatus     = "status"
+	fieldAssignee   = "assignee"
+	fieldFixVersion = "Fix Version"
+)
+
+// change is one change of the History section: one paragraph, and one
+// dated value for the timeline.
+type change struct {
+	field string
+	at    time.Time
+	text  string
+	quote string
+	// value is the value after the change: a status, the person key of an
+	// assignee, or the comma-joined fix versions. Empty for an unassign or
+	// for no fix version.
+	value  string
+	person *content.EntityRef
+}
+
+func (c change) predicate() string {
+	if c.field == fieldFixVersion {
+		return "fix_version"
+	}
+	return c.field
+}
+
+// changes returns the status, assignee and fix version changes of the
+// histories, oldest first. The fix versions after each change come from
+// the current fix versions, back through the changelog.
+func (k *Connector) changes(histories []history, current []string) []change {
+	hs := slices.Clone(histories)
+	slices.SortStableFunc(hs, func(a, b history) int { return parseTime(a.Created).Compare(parseTime(b.Created)) })
+	// after[i] is the fix version list after history i.
+	after := make([][]string, len(hs))
+	versions := slices.Clone(current)
+	for i := len(hs) - 1; i >= 0; i-- {
+		after[i] = slices.Clone(versions)
+		for _, it := range hs[i].Items {
+			if it.Field != fieldFixVersion {
+				continue
+			}
+			if to := str(it.ToString); to != "" {
+				versions = slices.DeleteFunc(versions, func(v string) bool { return v == to })
+			}
+			if from := str(it.FromString); from != "" && !slices.Contains(versions, from) {
+				versions = append(versions, from)
+			}
+		}
+	}
+	var out []change
+	before := versions
+	for i, h := range hs {
+		at := parseTime(h.Created).UTC()
+		prefix := at.Format("2006-01-02 15:04") + ":"
+		if a := h.Author.display(); a != "" {
+			prefix = at.Format("2006-01-02 15:04") + ", " + a + ":"
+		}
+		add := func(field, label, from, to, value string, person *content.EntityRef) {
+			if from == "" {
+				from = "none"
+			}
+			if to == "" {
+				to = "none"
+			}
+			line := fmt.Sprintf("%s %s → %s", label, from, to)
+			out = append(out, change{field: field, at: at, value: value, person: person,
+				text:  "**" + escape(prefix) + "** " + escape(line),
+				quote: prefix + " " + line})
+		}
+		fixed := false
+		for _, it := range h.Items {
+			switch it.Field {
+			case fieldStatus:
+				add(fieldStatus, "Status", str(it.FromString), str(it.ToString), str(it.ToString), nil)
+			case fieldAssignee:
+				var p *content.EntityRef
+				if id := str(it.To); id != "" {
+					u := &user{Name: id, DisplayName: str(it.ToString)}
+					if k.cloud {
+						u = &user{AccountID: id, DisplayName: str(it.ToString)}
+					}
+					p = k.person(u)
+				}
+				value := ""
+				if p != nil {
+					value = p.Key
+				}
+				add(fieldAssignee, "Assignee", str(it.FromString), str(it.ToString), value, p)
+			case fieldFixVersion:
+				fixed = true
+			}
+		}
+		if fixed {
+			// The items of one history add and remove single versions:
+			// one paragraph shows the list before and after.
+			v := strings.Join(after[i], ", ")
+			add(fieldFixVersion, "Fix Version", strings.Join(before, ", "), v, v, nil)
+		}
+		before = after[i]
+	}
+	return out
+}
+
+func str(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return strings.TrimSpace(*s)
 }
 
 // markdown converts a description or a comment body: wiki markup on Data

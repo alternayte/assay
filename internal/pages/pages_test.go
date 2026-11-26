@@ -429,8 +429,9 @@ func TestSCN_EXT_001_PageOpenWithFewClaimsExtracts(t *testing.T) {
 		}
 	}
 	w.env.RunExtractJobs()
-	// The five notes and the passage of the record.
-	if n := extractCalls(w.fake); n != 6 {
-		t.Fatalf("%d extract calls, want 6", n)
+	// The five notes, the passage of the record, and the passages of the
+	// design and the diagram attachments that name the Card gateway.
+	if n := extractCalls(w.fake); n != 8 {
+		t.Fatalf("%d extract calls, want 8", n)
 	}
 }

@@ -16,6 +16,9 @@ type ManifestConnection struct {
 	Shared bool   `json:"shared"`
 	Owner  string `json:"owner,omitempty"`
 	Items  int    `json:"items"`
+	// Skipped is the number of items that a sync skips, such as a scan
+	// without text.
+	Skipped int `json:"skipped"`
 }
 
 // Manifest describes the Acme corpus: its connections, their item counts,
@@ -29,7 +32,8 @@ type Manifest struct {
 // Manifest returns the manifest of the current corpus.
 func (s *Sources) Manifest() Manifest {
 	return Manifest{Canary: Canary, Connections: []ManifestConnection{
-		{Name: "acme-public", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"ENG"}}, Shared: true, Items: s.Count("ENG")},
+		{Name: "acme-public", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"ENG"}}, Shared: true,
+			Items: s.Count("ENG") + s.AttachmentItems("ENG"), Skipped: s.AttachmentSkips("ENG")},
 		{Name: "acme-jira", Kind: "jira", Path: "/jira", Scope: map[string]any{"projects": []string{"PAY", "REM"}}, Shared: true,
 			Items: s.Count("PAY") + s.Count("REM")},
 		{Name: "acme-github", Kind: "github", Path: "/github", Scope: map[string]any{"repositories": GitHubRepos},
@@ -38,7 +42,7 @@ func (s *Sources) Manifest() Manifest {
 			Shared: true, Items: s.RepoItems("azdo", "Platform/ledger-service") + s.RepoCodeItems("azdo", "Platform/ledger-service") +
 				s.HistoryItems("azdo", "Platform/ledger-service") + s.ProjectItems("Platform")},
 		{Name: "acme-restricted", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"RST"}},
-			Owner: "owner@acme.test", Items: s.Count("RST")},
+			Owner: "owner@acme.test", Items: s.Count("RST") + s.AttachmentItems("RST"), Skipped: s.AttachmentSkips("RST")},
 	}}
 }
 

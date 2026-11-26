@@ -183,7 +183,12 @@ UPDATE connections SET last_reconcile_at = @now, permissions_checked_at = @now W
 
 -- name: PartItemIDs :many
 -- vis:system
-SELECT id, external_id FROM source_items WHERE connection_id = @connection_id AND part = @part;
+SELECT id, external_id, source_updated_at FROM source_items WHERE connection_id = @connection_id AND part = @part;
+
+-- name: JiraConnections :many
+-- The base URLs and scopes of the Jira connections. A pull request that
+-- names an issue key of their projects implements that issue.
+SELECT base_url, scope FROM connections WHERE kind = 'jira' ORDER BY id;
 
 -- name: ItemRevisions :many
 -- The revisions of the items of one part. An item of another part is

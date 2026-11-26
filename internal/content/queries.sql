@@ -112,6 +112,14 @@ ON CONFLICT (key) DO UPDATE SET type = CASE WHEN entities.type_edited_at IS NULL
     metadata = entities.metadata || EXCLUDED.metadata
 RETURNING id;
 
+-- name: UpsertEntityKeepType :one
+-- A reference to an entity that another source owns: a stored entity keeps
+-- its type.
+INSERT INTO entities (type, key, domain_id, metadata) VALUES (@type, @key, @domain_id, @metadata::jsonb)
+ON CONFLICT (key) DO UPDATE SET domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
+RETURNING id;
+
 -- name: AddEntitySource :exec
 -- vis:system
 INSERT INTO entity_sources (entity_id, connection_id) VALUES (@entity_id, @connection_id)

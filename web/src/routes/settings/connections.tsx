@@ -205,6 +205,11 @@ type Source = {
   scoped?: boolean;
   /** The auth header name of a web site. The token is its value. */
   authName?: string;
+  /** The history options of a repository connection. */
+  historyMonths?: string;
+  pullRequests?: boolean;
+  issues?: boolean;
+  wiki?: boolean;
 };
 
 const deploymentOf = (s: Source): Deployment => s.deployment ?? deploymentFor(s.baseUrl);
@@ -270,8 +275,19 @@ function tokenOf(s: Source): string | undefined {
   return s.token;
 }
 
+function historyOf(s: Source): Record<string, unknown> {
+  const months = Number.parseInt(s.historyMonths ?? "", 10);
+  return {
+    historyMonths: Number.isNaN(months) ? undefined : months,
+    pullRequests: s.pullRequests ?? true,
+    issues: s.issues ?? true,
+    wiki: s.kind === "azdo" ? (s.wiki ?? true) : undefined,
+  };
+}
+
 function optionsOf(s: Source): Record<string, unknown> | undefined {
-  if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined };
+  if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined, ...historyOf(s) };
+  if (s.kind === "github") return historyOf(s);
   if (s.kind === "backstage") return { frontendUrl: s.frontendUrl?.trim() || undefined };
   if (isAtlassian(s.kind)) {
     if (!isCloud(s)) return { deployment: "dc" };
@@ -468,6 +484,51 @@ function SourceFields({
         </Field>
       )}
     </div>
+  );
+}
+
+/** The history options of a repository connection. */
+function HistoryFields({ value, onChange }: { value: Source; onChange: (s: Source) => void }) {
+  const toggles: { key: "pullRequests" | "issues" | "wiki"; label: CopyKey }[] = [
+    { key: "pullRequests", label: "connections.historyPullRequests" },
+    {
+      key: "issues",
+      label: value.kind === "azdo" ? "connections.historyWorkItems" : "connections.historyIssues",
+    },
+  ];
+  if (value.kind === "azdo") toggles.push({ key: "wiki", label: "connections.historyWiki" });
+  return (
+    <fieldset className="grid gap-4 sm:grid-cols-2">
+      <legend className="label mb-1">{t("connections.history")}</legend>
+      <Field label={t("connections.historyMonths")} hint={t("connections.historyMonthsHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={0}
+            step={1}
+            required
+            value={value.historyMonths ?? ""}
+            onChange={(e) => onChange({ ...value, historyMonths: e.target.value })}
+          />
+        )}
+      </Field>
+      <ul className="flex flex-col gap-2 sm:pt-6">
+        {toggles.map((tg) => (
+          <li key={tg.key}>
+            <label className="flex cursor-pointer items-center gap-3">
+              <input
+                type="checkbox"
+                className="size-4 accent-accent"
+                checked={value[tg.key] ?? true}
+                onChange={(e) => onChange({ ...value, [tg.key]: e.target.checked })}
+              />
+              <span>{t(tg.label)}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </fieldset>
   );
 }
 
@@ -797,6 +858,7 @@ export function NewConnectionPage() {
     baseUrl: "",
     token: "",
     apiVersion: "7.1",
+    historyMonths: "24",
   });
   const [scope, setScope] = useState<Scope>({});
   const list = useConnections();
@@ -934,6 +996,7 @@ export function NewConnectionPage() {
               <ScopePicker source={source} scope={scope} onChange={setScope} />
             )}
             {isRepo(source.kind) && globs && <GlobFields value={globs} onChange={setGlobs} />}
+            {isRepo(source.kind) && <HistoryFields value={source} onChange={setSource} />}
             <div className="flex gap-3">
               <Button type="button" onClick={() => setStep(1)}>
                 {t("connections.previous")}
@@ -1354,6 +1417,10 @@ function ConfigurationSheet({ c }: { c: Connection }) {
     deployment: c.deployment,
     email: String(c.options?.email ?? ""),
     scoped: c.options?.scoped === true,
+    historyMonths: String(c.options?.historyMonths ?? 24),
+    pullRequests: c.options?.pullRequests !== false,
+    issues: c.options?.issues !== false,
+    wiki: c.options?.wiki !== false,
   });
   const [scope, setScope] = useState<Scope>(c.scope as Scope);
   const [globs, setGlobs] = useState<Globs>({
@@ -1431,6 +1498,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
         )}
         {isRepo(kind) && <GlobFields value={globs} onChange={setGlobs} />}
+        {isRepo(kind) && <HistoryFields value={source} onChange={setSource} />}
         <ScheduleFields value={schedule} onChange={setSchedule} />
         <div>
           <Button type="submit" variant="primary" disabled={save.isPending}>

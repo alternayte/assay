@@ -45,7 +45,7 @@ type Connection struct {
 	Path    string // the API path on the fixture server; empty is /<kind>
 	Scope   map[string]any
 	// Options are the connection options, such as the deployment and email
-	// of an Atlassian Cloud connection.
+	// of an Atlassian Cloud connection, or historyMonths.
 	Options map[string]any
 	Token   string // empty uses the fixture token, or the fixture auth header for web
 	Rate    float64

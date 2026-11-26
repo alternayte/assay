@@ -323,7 +323,13 @@ func (in *ingest) entity(ctx context.Context, e EntityRef) (int64, error) {
 		return 0, fmt.Errorf("%w: %w", errBadEntity, err)
 	}
 	meta, _ := json.Marshal(orEmpty(e.Metadata))
-	id, err := in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID, Metadata: meta})
+	var id int64
+	var err error
+	if e.KeepType {
+		id, err = in.q.UpsertEntityKeepType(ctx, UpsertEntityKeepTypeParams{Type: e.Type, Key: e.Key, DomainID: in.domainID, Metadata: meta})
+	} else {
+		id, err = in.q.UpsertEntity(ctx, UpsertEntityParams{Type: e.Type, Key: e.Key, DomainID: in.domainID, Metadata: meta})
+	}
 	if err != nil {
 		return 0, err
 	}

@@ -35,7 +35,8 @@ func (s *Sources) Manifest() Manifest {
 		{Name: "acme-github", Kind: "github", Path: "/github", Scope: map[string]any{"repositories": GitHubRepos},
 			Shared: true, Items: s.githubItems()},
 		{Name: "acme-azdo", Kind: "azdo", Path: "/azdo/" + AzdoCollection, Scope: map[string]any{"repositories": []string{"Platform/ledger-service"}},
-			Shared: true, Items: s.RepoItems("azdo", "Platform/ledger-service") + s.RepoCodeItems("azdo", "Platform/ledger-service")},
+			Shared: true, Items: s.RepoItems("azdo", "Platform/ledger-service") + s.RepoCodeItems("azdo", "Platform/ledger-service") +
+				s.HistoryItems("azdo", "Platform/ledger-service") + s.ProjectItems("Platform")},
 		{Name: "acme-restricted", Kind: "confluence", Path: "/confluence", Scope: map[string]any{"spaces": []string{"RST"}},
 			Owner: "owner@acme.test", Items: s.Count("RST")},
 	}}
@@ -56,7 +57,7 @@ var GitHubRepos = []string{"acme/payments-api", "acme/reminder-service", "acme/p
 func (s *Sources) githubItems() int {
 	n := 0
 	for _, r := range GitHubRepos {
-		n += s.RepoItems("github", r) + s.RepoCodeItems("github", r)
+		n += s.RepoItems("github", r) + s.RepoCodeItems("github", r) + s.HistoryItems("github", r)
 	}
 	return n
 }

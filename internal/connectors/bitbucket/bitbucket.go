@@ -295,6 +295,28 @@ func (h *Host) Commit(ctx context.Context, r tree.Repo) (string, error) {
 	return b.LatestCommit, err
 }
 
+// LastCommit returns the message of the last commit of the default branch
+// that changed a file, or "" when Bitbucket lists none.
+func (h *Host) LastCommit(ctx context.Context, r tree.Repo, file string) (string, error) {
+	p, err := repoPath(r.ID)
+	if err != nil {
+		return "", err
+	}
+	var cs struct {
+		Values []struct {
+			Message string `json:"message"`
+		} `json:"values"`
+	}
+	q := url.Values{"path": {file}, "until": {r.Branch}, "limit": {"1"}}
+	if err := h.c.GetJSON(ctx, p+"/commits", q, &cs); err != nil {
+		return "", err
+	}
+	if len(cs.Values) == 0 {
+		return "", nil
+	}
+	return cs.Values[0].Message, nil
+}
+
 // FileURL is the browse URL of a file on the default branch.
 func (h *Host) FileURL(r tree.Repo, file string) string { return h.fileURL(r, r.Branch, file) }
 

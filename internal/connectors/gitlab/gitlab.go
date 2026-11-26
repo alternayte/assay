@@ -212,6 +212,22 @@ func (h *Host) Commit(ctx context.Context, r tree.Repo) (string, error) {
 	return b.Commit.ID, nil
 }
 
+// LastCommit returns the message of the last commit of the default branch
+// that changed a file, or "" when GitLab lists none.
+func (h *Host) LastCommit(ctx context.Context, r tree.Repo, file string) (string, error) {
+	var cs []struct {
+		Message string `json:"message"`
+	}
+	q := url.Values{"path": {file}, "ref_name": {r.Branch}, "per_page": {"1"}}
+	if err := h.c.GetJSON(ctx, h.project(r.ID)+"/repository/commits", q, &cs); err != nil {
+		return "", err
+	}
+	if len(cs) == 0 {
+		return "", nil
+	}
+	return cs[0].Message, nil
+}
+
 // FileURL is the browse URL of a file on the default branch.
 func (h *Host) FileURL(r tree.Repo, file string) string { return h.fileURL(r, r.Branch, file) }
 

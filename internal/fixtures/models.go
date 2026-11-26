@@ -378,6 +378,14 @@ func fakeSection(system, user string) string {
 		}
 		sents = append(sents, fmt.Sprintf("The document %s says: %s [%s].", d[2], strings.TrimRight(strings.Join(words, " "), ".:,;"), d[1]))
 	}
+	// A document passage that gives a reason gives the reason sentence of
+	// the section, such as a pull request that says why a change was made.
+	for _, d := range sectionDoc.FindAllStringSubmatch(user, -1) {
+		if r := reasonClause(d[3]); r != "" {
+			sents = append(sents, fmt.Sprintf("The change was made because %s [%s].", r, d[1]))
+			break
+		}
+	}
 	for _, m := range pageClaim.FindAllStringSubmatch(user, 2) {
 		sents = append(sents, fmt.Sprintf("The record states that %s [%s].", strings.TrimSpace(m[2]), m[1]))
 	}
@@ -389,6 +397,24 @@ func fakeSection(system, user string) string {
 	}
 	b, _ := json.Marshal(map[string]any{"markdown": strings.Join(sents, " "), "nodes": nodes, "edges": edges})
 	return string(b)
+}
+
+// reasonClause returns the words after "because" up to the end of their
+// sentence, at most 14 words, or "".
+func reasonClause(text string) string {
+	i := strings.Index(strings.ToLower(text), "because ")
+	if i < 0 {
+		return ""
+	}
+	rest := text[i+len("because "):]
+	if j := strings.IndexAny(rest, ".!?"); j >= 0 {
+		rest = rest[:j]
+	}
+	words := strings.Fields(rest)
+	if len(words) > 14 {
+		words = words[:14]
+	}
+	return strings.TrimRight(strings.Join(words, " "), ",;:")
 }
 
 func lowerFirst(s string) string {

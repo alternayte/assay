@@ -2759,7 +2759,7 @@ export interface components {
             /** @enum {string} */
             kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
             name: string;
-            /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud. */
+            /** @description Options of the kind. Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token; the deployment of a stored connection changes only with the switch to Cloud. Azure DevOps: apiVersion. Backstage: frontendUrl. GitHub and Azure DevOps: historyMonths, the months of pull requests, issues and work items to read (default 24, 0 turns history off), and pullRequests, issues and wiki (each true by default). */
             options?: {
                 [key: string]: unknown;
             };

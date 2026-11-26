@@ -774,6 +774,37 @@ func (q *Queries) ItemsOutsideParts(ctx context.Context, arg ItemsOutsidePartsPa
 	return items, nil
 }
 
+const jiraConnections = `-- name: JiraConnections :many
+SELECT base_url, scope FROM connections WHERE kind = 'jira' ORDER BY id
+`
+
+type JiraConnectionsRow struct {
+	BaseUrl string
+	Scope   json.RawMessage
+}
+
+// The base URLs and scopes of the Jira connections. A pull request that
+// names an issue key of their projects implements that issue.
+func (q *Queries) JiraConnections(ctx context.Context) ([]JiraConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, jiraConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []JiraConnectionsRow
+	for rows.Next() {
+		var i JiraConnectionsRow
+		if err := rows.Scan(&i.BaseUrl, &i.Scope); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listConnections = `-- name: ListConnections :many
 SELECT c.id, c.kind, c.name, c.base_url, c.secret_id, c.scope, c.options, c.include_globs, c.exclude_globs, c.sync_minutes, c.reconcile_hours, c.rate_concurrency, c.rate_per_second, c.owner_id, c.status, c.status_reason, c.default_domain_id, c.last_sync_at, c.last_reconcile_at, c.permissions_checked_at, c.created_at, c.updated_at, c.code_globs, c.parallel_parts, c.rewrite_from, coalesce(u.email, '')::text AS owner_email,
        (SELECT count(*) FROM source_items i WHERE i.connection_id = c.id)::bigint AS items,
@@ -1122,7 +1153,7 @@ func (q *Queries) PartCursor(ctx context.Context, arg PartCursorParams) (string,
 }
 
 const partItemIDs = `-- name: PartItemIDs :many
-SELECT id, external_id FROM source_items WHERE connection_id = $1 AND part = $2
+SELECT id, external_id, source_updated_at FROM source_items WHERE connection_id = $1 AND part = $2
 `
 
 type PartItemIDsParams struct {
@@ -1131,8 +1162,9 @@ type PartItemIDsParams struct {
 }
 
 type PartItemIDsRow struct {
-	ID         int64
-	ExternalID string
+	ID              int64
+	ExternalID      string
+	SourceUpdatedAt *time.Time
 }
 
 // vis:system
@@ -1145,7 +1177,7 @@ func (q *Queries) PartItemIDs(ctx context.Context, arg PartItemIDsParams) ([]Par
 	var items []PartItemIDsRow
 	for rows.Next() {
 		var i PartItemIDsRow
-		if err := rows.Scan(&i.ID, &i.ExternalID); err != nil {
+		if err := rows.Scan(&i.ID, &i.ExternalID, &i.SourceUpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -5,7 +5,7 @@ import "time"
 // Item is one fetched source object with a normalized Markdown body.
 type Item struct {
 	ExternalID string
-	Kind       string // page, issue or file
+	Kind       string // page, issue, file, code, pull_request or work_item
 	Title      string
 	URL        string
 	Author     string
@@ -50,6 +50,10 @@ type EntityRef struct {
 	// Metadata are source facts about the entity that are not claims, such
 	// as the email of a person. They merge into the stored metadata.
 	Metadata map[string]any `json:"metadata,omitempty"`
+	// KeepType keeps the type of a stored entity with the key. A reference
+	// to an entity that another source owns, such as a Jira issue that a
+	// pull request names, sets it: the other source knows the type.
+	KeepType bool `json:"keepType,omitempty"`
 }
 
 // Fact is one deterministic claim. The object is an entity or a text.

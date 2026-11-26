@@ -1,5 +1,6 @@
 // Package github reads repositories on GitHub and GitHub Enterprise Server
-// through REST v3 with a personal access token. The base URL is
+// through REST v3 with a personal access token: the files, and inside the
+// history window the merged pull requests and the issues. The base URL is
 // https://api.github.com for GitHub and https://<host>/api/v3 for
 // Enterprise Server.
 package github
@@ -30,8 +31,9 @@ type Host struct {
 	web string // host of the repository browse URLs
 }
 
-// New returns a connector. scope is the JSON scope of the connection.
-func New(c *connectors.Client, scope json.RawMessage, g tree.Globs, limits connectors.Limits) (*tree.Connector, error) {
+// New returns a connector. scope is the JSON scope of the connection, and
+// hist selects the history that it reads besides the files.
+func New(c *connectors.Client, scope json.RawMessage, g tree.Globs, limits connectors.Limits, hist connectors.History) (*Connector, error) {
 	var s Scope
 	if len(scope) > 0 {
 		if err := json.Unmarshal(scope, &s); err != nil {
@@ -42,7 +44,10 @@ func New(c *connectors.Client, scope json.RawMessage, g tree.Globs, limits conne
 	if web == "api.github.com" {
 		web = "github.com"
 	}
-	return tree.New(&Host{c: c, web: web}, s.Repositories, g, limits), nil
+	h := &Host{c: c, web: web}
+	t := tree.New(h, s.Repositories, g, limits)
+	t.LastChange = hist.ReadsLastChange()
+	return &Connector{Connector: t, h: h, repos: s.Repositories, hist: hist}, nil
 }
 
 type repoJSON struct {

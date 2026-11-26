@@ -1048,6 +1048,34 @@ func (q *Queries) UpsertEntity(ctx context.Context, arg UpsertEntityParams) (int
 	return id, err
 }
 
+const upsertEntityKeepType = `-- name: UpsertEntityKeepType :one
+INSERT INTO entities (type, key, domain_id, metadata) VALUES ($1, $2, $3, $4::jsonb)
+ON CONFLICT (key) DO UPDATE SET domain_id = coalesce(entities.domain_id, EXCLUDED.domain_id),
+    metadata = entities.metadata || EXCLUDED.metadata
+RETURNING id
+`
+
+type UpsertEntityKeepTypeParams struct {
+	Type     string
+	Key      string
+	DomainID *int64
+	Metadata json.RawMessage
+}
+
+// A reference to an entity that another source owns: a stored entity keeps
+// its type.
+func (q *Queries) UpsertEntityKeepType(ctx context.Context, arg UpsertEntityKeepTypeParams) (int64, error) {
+	row := q.db.QueryRow(ctx, upsertEntityKeepType,
+		arg.Type,
+		arg.Key,
+		arg.DomainID,
+		arg.Metadata,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const visibleItemByURL = `-- name: VisibleItemByURL :one
 SELECT i.id
 FROM source_items i

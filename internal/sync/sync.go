@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -190,17 +192,49 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	if len(globs.Include) == 0 {
 		globs.Include = rules.DefaultGlobs
 	}
+	hist, err := s.history(ctx, src.Options, rules)
+	if err != nil {
+		return nil, err
+	}
 	switch src.Kind {
 	case "github":
-		return github.New(c, src.Scope, globs, limits)
+		return github.New(c, src.Scope, globs, limits, hist)
 	case "azdo":
-		return azdo.New(c, src.Scope, src.Options, globs, limits)
+		return azdo.New(c, src.Scope, src.Options, globs, limits, hist)
 	case "gitlab":
 		return gitlab.New(c, src.Scope, globs, limits)
 	case "bitbucket":
 		return bitbucket.New(c, src.Scope, globs, limits)
 	}
 	return nil, fmt.Errorf("sync: connections of kind %s cannot sync", src.Kind)
+}
+
+// history reads the history options of a repository connection, with the
+// project keys of the Jira connections.
+func (s *Service) history(ctx context.Context, options json.RawMessage, rules RulesConfig) (connectors.History, error) {
+	h, err := connectors.ParseHistory(options)
+	if err != nil {
+		return h, err
+	}
+	h.Now, h.InitiativeTypes = s.now, rules.InitiativeTypes
+	rows, err := New(s.Pool).JiraConnections(ctx)
+	if err != nil {
+		return h, err
+	}
+	for _, r := range rows {
+		u, err := url.Parse(r.BaseUrl)
+		if err != nil || u.Host == "" {
+			continue
+		}
+		var sc jira.Scope
+		if json.Unmarshal(r.Scope, &sc) != nil {
+			continue
+		}
+		for _, p := range sc.Projects {
+			h.Jira = append(h.Jira, connectors.JiraProject{Host: u.Host, Key: strings.ToUpper(strings.TrimSpace(p))})
+		}
+	}
+	return h, nil
 }
 
 func secretName(id int64) string { return fmt.Sprintf("connection:%d:token", id) }

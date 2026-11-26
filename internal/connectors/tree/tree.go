@@ -70,6 +70,9 @@ type Host interface {
 	Commit(ctx context.Context, r Repo) (string, error)
 	// CommitURL is the browse URL of a file at the commit of the listing.
 	CommitURL(r Repo, file string) string
+	// LastCommit returns the message of the last commit of the default
+	// branch that changed a file, or "" when the host lists none.
+	LastCommit(ctx context.Context, r Repo, file string) (string, error)
 	// Provider and WebHost qualify entity keys, such as github and
 	// github.com.
 	Provider() string
@@ -144,6 +147,11 @@ type Connector struct {
 	repos  []string
 	globs  Globs
 	limits connectors.Limits
+
+	// LastChange adds the message of the last commit of a file to each
+	// file that sync fetches. Sync fetches a file only when its blob
+	// changed, so this costs one request per changed file.
+	LastChange bool
 
 	mu       gosync.Mutex
 	listings map[string]*listing
@@ -378,6 +386,22 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 	if !utf8.Valid(b) || slices.Contains(b, 0) {
 		return nil, &connectors.SkipError{Reason: "binary"}
 	}
+	it, err := k.item(id, l, file, e, b, isCode)
+	if err != nil {
+		return nil, err
+	}
+	if k.LastChange {
+		msg, err := k.host.LastCommit(ctx, l.repo, file)
+		if err != nil && !errors.Is(err, connectors.ErrNotFound) {
+			return nil, err
+		}
+		content.AddLastChange(it, msg)
+	}
+	return it, nil
+}
+
+// item builds the item of a file.
+func (k *Connector) item(id string, l *listing, file string, e Entry, b []byte, isCode bool) (*content.Item, error) {
 	repo := content.EntityRef{Type: "repository", Key: l.repo.Key, Name: l.repo.Name, Aliases: []string{l.repo.ID}}
 	if isCode {
 		if Generated(b) {

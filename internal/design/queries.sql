@@ -9,8 +9,18 @@ SELECT i.id, i.external_id, i.kind, i.title, i.url, split_part(i.external_id, ':
        substr(i.external_id, length(split_part(i.external_id, ':', 1)) + 2)::text AS path,
        (SELECT count(*) FROM passages p WHERE p.item_id = i.id AND p.connection_id = ANY(@visible::bigint[]))::integer AS passages
 FROM source_items i
-WHERE i.connection_id = ANY(@visible::bigint[]) AND i.connection_id = @connection_id
+WHERE i.connection_id = ANY(@visible::bigint[]) AND i.connection_id = @connection_id AND i.kind IN ('file', 'code')
 ORDER BY i.external_id;
+
+-- name: RepositoryPullRequests :many
+-- The merged pull requests of a repository in a connection, the newest
+-- merge first, with the paths that they changed.
+SELECT i.id, i.title, i.url, coalesce(v.metadata -> 'changedPaths', '[]'::jsonb)::jsonb AS changed_paths
+FROM source_items i
+JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = ANY(@visible::bigint[]) AND i.connection_id = @connection_id AND i.kind = 'pull_request'
+  AND left(i.external_id, length(@repo::text) + 4) = @repo::text || '#pr/'
+ORDER BY coalesce(v.metadata ->> 'mergedAt', v.metadata ->> 'completedAt', '') DESC, i.id DESC;
 
 -- name: RepositoryEntity :one
 -- The repository entity of a repository ID in a connection: the entity of

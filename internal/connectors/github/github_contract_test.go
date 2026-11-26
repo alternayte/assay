@@ -40,7 +40,7 @@ func TestSCN_CON_004_GitHubIndexesOnlyMatchingFiles(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := testkit.SourceClient(t, base+tc.path)
 			k, err := github.New(c, []byte(`{"repositories":["acme/payments-api","acme/reminder-service"]}`),
-				tree.Globs{Include: tree.DefaultGlobs}, connectors.Limits{MaxItemBytes: 512 << 10, MaxFilesPerRepo: 2000})
+				tree.Globs{Include: tree.DefaultGlobs}, connectors.Limits{MaxItemBytes: 512 << 10, MaxFilesPerRepo: 2000}, connectors.History{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +137,8 @@ func TestSCN_CON_004_GitHubEmptyRepositoryHasNoFiles(t *testing.T) {
 	_, base := testkit.FakeSources(t)
 	c := testkit.SourceClient(t, base+"/github")
 	k, err := github.New(c, []byte(`{"repositories":["`+fixtures.EmptyRepo+`","acme/reminder-service"]}`),
-		tree.Globs{Include: tree.DefaultGlobs, Code: []string{"**/*.ts"}}, connectors.Limits{MaxItemBytes: 512 << 10, MaxFilesPerRepo: 2000})
+		tree.Globs{Include: tree.DefaultGlobs, Code: []string{"**/*.ts"}}, connectors.Limits{MaxItemBytes: 512 << 10, MaxFilesPerRepo: 2000},
+		connectors.History{})
 	if err != nil {
 		t.Fatal(err)
 	}

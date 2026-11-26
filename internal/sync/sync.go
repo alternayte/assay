@@ -152,6 +152,10 @@ type Service struct {
 	// Empty means https://login.microsoftonline.com. Tests set the fixture
 	// server.
 	EntraAuthority string
+	// BaseURL is ASSAY_BASE_URL, the start of the webhook URLs.
+	BaseURL string
+
+	hooks hookLimiter
 }
 
 func (s *Service) now() time.Time {

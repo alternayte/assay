@@ -181,7 +181,7 @@ WHERE i.connection_id = $1 AND i.external_id = $2`, conn, ext(2)); n != 2 {
 	}
 }
 
-func TestSCN_SYN_027_RetentionRemovesOldThreads(t *testing.T) {
+func TestSCN_SYN_031_RetentionRemovesOldThreads(t *testing.T) {
 	env := testkit.Start(t)
 	admin := env.Setup("owner@acme.test")
 	src, base := testkit.FakeSources(t)

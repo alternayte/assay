@@ -149,6 +149,30 @@ The extract model finds more claims in the text. See [models.md](models.md).
 
 Connectors obey the rate limits of the connection (default 4 concurrent requests and 5 per second), `Retry-After`, and back off with jitter.
 
+## Webhooks
+
+A GitHub, Azure DevOps, Jira Data Center or Confluence Data Center connection can receive webhooks. A webhook names the items that changed. Assay then reads only those items again with GET, within seconds. Polling continues and reads what a webhook misses.
+
+Open the connection page and select **Make URL** in the Webhook panel. The panel shows the URL and the secret once. Copy them into the source system. **Rotate** makes a new URL and a new secret, and the old URL then returns 404.
+
+The URL starts with `ASSAY_BASE_URL`. The source system must reach this URL. When `ASSAY_BASE_URL` is a localhost or private address, the panel says so. A laptop install behind NAT cannot receive webhooks.
+
+| Source | Register | Events | Check |
+|---|---|---|---|
+| GitHub | Repository or organization settings, Webhooks. Content type `application/json`. Paste the secret. | `push` to the default branch, `pull_request`, `issues` | `X-Hub-Signature-256`, HMAC-SHA256 of the body |
+| Azure DevOps Server | Project settings, Service hooks, Web Hooks. One subscription per event. Enter the user name and password for Basic authentication. | Code pushed, pull request events, work item events | HTTP Basic credentials. Use an HTTPS `ASSAY_BASE_URL`. |
+| Jira Data Center | Administration, System, WebHooks. Paste the secret. Limit the webhook with JQL to the projects of the connection. | `jira:issue_*`, `comment_*` | `X-Hub-Signature`, HMAC-SHA256 of the body |
+| Confluence Data Center | General configuration, Webhooks. Paste the secret. | `page_*` | `X-Hub-Signature`, HMAC-SHA256 of the body |
+
+- Assay never stores the body of a webhook. It reads each named item again from the source with the connector, with the rate limit and concurrency of the connection.
+- Assay stores only the items in the scope of the connection. An item that the source no longer has becomes a tombstone.
+- An Azure DevOps push names no files. Assay compares the file tree of the repository with the stored revisions and reads the changed files.
+- The same items in the same minute cause one read.
+- A paused connection ignores webhooks.
+- Other events get 202 and do nothing. An unknown connection or token gets 404, and a bad signature gets 401. Each connection takes at most 10 webhooks per second, and a body of at most 1 MiB.
+- The Webhook panel shows the number of accepted webhooks and the time of the last one.
+- Jira Cloud and Confluence Cloud connections do not receive webhooks.
+
 ## Visibility
 
 A new connection is visible only to its owner, the admin who creates it. To share it, add groups on the connection page and confirm. Everyone is the built-in group of all active users. Every content query filters by the visible set of the reader. See [security.md](security.md).

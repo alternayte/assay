@@ -216,6 +216,21 @@ func (k *Connector) Fetch(ctx context.Context, id string) (*content.Item, error)
 	return nil, connectors.ErrNotFound
 }
 
+// PartOf returns the repository of a file, a pull request or an issue. A
+// pull request or an issue is out of scope when the connection does not
+// read its kind.
+func (k *Connector) PartOf(ctx context.Context, it *content.Item) (string, bool, error) {
+	repo, kind, _, ok := connectors.ParseHistoryID(it.ExternalID)
+	if !ok {
+		return k.Connector.PartOf(ctx, it)
+	}
+	reads := (kind == connectors.KindPullRequest && k.hist.ReadsPullRequests()) || (kind == connectors.KindIssue && k.hist.ReadsIssues())
+	if !reads || !slices.Contains(k.repos, repo) {
+		return "", false, nil
+	}
+	return repo, true, nil
+}
+
 func (k *Connector) changeKey(repo string, n int) string {
 	return "github:" + k.h.web + ":" + strings.ToLower(repo) + "#pr/" + strconv.Itoa(n)
 }

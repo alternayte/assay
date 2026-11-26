@@ -658,7 +658,51 @@
     "demoRemove": "Remove the demo",
     "demoConfirmTitle": "Remove the demo data",
     "demoConfirmBody": "Assay purges {names} with their items, entities, claims, cards and pages. Data that people added stays. You cannot undo this.",
-    "demoRemoved": "Assay removed the demo connections: {names}."
+    "demoRemoved": "Assay removed the demo connections: {names}.",
+    "webhook": {
+      "title": "Webhook",
+      "body": "A source system can send a webhook when an item changes. Assay then reads that item again within seconds. Polling continues.",
+      "create": "Make URL",
+      "rotate": "Rotate",
+      "rotateHint": "Rotate makes a new URL and a new secret. The old URL stops at once.",
+      "none": "No URL yet. Make a URL to receive webhooks.",
+      "private": "Set ASSAY_BASE_URL to a public URL. The source system must reach this URL.",
+      "https": "Azure DevOps sends the credentials only over HTTPS. Set ASSAY_BASE_URL to an HTTPS URL.",
+      "made": "Copy the URL and the secret now. Assay does not show them again.",
+      "url": "URL",
+      "secret": "Secret",
+      "username": "User name",
+      "password": "Password",
+      "copy": "Copy",
+      "copied": "Copied.",
+      "received": "Webhooks received",
+      "last": "Last webhook",
+      "rotated": "URL made",
+      "steps": "Steps in the source system",
+      "github": {
+        "1": "In GitHub, open the settings of the repository or the organization. Open Webhooks and select Add webhook.",
+        "2": "Paste the URL in Payload URL. Set Content type to application/json.",
+        "3": "Paste the secret in Secret.",
+        "4": "Select the push, pull request and issues events. Save the webhook."
+      },
+      "azdo": {
+        "1": "In Azure DevOps Server, open the project settings. Open Service hooks and add a Web Hooks subscription.",
+        "2": "Select one event. Use Code pushed, Pull request created, Pull request updated, Work item created, updated or deleted.",
+        "3": "Paste the URL. Enter the user name and the password for Basic authentication.",
+        "4": "Add one subscription for each event."
+      },
+      "jira": {
+        "1": "In Jira, open Administration, System and WebHooks. Select Create a WebHook.",
+        "2": "Paste the URL. Paste the secret in Secret.",
+        "3": "Select the issue events created, updated and deleted, and the comment events.",
+        "4": "Save the webhook. Use JQL to limit the webhook to the projects of this connection."
+      },
+      "confluence": {
+        "1": "In Confluence, open General configuration and Webhooks. Select Create webhook.",
+        "2": "Paste the URL. Paste the secret in Secret.",
+        "3": "Select the page events. Save the webhook."
+      }
+    }
   },
   "domains": {
     "title": "Domains",

@@ -268,6 +268,28 @@ func (k *Connector) ListIDs(ctx context.Context, part connectors.Part, fn func(s
 	return k.search(ctx, k.jql([]string{part.Key}), "key", func(key, _ string) error { return fn(key) })
 }
 
+// PartOf returns the project of an issue. An issue of a project outside the
+// scope, or one that the JQL of the scope leaves out, is out of scope.
+func (k *Connector) PartOf(ctx context.Context, it *content.Item) (string, bool, error) {
+	i := strings.LastIndex(it.ExternalID, "-")
+	if i <= 0 {
+		return "", false, nil
+	}
+	project := it.ExternalID[:i]
+	if len(k.scope.Projects) > 0 && !slices.ContainsFunc(k.scope.Projects, func(p string) bool { return strings.EqualFold(p, project) }) {
+		return "", false, nil
+	}
+	if strings.TrimSpace(k.scope.JQL) == "" {
+		return project, true, nil
+	}
+	found := false
+	err := k.search(ctx, k.jql([]string{project})+" AND key = "+strconv.Quote(it.ExternalID), "key", func(string, string) error {
+		found = true
+		return nil
+	})
+	return project, found, err
+}
+
 // user is a Jira user: a name on Data Center, an account ID on Cloud.
 // Cloud gives the email only when the privacy settings of the user allow
 // it.

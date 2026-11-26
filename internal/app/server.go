@@ -169,7 +169,7 @@ func (s *Server) services() error {
 	s.models = &models.Gateway{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Now: s.now}
 	s.sync = &syncer.Service{Pool: s.pool, Secrets: s.secrets, Outbound: s.cfg.Outbound, Log: s.log, Now: s.now, Metrics: syncer.NewMetrics(),
 		DemoURL: s.cfg.DemoURL, AtlassianAPI: s.cfg.AtlassianAPI,
-		AtlassianMedia: s.cfg.AtlassianMedia, EntraAuthority: s.cfg.EntraAuthority}
+		AtlassianMedia: s.cfg.AtlassianMedia, EntraAuthority: s.cfg.EntraAuthority, BaseURL: s.cfg.BaseURL}
 	s.embedder = &content.Embedder{Pool: s.pool, Models: s.models, Log: s.log, Shards: orDefault(s.cfg.EmbedShards, 4)}
 	s.vocab = &vocab.Service{Pool: s.pool}
 	s.search = &search.Service{Pool: s.pool, Models: s.models, Vocab: s.vocab, Log: s.log}
@@ -334,6 +334,10 @@ func (s *Server) routes() (http.Handler, error) {
 	resource := s.agents.ProtectedResourceHandler()
 	r.Handle("/.well-known/oauth-protected-resource", resource)
 	r.Handle("/.well-known/oauth-protected-resource/*", resource)
+	// The webhooks of source systems. They are not user routes: no
+	// session middleware runs, and the token and the signature of each
+	// request authenticate the source.
+	r.Group(func(g chi.Router) { s.sync.RegisterHooks(newHookAPI(g)) })
 
 	spa, err := s.spa(web.Dist())
 	if err != nil {

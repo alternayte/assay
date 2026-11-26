@@ -231,6 +231,22 @@ func (k *Connector) Changed(ctx context.Context, part connectors.Part, _ time.Ti
 	return k.each(ctx, part.Key, false, func(id string, e Entry) error { return fn(connectors.Ref{ID: id, Version: e.Blob}) })
 }
 
+// Files lists every matching file of a selected repository with its blob ID
+// as the version, as Changed does for the part of the repository.
+func (k *Connector) Files(ctx context.Context, repo string, fn func(connectors.Ref) error) error {
+	return k.Changed(ctx, connectors.Part{Key: repo}, time.Time{}, fn)
+}
+
+// PartOf returns the repository of a file. A file of a repository outside
+// the selection is out of scope.
+func (k *Connector) PartOf(_ context.Context, it *content.Item) (string, bool, error) {
+	repo, _, ok := strings.Cut(it.ExternalID, ":")
+	if !ok || !slices.Contains(k.repos, repo) {
+		return "", false, nil
+	}
+	return repo, true, nil
+}
+
 // ListIDs lists the matching files of a repository up to the file limit.
 // Reconciliation tombstones a stored file past the limit, because sync no
 // longer updates it.

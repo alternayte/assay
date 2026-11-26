@@ -1269,6 +1269,10 @@
               "$ref": "#/components/schemas/GroupRef"
             },
             "type": "array"
+          },
+          "webhook": {
+            "$ref": "#/components/schemas/WebhookRecord",
+            "description": "The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none."
           }
         },
         "required": [
@@ -7930,6 +7934,79 @@
           "confirm"
         ],
         "type": "object"
+      },
+      "WebhookRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "https": {
+            "description": "True when ASSAY_BASE_URL uses HTTPS. Azure DevOps sends its Basic credentials only over HTTPS.",
+            "type": "boolean"
+          },
+          "lastReceivedAt": {
+            "description": "The time of the last accepted webhook.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "public": {
+            "description": "False when ASSAY_BASE_URL is a localhost or private address, which a source system cannot reach.",
+            "type": "boolean"
+          },
+          "received": {
+            "description": "The accepted webhooks since the URL was first made.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "rotatedAt": {
+            "description": "When the URL and the secret were made. Null before the first time.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "public",
+          "https",
+          "rotatedAt",
+          "received",
+          "lastReceivedAt"
+        ],
+        "type": "object"
+      },
+      "WebhookSecret": {
+        "additionalProperties": false,
+        "properties": {
+          "$schema": {
+            "description": "A URL to the JSON Schema for this object.",
+            "examples": [
+              "https://example.com/api/v1/schemas/WebhookSecret.json"
+            ],
+            "format": "uri",
+            "readOnly": true,
+            "type": "string"
+          },
+          "secret": {
+            "description": "The signing secret, or the Basic password for Azure DevOps. Assay shows it only now.",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL to register in the source. It holds the token. Assay shows it only now.",
+            "type": "string"
+          },
+          "username": {
+            "description": "The Basic user name for Azure DevOps.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "secret"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -10193,6 +10270,49 @@
           }
         },
         "summary": "Share a connection with groups",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/webhook": {
+      "post": {
+        "description": "Makes the webhook URL and secret of a connection, or replaces them. The old URL then returns 404. The response is the only place that shows them.",
+        "operationId": "rotateConnectionWebhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSecret"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Make a new webhook URL and secret",
         "tags": [
           "connections"
         ]

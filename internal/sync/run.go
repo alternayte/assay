@@ -107,6 +107,7 @@ func (s *Service) Workers(ws *river.Workers) {
 	river.AddWorker(ws, &RunWorker{S: s})
 	river.AddWorker(ws, &PartWorker{S: s})
 	river.AddWorker(ws, &ScheduleWorker{S: s})
+	river.AddWorker(ws, &ItemsWorker{S: s})
 }
 
 // PeriodicJobs returns the periodic sync jobs.
@@ -168,30 +169,36 @@ var errPausedByAdmin = errors.New("sync: an admin paused the connection")
 const pausedReason = "An admin paused the connection."
 
 // cancelRuns cancels the run and part jobs of the unfinished runs of a
-// connection. A running part job then ends its part as failed with
-// pausedReason.
+// connection, and its webhook jobs. A running part job then ends its part
+// as failed with pausedReason.
 func (s *Service) cancelRuns(ctx context.Context, connectionID int64) error {
 	const page = 100
-	params := river.NewJobListParams().Kinds(RunArgs{}.Kind(), PartArgs{}.Kind()).
-		States(rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable, rivertype.JobStateScheduled,
-			rivertype.JobStateRunning).
-		Where("(args->>'run_id')::bigint IN (SELECT id FROM sync_runs WHERE connection_id = @connection)",
-			river.NamedArgs{"connection": connectionID}).First(page)
-	for {
-		res, err := s.River.JobList(ctx, params)
-		if err != nil {
-			return err
-		}
-		for _, j := range res.Jobs {
-			if _, err := s.River.JobCancel(ctx, j.ID); err != nil {
+	states := []rivertype.JobState{rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRetryable,
+		rivertype.JobStateScheduled, rivertype.JobStateRunning}
+	named := river.NamedArgs{"connection": connectionID}
+	for _, params := range []*river.JobListParams{
+		river.NewJobListParams().Kinds(RunArgs{}.Kind(), PartArgs{}.Kind()).States(states...).
+			Where("(args->>'run_id')::bigint IN (SELECT id FROM sync_runs WHERE connection_id = @connection)", named).First(page),
+		river.NewJobListParams().Kinds(ItemsArgs{}.Kind()).States(states...).
+			Where("(args->>'connection_id')::bigint = @connection", named).First(page),
+	} {
+		for {
+			res, err := s.River.JobList(ctx, params)
+			if err != nil {
 				return err
 			}
+			for _, j := range res.Jobs {
+				if _, err := s.River.JobCancel(ctx, j.ID); err != nil {
+					return err
+				}
+			}
+			if len(res.Jobs) < page {
+				break
+			}
+			params = params.After(res.LastCursor)
 		}
-		if len(res.Jobs) < page {
-			return nil
-		}
-		params = params.After(res.LastCursor)
 	}
+	return nil
 }
 
 // ErrRunActive means that a run of the same kind is queued or running.
@@ -1294,14 +1301,16 @@ func (s *Service) fetchOne(ctx context.Context, conn Connection, k connectors.Co
 	var outcome content.Outcome
 	// Items that name the same entities and claims, such as the entities of
 	// one catalog, lock rows in different orders. A deadlock rolls back one
-	// transaction, and the item is stored again.
+	// transaction, and the item is stored again. A webhook job and a part
+	// can store a new item at the same time: the second insert fails on the
+	// unique key, and its next attempt updates the item.
 	for attempt := 1; ; attempt++ {
 		err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 			var err error
 			outcome, err = content.Store(ctx, tx, conn.ID, conn.DefaultDomainID, it, s.Log)
 			return err
 		})
-		if !retryable(err) || attempt == storeAttempts {
+		if (!retryable(err) && !uniqueViolation(err)) || attempt == storeAttempts {
 			break
 		}
 	}
@@ -1320,6 +1329,12 @@ const storeAttempts = 5
 func retryable(err error) bool {
 	var pe *pgconn.PgError
 	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
+}
+
+// uniqueViolation reports an insert that another transaction made first.
+func uniqueViolation(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "23505"
 }
 
 // tombstoneStored tombstones the stored item with an external ID, if any.

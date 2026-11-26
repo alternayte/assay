@@ -99,6 +99,15 @@ func (s *Server) newAPI(r chi.Router) (huma.API, error) {
 	return a, nil
 }
 
+// newHookAPI builds the huma API of the webhook route on r. It serves no
+// document: the route is for source systems, not for API clients.
+func newHookAPI(r chi.Router) huma.API {
+	cfg := huma.DefaultConfig("Assay webhooks", Version)
+	cfg.OpenAPIPath, cfg.DocsPath, cfg.SchemasPath = "", "", ""
+	cfg.CreateHooks = nil
+	return humachi.New(r, cfg)
+}
+
 // authHandler serves the allowed auth-all routes.
 func (s *Server) authHandler() http.Handler {
 	h := s.auth.Handler()

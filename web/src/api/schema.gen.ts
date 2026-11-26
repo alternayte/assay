@@ -773,6 +773,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connections/{id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new webhook URL and secret
+         * @description Makes the webhook URL and secret of a connection, or replaces them. The old URL then returns 404. The response is the only place that shows them.
+         */
+        post: operations["rotateConnectionWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decisions": {
         parameters: {
             query?: never;
@@ -2860,6 +2880,8 @@ export interface components {
             /** Format: int32 */
             syncMinutes: number;
             visibility: components["schemas"]["GroupRef"][];
+            /** @description The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none. */
+            webhook?: components["schemas"]["WebhookRecord"];
         };
         ContextClaim: {
             /** Format: int64 */
@@ -5181,6 +5203,41 @@ export interface components {
             /** @description The groups that can read the content, in addition to the owner. */
             groupIds: number[];
         };
+        WebhookRecord: {
+            /** @description True when ASSAY_BASE_URL uses HTTPS. Azure DevOps sends its Basic credentials only over HTTPS. */
+            https: boolean;
+            /**
+             * Format: date-time
+             * @description The time of the last accepted webhook.
+             */
+            lastReceivedAt: string | null;
+            /** @description False when ASSAY_BASE_URL is a localhost or private address, which a source system cannot reach. */
+            public: boolean;
+            /**
+             * Format: int64
+             * @description The accepted webhooks since the URL was first made.
+             */
+            received: number;
+            /**
+             * Format: date-time
+             * @description When the URL and the secret were made. Null before the first time.
+             */
+            rotatedAt: string | null;
+        };
+        WebhookSecret: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WebhookSecret.json
+             */
+            readonly $schema?: string;
+            /** @description The signing secret, or the Basic password for Azure DevOps. Assay shows it only now. */
+            secret: string;
+            /** @description The URL to register in the source. It holds the token. Assay shows it only now. */
+            url: string;
+            /** @description The Basic user name for Azure DevOps. */
+            username?: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -6720,6 +6777,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    rotateConnectionWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSecret"];
+                };
             };
             /** @description Error */
             default: {

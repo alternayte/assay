@@ -168,6 +168,22 @@ type Recaller interface {
 	Recall(part Part, known []Known)
 }
 
+// Targeter is a connector that a webhook can name single items of. PartOf
+// returns the part of an item that Fetch read, and false when the item is
+// outside the scope of the connection, such as an issue of another project
+// or a pull request of a connection that reads none. Sync stores only items
+// in scope.
+type Targeter interface {
+	PartOf(ctx context.Context, it *content.Item) (part string, ok bool, err error)
+}
+
+// FileLister is a repository connector that lists the files of one
+// repository with their blob IDs, without the history. A webhook of a push
+// that names no paths compares them with the stored revisions.
+type FileLister interface {
+	Files(ctx context.Context, repo string, fn func(Ref) error) error
+}
+
 // Client is the HTTP client of one connection. It sends only GET and HEAD,
 // only to the connection host, and follows no redirect to another host. A
 // client with a site URL on another host, such as a scoped Atlassian Cloud

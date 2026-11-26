@@ -69,6 +69,7 @@ type ConnectionRecord struct {
 	PermissionsCheckedAt *time.Time     `json:"permissionsCheckedAt"`
 	LastError            string         `json:"lastError"`
 	CreatedAt            time.Time      `json:"createdAt"`
+	Webhook              *WebhookRecord `json:"webhook,omitempty" doc:"The webhook of a GitHub, Azure DevOps, or Jira or Confluence Data Center connection. Other connections have none."`
 }
 
 // PartRecord is one part of a sync run: a space, a project, a repository
@@ -611,6 +612,7 @@ func (s *Service) Register(a huma.API) {
 		})
 	}
 	s.registerSwitch(a)
+	s.registerWebhookAdmin(a, tags)
 
 	type pauseIn struct {
 		ID   int64 `path:"id"`
@@ -952,6 +954,9 @@ func (s *Service) Purge(ctx context.Context, id int64) error {
 				return err
 			}
 		}
+		if err := s.Secrets.Delete(ctx, tx, webhookSecretName(id)); err != nil {
+			return err
+		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "connections.purge", Target: fmt.Sprintf("connection:%d", id),
 			Details: map[string]any{"name": c.Name, "kind": c.Kind}})
 	})
@@ -967,6 +972,10 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 	if err != nil {
 		return nil, err
 	}
+	hooks, err := s.webhookRecords(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := []ConnectionRecord{}
 	for _, r := range rows {
 		rec := ConnectionRecord{ID: r.ID, Kind: r.Kind, Name: r.Name, BaseURL: r.BaseUrl, HasToken: r.SecretID != nil,
@@ -975,7 +984,7 @@ func (s *Service) records(ctx context.Context) ([]ConnectionRecord, error) {
 			CodeGlobs: orStrings(r.CodeGlobs), SyncMinutes: r.SyncMinutes, ReconcileHours: r.ReconcileHours, RateConcurrency: r.RateConcurrency, RatePerSecond: r.RatePerSecond, ParallelParts: r.ParallelParts,
 			OwnerID: r.OwnerID, OwnerEmail: r.OwnerEmail, Status: r.Status, StatusReason: r.StatusReason, DefaultDomainID: r.DefaultDomainID,
 			Items: r.Items, LastSyncAt: r.LastSyncAt, LastReconcileAt: r.LastReconcileAt, PermissionsCheckedAt: r.PermissionsCheckedAt,
-			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}}
+			LastError: r.LastError, CreatedAt: r.CreatedAt, Visibility: []GroupRef{}, Webhook: s.webhookOf(r.Kind, r.BaseUrl, r.Options, hooks, r.ID)}
 		if r.Kind != "registry" && r.Status != "paused" {
 			next := s.now()
 			if r.LastSyncAt != nil {

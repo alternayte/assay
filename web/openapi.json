@@ -953,7 +953,8 @@
               "azdo",
               "gitlab",
               "bitbucket",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -1008,7 +1009,7 @@
             "type": "integer"
           },
           "token": {
-            "description": "A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -1096,7 +1097,8 @@
               "azdo",
               "gitlab",
               "bitbucket",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -3310,7 +3312,9 @@
               "github",
               "azdo",
               "gitlab",
-              "bitbucket"
+              "bitbucket",
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -6590,7 +6594,7 @@
             "type": "string"
           },
           "baseUrl": {
-            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest.",
+            "description": "For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://\u003chost\u003e/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site.",
             "format": "uri",
             "type": "string"
           },
@@ -6627,7 +6631,8 @@
               "azdo",
               "gitlab",
               "bitbucket",
-              "backstage"
+              "backstage",
+              "web"
             ],
             "type": "string"
           },
@@ -6641,7 +6646,7 @@
             "type": "object"
           },
           "token": {
-            "description": "A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token.",
+            "description": "A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token.",
             "maxLength": 4096,
             "type": "string"
           }
@@ -12997,6 +13002,8 @@
                 "azdo",
                 "gitlab",
                 "bitbucket",
+                "backstage",
+                "web",
                 ""
               ],
               "type": "string"

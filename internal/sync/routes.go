@@ -20,6 +20,7 @@ import (
 	"github.com/alternayte/assay/internal/audit"
 	"github.com/alternayte/assay/internal/auth"
 	"github.com/alternayte/assay/internal/connectors"
+	"github.com/alternayte/assay/internal/connectors/web"
 	"github.com/alternayte/assay/internal/content"
 	"github.com/alternayte/assay/internal/settings"
 )
@@ -36,7 +37,7 @@ type GroupRef struct {
 // health. The token never leaves the server.
 type ConnectionRecord struct {
 	ID                   int64          `json:"id"`
-	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
+	Kind                 string         `json:"kind" enum:"registry,confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
 	Name                 string         `json:"name"`
 	BaseURL              string         `json:"baseUrl"`
 	HasToken             bool           `json:"hasToken"`
@@ -107,9 +108,9 @@ type RunRecord struct {
 // sourceBody is the source part of a connection: what the test and the
 // scope pickers need.
 type sourceBody struct {
-	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
-	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest."`
-	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token."`
+	Kind         string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
+	BaseURL      string         `json:"baseUrl" format:"uri" doc:"For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site."`
+	Token        string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token."`
 	ConnectionID *int64         `json:"connectionId,omitempty" doc:"Use the stored token of this connection when token is empty."`
 	Scope        map[string]any `json:"scope,omitempty"`
 	Options      map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default."`
@@ -119,9 +120,9 @@ type sourceBody struct {
 }
 
 type connectionBody struct {
-	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage"`
+	Kind            string         `json:"kind" enum:"confluence,jira,github,azdo,gitlab,bitbucket,backstage,web"`
 	BaseURL         string         `json:"baseUrl" format:"uri"`
-	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token."`
+	Token           string         `json:"token,omitempty" maxLength:"4096" doc:"A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token."`
 	Scope           map[string]any `json:"scope,omitempty"`
 	Options         map[string]any `json:"options,omitempty" doc:"For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud."`
 	Name            string         `json:"name" minLength:"1" maxLength:"100"`
@@ -206,8 +207,11 @@ func (s *Service) resolve(ctx context.Context, b sourceBody) (source, error) {
 			src.Concurrency, src.PerSecond = stored.Concurrency, stored.PerSecond
 		}
 	}
-	if src.Token == "" {
+	if src.Token == "" && src.Kind != "web" {
 		return source{}, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
+	}
+	if err := checkWeb(src.Kind, src.Token, b.Scope); err != nil {
+		return source{}, err
 	}
 	return src, nil
 }
@@ -222,6 +226,21 @@ func ratePerSecond(given float64, kind, baseURL string, options []byte) float64 
 		return defaultCloudPerSecond
 	}
 	return defaultPerSecond
+}
+
+// checkWeb checks the auth header and the scope of a web connection. The
+// auth header is optional: a public site needs none.
+func checkWeb(kind, token string, scope map[string]any) error {
+	if kind != "web" {
+		return nil
+	}
+	if _, _, err := web.ParseAuth(token); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_auth_header", "Write the auth header as a name and a value, such as X-Portal-Token: abc.")
+	}
+	if _, err := web.ParseScope(rawJSON(scope)); err != nil {
+		return api.Problem(http.StatusUnprocessableEntity, "invalid_scope", strings.TrimPrefix(err.Error(), "web: ")+".")
+	}
+	return nil
 }
 
 func sourceProblem(err error) error {
@@ -340,8 +359,11 @@ func (s *Service) Register(a huma.API) {
 		if err := checkURL(b.BaseURL); err != nil {
 			return nil, err
 		}
-		if b.Token == "" {
+		if b.Token == "" && b.Kind != "web" {
 			return nil, api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter a personal access token.")
+		}
+		if err := checkWeb(b.Kind, b.Token, b.Scope); err != nil {
+			return nil, err
 		}
 		opts, err := s.atlassianOptions(ctx, b.Kind, strings.TrimRight(b.BaseURL, "/"), b.Options)
 		if err != nil {
@@ -367,6 +389,9 @@ func (s *Service) Register(a huma.API) {
 	}, func(ctx context.Context, in *updateIn) (*struct{}, error) {
 		b := in.Body
 		if err := checkURL(b.BaseURL); err != nil {
+			return nil, err
+		}
+		if err := checkWeb(b.Kind, b.Token, b.Scope); err != nil {
 			return nil, err
 		}
 		if atlassian(b.Kind) {
@@ -410,7 +435,7 @@ func (s *Service) Register(a huma.API) {
 				return err
 			}
 			// The stored token goes only to the host that it belongs to (SI-04).
-			if b.Token == "" && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
+			if b.Token == "" && cur.SecretID != nil && cur.BaseUrl != strings.TrimRight(b.BaseURL, "/") {
 				return api.Problem(http.StatusUnprocessableEntity, "token_required", "Enter the token again for the new URL.")
 			}
 			if _, err := q.UpdateConnection(ctx, UpdateConnectionParams{ID: in.ID, Name: strings.TrimSpace(b.Name),
@@ -712,8 +737,10 @@ func (s *Service) create(ctx context.Context, owner string, b connectionBody) (i
 		if err != nil {
 			return dbError(err)
 		}
-		if err := s.setToken(ctx, tx, id, b.Token); err != nil {
-			return err
+		if b.Token != "" {
+			if err := s.setToken(ctx, tx, id, b.Token); err != nil {
+				return err
+			}
 		}
 		return audit.Write(ctx, tx, audit.Entry{Action: "connections.create", Target: fmt.Sprintf("connection:%d", id),
 			Details: map[string]any{"name": b.Name, "kind": b.Kind, "baseUrl": b.BaseURL, "scope": b.Scope}})

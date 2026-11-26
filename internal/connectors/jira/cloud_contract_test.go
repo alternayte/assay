@@ -64,7 +64,7 @@ func portable(it *content.Item, host string) map[string]any {
 		"entity": ref(it.Entity), "entities": ents, "facts": facts}
 }
 
-func TestSCN_CON_012_JiraCloudMatchesDataCenter(t *testing.T) {
+func TestSCN_CON_015_JiraCloudMatchesDataCenter(t *testing.T) {
 	src, base := testkit.FakeSources(t)
 	ctx := context.Background()
 	scope := []byte(`{"projects":["PAY","REM"]}`)

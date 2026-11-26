@@ -5,9 +5,11 @@ package sync_test
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -912,5 +914,148 @@ JOIN entities s ON s.id = c.subject_id WHERE s.key = $1 AND c.predicate = 'owned
 		if strings.HasPrefix(h.Path, "/backstage/") && h.Method != http.MethodGet {
 			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
 		}
+	}
+}
+
+// webBody returns the title and the stored body of a web page.
+func webBody(t *testing.T, env *testkit.Env, conn int64, id string) (string, string) {
+	t.Helper()
+	var title, body string
+	if err := env.Server.Pool().QueryRow(t.Context(), `SELECT i.title, v.body FROM source_items i JOIN source_versions v ON v.id = i.version_id
+WHERE i.connection_id = $1 AND i.external_id = $2`, conn, id).Scan(&title, &body); err != nil {
+		t.Fatalf("%s: %v", id, err)
+	}
+	return title, body
+}
+
+func TestSCN_CON_016_WebSiteSyncsSameHostPages(t *testing.T) {
+	env := testkit.Start(t)
+	admin := env.Setup("owner@acme.test")
+	src, base := testkit.FakeSources(t)
+	var offsite atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		offsite.Add(1)
+		_, _ = w.Write([]byte("<html><body><main><h1>Status</h1></main></body></html>"))
+	}))
+	t.Cleanup(other.Close)
+	src.SetOffsite(other.URL)
+	conn := testkit.CreateConnection(t, admin, testkit.Connection{Name: "acme-portal", Kind: "web", BaseURL: base,
+		Scope: map[string]any{"seed": "llms"}})
+
+	// The initial sync crawls from llms.txt: the listed pages and the pages
+	// they link to on the same host. A page of another host, a file and a
+	// page that robots.txt refuses get no request.
+	initial := env.RunNow(admin, conn, "sync")
+	pages := []string{"guides/getting-started", "guides/ledger.html", "guides/incident-review", "reference/payments-api",
+		"releases/", "guides/retries", "guides/backoff"}
+	if initial.Status != "succeeded" || initial.Created != len(pages) {
+		t.Fatalf("first sync %+v", initial)
+	}
+	rows, err := env.Server.Pool().Query(t.Context(), "SELECT external_id FROM source_items WHERE connection_id = $1 ORDER BY 1", conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, id)
+	}
+	var want []string
+	for _, p := range pages {
+		want = append(want, base+"/web/"+p)
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("items %v, want %v", got, want)
+	}
+	if n := offsite.Load(); n != 0 {
+		t.Fatalf("the other host got %d requests", n)
+	}
+	robots := false
+	for _, s := range initial.Skipped {
+		robots = robots || s.ID == base+"/web/internal/keys"
+	}
+	if !robots {
+		t.Fatalf("the page that robots.txt refuses is not skipped: %+v", initial.Skipped)
+	}
+
+	// The page with a Markdown variant comes from the Markdown, and its
+	// HTML is never read.
+	title, body := webBody(t, env, conn, base+"/web/guides/ledger.html")
+	if title != "Ledger" || !strings.Contains(body, "records each settled payment exactly once") || strings.Contains(body, "HTML copy") {
+		t.Fatalf("ledger %q: %s", title, body)
+	}
+	if !strings.Contains(body, "[Payments API reference]("+base+"/web/reference/payments-api)") || strings.Contains(body, "ledger-flow.png") {
+		t.Fatalf("the Markdown links are not absolute, or the image stays: %s", body)
+	}
+	// An HTML page keeps its main content without navigation, scripts or
+	// forms, and only http, https and mailto links.
+	title, body = webBody(t, env, conn, base+"/web/guides/getting-started")
+	if title != "Getting started · Acme Developer Portal" || !strings.Contains(body, "# Getting started") ||
+		!strings.Contains(body, "("+base+"/web/guides/retries?from=start#top)") || !strings.Contains(body, "Open the console") {
+		t.Fatalf("getting started %q: %s", title, body)
+	}
+	for _, s := range []string{"Release notes", "window.portal", "Search", "javascript:", "Signing keys", "Copyright"} {
+		if strings.Contains(body, s) {
+			t.Fatalf("getting started keeps %q: %s", s, body)
+		}
+	}
+	if _, body = webBody(t, env, conn, base+"/web/reference/payments-api"); !strings.Contains(body, "| Method | Path") || !strings.Contains(body, "| Creates a payment. |") {
+		t.Fatalf("the table is not Markdown: %s", body)
+	}
+	hits := src.Hits()
+	for _, h := range hits {
+		if h.Path == "/web/guides/ledger.html" {
+			t.Fatalf("the connector sent %s for the HTML of a page with a Markdown variant", h.Method)
+		}
+		if strings.HasPrefix(h.Path, "/web/internal/") || strings.HasPrefix(h.Path, "/web/files/") {
+			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
+		}
+	}
+	if !slices.ContainsFunc(hits, func(h fixtures.Hit) bool {
+		return h.Method == http.MethodHead && h.Path == "/web/guides/ledger.html.md"
+	}) {
+		t.Fatal("no HEAD request for the Markdown variant")
+	}
+
+	// A second sync with unchanged ETags sends only HEAD requests for the
+	// pages.
+	mark := len(src.Hits())
+	second := env.RunNow(admin, conn, "sync")
+	if second.Status != "succeeded" || second.Unchanged != len(pages) || second.Created+second.Updated != 0 {
+		t.Fatalf("second sync %+v", second)
+	}
+	for _, h := range src.Hits()[mark:] {
+		if strings.HasPrefix(h.Path, "/web/") && h.Method != http.MethodHead {
+			t.Fatalf("the second sync sent %s %s", h.Method, h.Path)
+		}
+	}
+
+	// A changed page is read again.
+	src.PutWebPage("reference/payments-api.html", fixtures.WebPage{Body: "<html><head><title>Payments API reference</title></head>" +
+		"<body><main><h1>Payments API reference</h1><p>The Payments API accepts at most 80 requests per second for each client.</p></main></body></html>"})
+	if r := env.RunNow(admin, conn, "sync"); r.Status != "succeeded" || r.Updated != 1 || r.Unchanged != len(pages)-1 {
+		t.Fatalf("sync after a change %+v", r)
+	}
+
+	// A page that the site removes is a tombstone after reconcile.
+	src.DeleteWebPage("guides/backoff.html")
+	if r := env.RunNow(admin, conn, "reconcile"); r.Status != "succeeded" || r.Deleted != 1 {
+		t.Fatalf("reconcile %+v", r)
+	}
+	if n := env.Count("SELECT count(*) FROM source_items WHERE connection_id = $1 AND external_id = $2", conn, base+"/web/guides/backoff"); n != 0 {
+		t.Fatal("the removed page keeps its item")
+	}
+
+	for _, h := range src.Hits() {
+		if (strings.HasPrefix(h.Path, "/web/") || h.Path == "/robots.txt") && h.Method != http.MethodGet && h.Method != http.MethodHead {
+			t.Fatalf("the connector sent %s %s", h.Method, h.Path)
+		}
+	}
+	if n := offsite.Load(); n != 0 {
+		t.Fatalf("the other host got %d requests", n)
 	}
 }

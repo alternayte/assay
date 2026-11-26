@@ -1,0 +1,20 @@
+# Acme Developer Portal
+
+> Guides and reference for the Acme payments platform.
+
+The portal explains how a client sends payments and how the ledger records them.
+
+## Guides
+
+- [Getting started](/web/guides/getting-started): Set up a client and send the first payment.
+- [Ledger](/web/guides/ledger.html): How the ledger records settled payments.
+- [Incident review](/web/guides/incident-review): The review of the October incident.
+
+## Reference
+
+- [Payments API](/web/reference/payments-api): Endpoints, limits and errors.
+- [Status page]({{offsite}}/): The public status of the Acme services.
+
+## Optional
+
+- [Release notes](/web/releases/): Past releases of the platform.

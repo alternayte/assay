@@ -112,14 +112,19 @@ type Sources struct {
 	hidden map[string]bool
 	// adf holds the recorded Cloud ADF of the corpus issues.
 	adf map[string]*recordedADF
+	// web holds the files of the developer portal by path below /web.
+	web     map[string]*WebPage
+	offsite string
 }
 
 // NewSources loads the Acme corpus.
 func NewSources() *Sources {
 	s := &Sources{users: map[string]string{}, pages: map[string]*Page{}, issues: map[string]*Issue{}, repos: map[string]*Repo{},
 		faults: map[string]*Fault{}, tokens: map[string]bool{SourceToken: true}, now: time.Now, catalog: map[string]map[string]any{},
-		hidden: map[string]bool{}, adf: map[string]*recordedADF{}}
+		hidden: map[string]bool{}, adf: map[string]*recordedADF{},
+		web: map[string]*WebPage{}, offsite: DefaultOffsite}
 	s.loadCatalog()
+	s.loadWeb()
 	for _, l := range lines("corpus/users.txt") {
 		name, display, _ := strings.Cut(l, " ")
 		s.users[name] = display
@@ -238,8 +243,10 @@ func token(h string) string {
 // /jira, the GitHub API under /github, the GitHub Enterprise Server API
 // under /ghes/api/v3, the Azure DevOps Server API under /azdo, the GitLab
 // API under /gitlab/api/v4, the Bitbucket Data Center API under /bitbucket,
-// the Backstage catalog API under /backstage, and the Atlassian Cloud site
-// under /cloud with its API host under /atlassian.
+// the Backstage catalog API under /backstage, the Atlassian Cloud site
+// under /cloud with its API host under /atlassian, and a developer portal
+// under /web with the robots.txt of the host. The portal takes its own auth
+// header.
 func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	scheme, _, _ := strings.Cut(r.Header.Get("Authorization"), " ")
@@ -279,6 +286,10 @@ func (s *Sources) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Retry-After", fault.RetryAfter)
 		}
 		http.Error(w, `{"message":"scripted failure"}`, fault.Status)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/web/") || r.URL.Path == "/robots.txt" {
+		s.serveWeb(w, r)
 		return
 	}
 	if !authorized {

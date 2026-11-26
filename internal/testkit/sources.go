@@ -40,14 +40,14 @@ var DefaultRules = connectors.Rules{InitiativeTypes: []string{"Epic", "Initiativ
 // Connection is a connection to create in a test.
 type Connection struct {
 	Name    string
-	Kind    string // confluence, jira, github, azdo, gitlab, bitbucket or backstage
+	Kind    string // confluence, jira, github, azdo, gitlab, bitbucket, backstage or web
 	BaseURL string // the fixture server URL; Path is added
 	Path    string // the API path on the fixture server; empty is /<kind>
 	Scope   map[string]any
 	// Options are the connection options, such as the deployment and email
 	// of an Atlassian Cloud connection.
 	Options map[string]any
-	Token   string // empty uses the fixture token
+	Token   string // empty uses the fixture token, or the fixture auth header for web
 	Rate    float64
 	// Code are the code globs. Nil indexes no source code: parsing code is
 	// slow under the race detector, and most tests do not read it.
@@ -59,6 +59,9 @@ func CreateConnection(t testing.TB, admin *Client, c Connection) int64 {
 	t.Helper()
 	if c.Token == "" {
 		c.Token = fixtures.SourceToken
+		if c.Kind == "web" {
+			c.Token = fixtures.WebAuthHeader
+		}
 	}
 	if c.Rate == 0 {
 		c.Rate = 100

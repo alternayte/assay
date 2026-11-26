@@ -16,7 +16,7 @@ import { formatAgo, formatTime } from "@/lib/format";
 
 type Connection = Schemas["ConnectionRecord"];
 type Run = Schemas["RunRecord"];
-type Kind = "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
+type Kind = "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
 
 const repoKinds: string[] = ["github", "azdo", "gitlab", "bitbucket"];
 const isRepo = (k: string) => repoKinds.includes(k);
@@ -203,16 +203,23 @@ type Source = {
   deployment?: Deployment;
   email?: string;
   scoped?: boolean;
+  /** The auth header name of a web site. The token is its value. */
+  authName?: string;
 };
 
 const deploymentOf = (s: Source): Deployment => s.deployment ?? deploymentFor(s.baseUrl);
 const isCloud = (s: Source) => isAtlassian(s.kind) && deploymentOf(s) === "cloud";
+type Seed = "auto" | "llms" | "llms-full" | "sitemap" | "start";
 type Scope = {
   spaces?: string[];
   projects?: string[];
   repositories?: string[];
   namespaces?: string[];
   jql?: string;
+  seed?: Seed;
+  pathPrefixes?: string[];
+  maxDepth?: number;
+  maxPages?: number;
 };
 /** Repository globs, one per line. */
 type Globs = { include: string; exclude: string; code: string };
@@ -248,8 +255,20 @@ function withList(kind: Kind, scope: Scope, ids: string[]): Scope {
   return kind === "jira" ? { ...scope, projects: ids } : { ...scope, spaces: ids };
 }
 
-/** A Backstage connection with no namespace reads all namespaces. */
-const needsScope = (kind: Kind) => kind !== "backstage";
+/**
+ * A Backstage connection with no namespace reads all namespaces. A web
+ * connection reads from its seed.
+ */
+const needsScope = (kind: Kind) => kind !== "backstage" && kind !== "web";
+
+/** A web site needs no token. Its optional auth header is the token. */
+const needsToken = (kind: Kind) => kind !== "web";
+
+function tokenOf(s: Source): string | undefined {
+  if (!s.token) return undefined;
+  if (s.kind === "web") return `${s.authName?.trim() ?? ""}: ${s.token}`;
+  return s.token;
+}
 
 function optionsOf(s: Source): Record<string, unknown> | undefined {
   if (s.kind === "azdo") return { apiVersion: s.apiVersion?.trim() || undefined };
@@ -260,6 +279,9 @@ function optionsOf(s: Source): Record<string, unknown> | undefined {
   }
   return undefined;
 }
+
+/** The copy of a successful test: a web site counts the pages of its seed. */
+const testCopy = (kind: Kind, other: CopyKey): CopyKey => (kind === "web" ? "connections.testWebOk" : other);
 
 const lines = (s: string) =>
   s
@@ -295,6 +317,7 @@ function SourceFields({
             <option value="gitlab">{kindLabel("gitlab")}</option>
             <option value="bitbucket">{kindLabel("bitbucket")}</option>
             <option value="backstage">{kindLabel("backstage")}</option>
+            <option value="web">{kindLabel("web")}</option>
           </Select>
         )}
       </Field>
@@ -360,14 +383,36 @@ function SourceFields({
           )}
         </Field>
       )}
+      {value.kind === "web" && (
+        <Field label={t("connections.authName")} hint={t("connections.authNameHint")}>
+          {(p) => (
+            <Input
+              {...p}
+              autoComplete="off"
+              required={value.token !== ""}
+              className="font-mono"
+              value={value.authName ?? ""}
+              onChange={(e) => onChange({ ...value, authName: e.target.value })}
+            />
+          )}
+        </Field>
+      )}
       <Field
-        label={isCloud(value) ? t("connections.apiToken") : t("connections.token")}
+        label={
+          isCloud(value)
+            ? t("connections.apiToken")
+            : value.kind === "web"
+              ? t("connections.authValue")
+              : t("connections.token")
+        }
         hint={
           keepToken
             ? t("connections.tokenKeep")
             : isCloud(value)
               ? t("connections.apiTokenHint")
-              : tokenHint(value.kind)
+              : value.kind === "web"
+                ? t("connections.authValueHint")
+                : tokenHint(value.kind)
         }
       >
         {(p) => (
@@ -375,7 +420,7 @@ function SourceFields({
             {...p}
             type="password"
             autoComplete="off"
-            required={!keepToken}
+            required={!keepToken && needsToken(value.kind)}
             className="font-mono"
             value={value.token}
             onChange={(e) => onChange({ ...value, token: e.target.value })}
@@ -475,7 +520,7 @@ function sourceBody(s: Source, scope: Scope | undefined, connectionId?: number, 
   return {
     kind: s.kind,
     baseUrl: s.baseUrl.trim(),
-    token: s.token || undefined,
+    token: tokenOf(s),
     connectionId: s.token ? undefined : connectionId,
     scope: scope as Record<string, unknown> | undefined,
     options: optionsOf(s),
@@ -619,6 +664,74 @@ function ScopePicker({
           )}
         </Field>
       )}
+    </div>
+  );
+}
+
+const seeds: Seed[] = ["auto", "llms", "llms-full", "sitemap", "start"];
+
+/** The seed, the path prefixes and the limits of a web site. */
+function WebScopeFields({ value, onChange }: { value: Scope; onChange: (s: Scope) => void }) {
+  const [prefixes, setPrefixes] = useState((value.pathPrefixes ?? []).join("\n"));
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label={t("connections.seed")} hint={t("connections.seedHint")}>
+        {(p) => (
+          <Select
+            {...p}
+            value={value.seed ?? "auto"}
+            onChange={(e) => onChange({ ...value, seed: e.target.value as Seed })}
+          >
+            {seeds.map((s) => (
+              <option key={s} value={s}>
+                {t(`connections.seeds.${s}` as CopyKey)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
+      <Field label={t("connections.pathPrefixes")} hint={t("connections.pathPrefixesHint")}>
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={3}
+            className="font-mono text-sm"
+            value={prefixes}
+            onChange={(e) => {
+              setPrefixes(e.target.value);
+              onChange({ ...value, pathPrefixes: lines(e.target.value) });
+            }}
+          />
+        )}
+      </Field>
+      <Field label={t("connections.maxDepth")} hint={t("connections.maxDepthHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={0}
+            max={20}
+            required
+            className="font-mono"
+            value={value.maxDepth ?? 3}
+            onChange={(e) => onChange({ ...value, maxDepth: Number(e.target.value) })}
+          />
+        )}
+      </Field>
+      <Field label={t("connections.maxPages")} hint={t("connections.maxPagesHint")}>
+        {(p) => (
+          <Input
+            {...p}
+            type="number"
+            min={1}
+            max={100000}
+            required
+            className="font-mono"
+            value={value.maxPages ?? 2000}
+            onChange={(e) => onChange({ ...value, maxPages: Number(e.target.value) })}
+          />
+        )}
+      </Field>
     </div>
   );
 }
@@ -780,7 +893,7 @@ export function NewConnectionPage() {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 type="button"
-                disabled={test.isPending || !source.baseUrl || !source.token}
+                disabled={test.isPending || !source.baseUrl || (needsToken(source.kind) && !source.token)}
                 onClick={() => {
                   setError(undefined);
                   test.mutate(sourceBody(source, undefined));
@@ -795,11 +908,14 @@ export function NewConnectionPage() {
             {test.isSuccess && (
               <Notice tone="success">
                 {t(
-                  isRepo(source.kind)
-                    ? "connections.testRepoOk"
-                    : test.data.more
-                      ? "connections.testOkMore"
-                      : "connections.testOk",
+                  testCopy(
+                    source.kind,
+                    isRepo(source.kind)
+                      ? "connections.testRepoOk"
+                      : test.data.more
+                        ? "connections.testOkMore"
+                        : "connections.testOk",
+                  ),
                   {
                     user: test.data.user,
                     count: test.data.sample,
@@ -812,7 +928,11 @@ export function NewConnectionPage() {
         )}
         {step === 2 && (
           <form onSubmit={submitScope} className="flex flex-col gap-4">
-            <ScopePicker source={source} scope={scope} onChange={setScope} />
+            {source.kind === "web" ? (
+              <WebScopeFields value={scope} onChange={setScope} />
+            ) : (
+              <ScopePicker source={source} scope={scope} onChange={setScope} />
+            )}
             {isRepo(source.kind) && globs && <GlobFields value={globs} onChange={setGlobs} />}
             <div className="flex gap-3">
               <Button type="button" onClick={() => setStep(1)}>
@@ -1297,7 +1417,7 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           </Button>
           {test.isSuccess && (
             <Notice tone="success">
-              {t(test.data.more ? "connections.testScopeOkMore" : "connections.testScopeOk", {
+              {t(testCopy(kind, test.data.more ? "connections.testScopeOkMore" : "connections.testScopeOk"), {
                 user: test.data.user,
                 count: test.data.sample,
               })}
@@ -1305,7 +1425,11 @@ function ConfigurationSheet({ c }: { c: Connection }) {
           )}
           {test.isError && <Notice tone="danger">{messageOf(test.error)}</Notice>}
         </div>
-        <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
+        {kind === "web" ? (
+          <WebScopeFields value={scope} onChange={setScope} />
+        ) : (
+          <ScopePicker source={source} connectionId={c.id} scope={scope} onChange={setScope} />
+        )}
         {isRepo(kind) && <GlobFields value={globs} onChange={setGlobs} />}
         <ScheduleFields value={schedule} onChange={setSchedule} />
         <div>

@@ -27,6 +27,7 @@ import (
 	"github.com/alternayte/assay/internal/connectors/gitlab"
 	"github.com/alternayte/assay/internal/connectors/jira"
 	"github.com/alternayte/assay/internal/connectors/tree"
+	"github.com/alternayte/assay/internal/connectors/web"
 	"github.com/alternayte/assay/internal/entities"
 	"github.com/alternayte/assay/internal/outbound"
 	"github.com/alternayte/assay/internal/secrets"
@@ -119,7 +120,7 @@ func (s *Service) now() time.Time {
 }
 
 // Kinds are the connection kinds that an admin can create.
-var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage"}
+var Kinds = []string{"confluence", "jira", "github", "azdo", "gitlab", "bitbucket", "backstage", "web"}
 
 // source is what a connector needs to read a source.
 type source struct {
@@ -145,17 +146,23 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 	if err != nil {
 		return nil, err
 	}
-	authorization, header := "Bearer "+src.Token, ""
+	opts := connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: "Bearer " + src.Token,
+		Concurrency: src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID}
 	switch src.Kind {
 	case "azdo":
 		// Azure DevOps Server takes a personal access token as the
 		// password of Basic authentication.
-		authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
+		opts.Authorization = "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+src.Token))
 	case "gitlab":
-		authorization, header = src.Token, gitlab.TokenHeader
+		opts.Authorization, opts.AuthHeader = src.Token, gitlab.TokenHeader
+	case "web":
+		// The secret of a web connection is an optional auth header.
+		if opts.AuthHeader, opts.Authorization, err = web.ParseAuth(src.Token); err != nil {
+			return nil, err
+		}
+		opts.UserAgent = web.Agent
 	}
-	c, err := connectors.NewClient(s.Outbound, connectors.ClientOptions{BaseURL: src.BaseURL, Authorization: authorization, AuthHeader: header,
-		Concurrency: src.Concurrency, PerSecond: src.PerSecond, Pool: s.Pool, ConnectionID: src.ConnectionID})
+	c, err := connectors.NewClient(s.Outbound, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +183,8 @@ func (s *Service) open(ctx context.Context, src source) (connectors.Connector, e
 		return jira.New(c, src.Scope, r, limits)
 	case "backstage":
 		return backstage.New(c, src.Scope, src.Options, limits)
+	case "web":
+		return web.New(c, src.Scope, src.Token != "", limits)
 	}
 	globs := tree.Globs{Include: src.Include, Exclude: src.Exclude, Code: src.Code, Skip: rules.SkipGlobs}
 	if len(globs.Include) == 0 {

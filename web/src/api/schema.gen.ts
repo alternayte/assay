@@ -2521,7 +2521,7 @@ export interface components {
             excludeGlobs?: string[];
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
             name: string;
             /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. The deployment of a stored connection changes only with the switch to Cloud. */
             options?: {
@@ -2556,7 +2556,7 @@ export interface components {
              * @default 30
              */
             syncMinutes: number;
-            /** @description A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         ConnectionRecord: {
@@ -2586,7 +2586,7 @@ export interface components {
             /** Format: int64 */
             items: number;
             /** @enum {string} */
-            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
+            kind: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
             lastError: string;
             /** Format: date-time */
             lastReconcileAt: string | null;
@@ -3343,7 +3343,7 @@ export interface components {
             kind: string;
             passages: components["schemas"]["PassageRecord"][];
             /** @enum {string} */
-            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket";
+            sourceType: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
             title: string;
             /** Format: date-time */
             updatedAt: string | null;
@@ -4485,7 +4485,7 @@ export interface components {
             readonly $schema?: string;
             /**
              * Format: uri
-             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest.
+             * @description For Confluence and Jira, the URL before /rest, such as https://wiki.acme.test. For GitHub, https://api.github.com or https://<host>/api/v3. For Azure DevOps Server, the collection URL. For GitLab, https://gitlab.com or the GitLab URL. For Bitbucket Data Center, the Bitbucket URL before /rest. For a web site, the base URL of the site.
              */
             baseUrl: string;
             /** @description Source files to index. Empty turns code indexing off. */
@@ -4499,7 +4499,7 @@ export interface components {
             /** @description Repository files to read. Empty uses the default globs. */
             includeGlobs?: string[];
             /** @enum {string} */
-            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage";
+            kind: "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web";
             /** @description For Jira and Confluence: deployment (dc or cloud), and on Cloud the email of the token account and scoped for a scoped API token. A site URL that ends in .atlassian.net is cloud by default. */
             options?: {
                 [key: string]: unknown;
@@ -4507,7 +4507,7 @@ export interface components {
             scope?: {
                 [key: string]: unknown;
             };
-            /** @description A read-only personal access token, or an API token on Atlassian Cloud. Write-only. Empty keeps the stored token. */
+            /** @description A read-only personal access token, or an API token on Atlassian Cloud. For a web site, an optional auth header as Name: value. Write-only. Empty keeps the stored token. */
             token?: string;
         };
         SpaceRecord: {
@@ -8596,7 +8596,7 @@ export interface operations {
                 /** @description Search source code only. Off by default: results hold no source code. */
                 code?: boolean;
                 /** @description The kind of the source connection. */
-                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "";
+                sourceType?: "registry" | "confluence" | "jira" | "github" | "azdo" | "gitlab" | "bitbucket" | "backstage" | "web" | "";
                 connection?: number;
                 /** @description Items about an entity of this type. */
                 entityType?: string;

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Getting started · Acme Developer Portal</title>
+  <style>body { font-family: sans-serif; }</style>
+  <script>window.portal = { theme: "light" };</script>
+</head>
+<body>
+  <header>
+    <a href="/web/">Acme Developer Portal</a>
+    <nav>
+      <a href="/web/guides/getting-started">Getting started</a>
+      <a href="/web/reference/payments-api">Payments API</a>
+      <a href="/web/releases/">Release notes</a>
+    </nav>
+  </header>
+  <aside><a href="/web/internal/keys">Signing keys</a></aside>
+  <main>
+    <h1>Getting started</h1>
+    <p>A client sends a payment to the Payments API with an idempotency key. The payments team owns the API.</p>
+    <h2>Send the first payment</h2>
+    <ol>
+      <li>Create a client in the portal.</li>
+      <li>Send <code>POST /payments</code> with the amount and the currency.</li>
+      <li>Read the payment status from the response.</li>
+    </ol>
+    <p>When a request fails, follow the <a href="retries?from=start#top">retry guide</a>. See the <a href="{{offsite}}/partners">partner status page</a> for outages.</p>
+    <p><a href="javascript:alert(1)">Open the console</a> to try a request.</p>
+    <form action="/web/search"><input name="q"><button>Search</button></form>
+  </main>
+  <footer>Copyright Acme Corporation. <a href="mailto:portal@acme.test">Contact the portal team</a>.</footer>
+</body>
+</html>
